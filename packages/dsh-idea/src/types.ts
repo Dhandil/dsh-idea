@@ -2,8 +2,9 @@
  * Frozen domain model of the Idea feature. An Idea is a long-term,
  * user-owned possibility / hypothesis / direction / opportunity that evolves
  * over time through explicit user-triggered saves. One Idea is one canonical
- * aggregate record: the idea header, its immutable linear version history,
- * and the source-discussion snapshots its versions cite.
+ * aggregate record: the idea header, its immutable append-only version
+ * history, the evolution events explaining each version, and the
+ * source-discussion snapshots its versions cite.
  * @module @dsh-external/dsh-idea/src/types
  */
 
@@ -15,6 +16,8 @@ export type IdeaId = string & { readonly [brand]: 'IdeaId' }
 export type IdeaVersionId = string & { readonly [brand]: 'IdeaVersionId' }
 /** Branded string id of one captured source-discussion snapshot. */
 export type SourceDiscussionId = string & { readonly [brand]: 'SourceDiscussionId' }
+/** Branded string id of one recorded evolution event. */
+export type EvolutionEventId = string & { readonly [brand]: 'EvolutionEventId' }
 
 export function IdeaId(value: string): IdeaId {
   return value as IdeaId
@@ -26,6 +29,10 @@ export function IdeaVersionId(value: string): IdeaVersionId {
 
 export function SourceDiscussionId(value: string): SourceDiscussionId {
   return value as SourceDiscussionId
+}
+
+export function EvolutionEventId(value: string): EvolutionEventId {
+  return value as EvolutionEventId
 }
 
 /** Lifecycle of one Idea. `archived` is retrieval filtering, never deletion. */
@@ -40,20 +47,33 @@ export interface Idea {
   updatedAt: number
 }
 
+/**
+ * Why one version was committed. Version answers "what is the Idea now";
+ * the paired {@link IdeaEvolutionEvent} answers "why did it become this".
+ */
+export type IdeaVersionReason =
+  /** The Idea's first save. */
+  | 'initial-save'
+  /** The user edited the content and saved it as a new version. */
+  | 'manual-edit'
+  /** The discussion continued and produced the next version. */
+  | 'continued-discussion'
+
+/** The reasons an existing Idea may evolve with; v1 is always `initial-save`. */
+export type IdeaEvolutionReason = Exclude<IdeaVersionReason, 'initial-save'>
+
 /** One immutable committed version of an Idea's semantic content. */
 export interface IdeaVersion {
   versionId: IdeaVersionId
   ideaId: IdeaId
   /** 1-based position in the linear history; strictly increasing, no gaps. */
   ordinal: number
-  title: string
-  core: string
-  motivation: string
-  currentConclusion: string
-  possibleValue: string
-  useWhen: readonly string[]
-  openQuestions: readonly string[]
-  sourceDiscussionIds: readonly SourceDiscussionId[]
+  /** The version's immutable semantic content, snapshotted at commit time. */
+  draft: IdeaDraft
+  /** Why this version exists. */
+  reason: IdeaVersionReason
+  /** The source snapshot this version was saved from, absent when none was captured. */
+  sourceDiscussionId?: SourceDiscussionId
   createdAt: number
 }
 
@@ -76,15 +96,32 @@ export interface SourceDiscussion {
 }
 
 /**
+ * One recorded reason the Idea became a version: the causal counterpart of
+ * {@link IdeaVersion}. `fromVersionId` is absent for the initial save;
+ * every version has exactly one event pointing at it.
+ */
+export interface IdeaEvolutionEvent {
+  evolutionEventId: EvolutionEventId
+  ideaId: IdeaId
+  /** The version this evolution superseded; absent for the initial save. */
+  fromVersionId?: IdeaVersionId
+  toVersionId: IdeaVersionId
+  reason: IdeaVersionReason
+  createdAt: number
+}
+
+/**
  * The single canonical record persisted per Idea: header plus the complete
- * immutable linear history plus every source-discussion snapshot. One save
- * (create or evolve) is one record put or update — the current Harness
- * storage-domain has no cross-table transactions.
+ * immutable linear history plus every source-discussion snapshot plus the
+ * evolution events. One save (create or evolve) is one record put or update
+ * — the current Harness storage-domain has no cross-table transactions.
  */
 export interface IdeaAggregate {
   idea: Idea
   versions: readonly IdeaVersion[]
   sourceDiscussions: readonly SourceDiscussion[]
+  /** The complete causal chain: exactly one event per version, in creation order. */
+  evolutionEvents: readonly IdeaEvolutionEvent[]
 }
 
 /** Prepared semantic input for one Idea version. No model calls in V1 T1. */

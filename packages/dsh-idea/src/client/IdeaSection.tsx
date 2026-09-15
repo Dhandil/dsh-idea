@@ -10,7 +10,8 @@
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { IdeaDetail } from '../remote-host/types.ts'
+import type { IdeaDetail, IdeaVersionSummary } from '../remote-host/types.ts'
+import type { IdeaVersionReason } from '../types.ts'
 import type { IdeaSectionProps } from './slots.ts'
 import type { IdeaLocaleKey } from './locales.ts'
 
@@ -24,6 +25,13 @@ const DETAIL_FIELDS: ReadonlyArray<{ key: 'core' | 'motivation' | 'currentConclu
   { key: 'currentConclusion', label: 'read.field.currentConclusion' },
   { key: 'possibleValue', label: 'read.field.possibleValue' },
 ]
+
+/** The reason label of one history row, per version reason. */
+const REASON_LABELS: Readonly<Record<IdeaVersionReason, IdeaLocaleKey>> = {
+  'initial-save': 'read.reason.initial-save',
+  'manual-edit': 'read.reason.manual-edit',
+  'continued-discussion': 'read.reason.continued-discussion',
+}
 
 /**
  * The Ideas library section: list and detail, nothing else.
@@ -45,7 +53,12 @@ export function IdeaSection({ open, closeDetail, load, useIdeaRead, t }: IdeaSec
           </p>
         )}
         {state.detailStatus === 'ready' && state.detail !== null && (
-          <IdeaDetailView detail={state.detail} t={t} />
+          <IdeaDetailView
+            detail={state.detail}
+            versions={state.detailVersions}
+            versionsStatus={state.detailVersionsStatus}
+            t={t}
+          />
         )}
       </div>
     )
@@ -87,14 +100,17 @@ export function IdeaSection({ open, closeDetail, load, useIdeaRead, t }: IdeaSec
   )
 }
 
-/** The read-only detail over one Idea's current version. */
+/** The read-only detail over one Idea's current version, plus its history. */
 function IdeaDetailView(
-  { detail, t }: {
+  { detail, versions, versionsStatus, t }: {
     detail: IdeaDetail
+    versions: readonly IdeaVersionSummary[]
+    versionsStatus: 'loading' | 'ready' | 'error'
     t: (key: IdeaLocaleKey, params?: Record<string, unknown>) => string
   },
 ): ReactNode {
   const source = detail.source
+  const current = versions.find(version => version.id === detail.versionId)
   return (
     <div className="dsh-idea-detail">
       <h3 className="dsh-idea-detail-title">{detail.title}</h3>
@@ -122,6 +138,21 @@ function IdeaDetailView(
       ))}
       <IdeaDetailList label={t('read.field.useWhen')} items={detail.useWhen} />
       <IdeaDetailList label={t('read.field.openQuestions')} items={detail.openQuestions} />
+      {versionsStatus === 'ready' && current !== undefined && (
+        <div className="dsh-idea-history">
+          <span className="dsh-idea-detail-label">{t('read.history')}</span>
+          <p className="dsh-idea-history-current">{t('read.history.current', { ordinal: current.ordinal })}</p>
+          <ul className="dsh-idea-history-list" role="list">
+            {versions.map(version => (
+              <li key={version.id} className="dsh-idea-history-row">
+                <span className="dsh-idea-history-version">{`v${version.ordinal}`}</span>
+                <span className="dsh-idea-history-reason">{t(REASON_LABELS[version.reason])}</span>
+                <span className="dsh-idea-history-title">{version.title}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

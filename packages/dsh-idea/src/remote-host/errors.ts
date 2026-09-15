@@ -34,6 +34,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'idea/storage-failed': {}
     /** The requested Idea does not exist. */
     'idea/not-found': {}
+    /** The requested version does not exist on the Idea. */
+    'idea/version-not-found': {}
   }
 }
 
@@ -51,6 +53,7 @@ export const IDEA_REMOTE_ERROR_CODES = [
   'idea/invalid-draft',
   'idea/storage-failed',
   'idea/not-found',
+  'idea/version-not-found',
 ] as const satisfies readonly (keyof RemoteErrorDetailsMap)[]
 
 export type IdeaRemoteErrorCode = (typeof IDEA_REMOTE_ERROR_CODES)[number]
@@ -92,6 +95,9 @@ export function remoteDomainError(error: unknown): RemoteError | undefined {
   }
   if (code === 'idea-not-found') {
     return new RemoteError('idea/not-found', 'the idea does not exist', {}, { cause: error })
+  }
+  if (code === 'version-not-found') {
+    return new RemoteError('idea/version-not-found', 'the idea version does not exist', {}, { cause: error })
   }
   return new RemoteError('idea/storage-failed', 'the idea could not be saved', {}, { cause: error })
 }

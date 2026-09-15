@@ -26,7 +26,7 @@ import { IdeaPreparationError, type IdeaPreparationErrorCode } from '../src/prep
 import type { IdeaPreparationId, IdeaPreparationPreview, PreparedIdeaSource } from '../src/preparation/types.ts'
 import IdeaRemoteService from '../src/remote-host/index.ts'
 import type { IdeaPrepareRequest } from '../src/remote-host/types.ts'
-import { IdeaId, IdeaVersionId } from '../src/types.ts'
+import { EvolutionEventId, IdeaId, IdeaVersionId } from '../src/types.ts'
 import type { IdeaAggregate, SourceDiscussionDraft } from '../src/types.ts'
 
 /** The stored aggregate a successful IdeaService.create returns. */
@@ -42,17 +42,26 @@ const aggregateOf = (ideaId: string, versionId: string, createdAt = 1): IdeaAggr
     versionId: IdeaVersionId(versionId),
     ideaId: IdeaId(ideaId),
     ordinal: 1,
-    title: 't',
-    core: 'c',
-    motivation: 'm',
-    currentConclusion: '',
-    possibleValue: '',
-    useWhen: [],
-    openQuestions: [],
-    sourceDiscussionIds: [],
+    draft: {
+      title: 't',
+      core: 'c',
+      motivation: 'm',
+      currentConclusion: '',
+      possibleValue: '',
+      useWhen: [],
+      openQuestions: [],
+    },
+    reason: 'initial-save',
     createdAt,
   }],
   sourceDiscussions: [],
+  evolutionEvents: [{
+    evolutionEventId: EvolutionEventId('idea-evo-1'),
+    ideaId: IdeaId(ideaId),
+    toVersionId: IdeaVersionId(versionId),
+    reason: 'initial-save',
+    createdAt,
+  }],
 })
 
 afterEach(cleanup)
@@ -299,6 +308,8 @@ describe('generated contributions', () => {
     expect(record).toContain('idea/create')
     expect(record).toContain('idea/list')
     expect(record).toContain('idea/get')
+    expect(record).toContain('idea/getVersions')
+    expect(record).toContain('idea/getVersion')
     expect(record).toContain('IdeaRemoteService')
   })
 
@@ -309,6 +320,8 @@ describe('generated contributions', () => {
     expect(descriptors.map(d => d.id).sort()).toEqual([
       '@dsh-external/dsh-idea#idea/create',
       '@dsh-external/dsh-idea#idea/get',
+      '@dsh-external/dsh-idea#idea/getVersion',
+      '@dsh-external/dsh-idea#idea/getVersions',
       '@dsh-external/dsh-idea#idea/list',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
     ])

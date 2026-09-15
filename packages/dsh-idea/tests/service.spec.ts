@@ -37,11 +37,12 @@ describe('create', () => {
     expect(v1.ordinal).toBe(1)
     expect(aggregate.idea.currentVersionId).toBe(v1.versionId)
     expect(aggregate.idea.createdAt).toBeLessThanOrEqual(aggregate.idea.updatedAt)
-    expect(v1.sourceDiscussionIds).toHaveLength(1)
+    expect(v1.sourceDiscussionId).toBeDefined()
     const discussion = aggregate.sourceDiscussions[0]!
-    expect(discussion.sourceDiscussionId).toBe(v1.sourceDiscussionIds[0])
+    expect(discussion.sourceDiscussionId).toBe(v1.sourceDiscussionId)
     expect(discussion.ideaId).toBe(aggregate.idea.ideaId)
     expect(discussion.sessionId).toBe('session-1')
+    expect(aggregate.evolutionEvents).toHaveLength(1)
 
     // The medium holds exactly one canonical record, and it parses.
     const stored = await storedAggregate(root, aggregate.idea.ideaId)
@@ -67,12 +68,12 @@ describe('read and list', () => {
     const { service } = await harness()
     const first = await service.create(draft(), sourceDraft())
     const second = await service.create(draft({ title: 'Second idea' }), sourceDraft({ sessionId: 'session-2' }))
-    await service.evolve(first.idea.ideaId, draft({ title: 'First idea v2' }), sourceDraft(), first.idea.currentVersionId)
+    await service.evolve(first.idea.ideaId, draft({ title: 'First idea v2' }), sourceDraft(), first.idea.currentVersionId, 'manual-edit')
 
     const views = service.list()
     expect(views).toHaveLength(2)
     const firstView = views.find(view => view.idea.ideaId === first.idea.ideaId)!
-    expect(firstView.currentVersion.title).toBe('First idea v2')
+    expect(firstView.currentVersion.draft.title).toBe('First idea v2')
     expect(firstView.currentVersion.ordinal).toBe(2)
     expect(second.idea.status).toBe('active')
   })
@@ -104,6 +105,7 @@ describe('evolve', () => {
       draft({ title: 'Evolved title', currentConclusion: 'Now with more evidence' }),
       sourceDraft({ sessionId: 'session-2', startSeq: 20, endSeq: 30 }),
       created.idea.currentVersionId,
+      'manual-edit',
     )
 
     expect(evolved.versions).toHaveLength(2)
@@ -111,12 +113,13 @@ describe('evolve', () => {
     const v2 = evolved.versions[1]!
     expect(v1).toEqual(v1Before)
     expect(v2.ordinal).toBe(2)
-    expect(v2.title).toBe('Evolved title')
+    expect(v2.draft.title).toBe('Evolved title')
     expect(v2.createdAt).toBeGreaterThanOrEqual(v1.createdAt)
     expect(evolved.idea.currentVersionId).toBe(v2.versionId)
     expect(evolved.idea.ideaId).toBe(created.idea.ideaId)
     expect(evolved.sourceDiscussions).toHaveLength(2)
-    expect(v2.sourceDiscussionIds).toEqual([evolved.sourceDiscussions[1]!.sourceDiscussionId])
+    expect(v2.sourceDiscussionId).toBe(evolved.sourceDiscussions[1]!.sourceDiscussionId)
+    expect(evolved.evolutionEvents).toHaveLength(2)
     // One aggregate record, updated in place on the medium.
     expect(evolved).toEqual(await storedAggregate(root, created.idea.ideaId))
     expect((await storedBytes(root, created.idea.ideaId))?.equals(before ?? Buffer.alloc(0))).toBe(false)
@@ -130,6 +133,7 @@ describe('evolve', () => {
       draft({ title: 'v2' }),
       sourceDraft(),
       created.idea.currentVersionId,
+      'manual-edit',
     )
     const bytesBefore = await storedBytes(root, created.idea.ideaId)
 
@@ -138,6 +142,7 @@ describe('evolve', () => {
       draft({ title: 'stale v3' }),
       sourceDraft(),
       created.idea.currentVersionId, // stale: v2 already superseded it
+      'manual-edit',
     ))).resolves.toBe('version-conflict')
 
     // Zero writes: the medium and the memory both still hold v2 state.
@@ -145,7 +150,7 @@ describe('evolve', () => {
     const current = service.get(created.idea.ideaId)
     expect(current.idea.currentVersionId).toBe(evolved.idea.currentVersionId)
     expect(current.versions).toHaveLength(2)
-    expect(current.versions.at(-1)?.title).toBe('v2')
+    expect(current.versions.at(-1)?.draft.title).toBe('v2')
   })
 
   it('rejects evolve of an unknown idea with idea-not-found', async () => {
@@ -155,6 +160,7 @@ describe('evolve', () => {
       draft(),
       sourceDraft(),
       IdeaVersionId('idea-ver-absent'),
+      'manual-edit',
     ))).resolves.toBe('idea-not-found')
   })
 })
@@ -168,6 +174,7 @@ describe('archive', () => {
       draft({ title: 'v2' }),
       sourceDraft(),
       created.idea.currentVersionId,
+      'manual-edit',
     )
 
     const archived = await service.archive(created.idea.ideaId, evolved.idea.currentVersionId)
@@ -203,26 +210,26 @@ describe('detached public returns', () => {
 
     // Mutate everything a caller can reach on the returned snapshots.
     created.idea.status = 'archived'
-    created.versions[0]!.title = 'mutated title'
-    ;(created.versions[0]!.useWhen as string[]).push('mutated use-when')
+    created.versions[0]!.draft.title = 'mutated title'
+    ;(created.versions[0]!.draft.useWhen as string[]).push('mutated use-when')
     ;(created.sourceDiscussions[0]!.capturedContext as CapturedMessage[]).push({ role: 'assistant', text: 'injected' })
 
     const reread = service.get(created.idea.ideaId)
     expect(reread.idea.status).toBe('active')
-    expect(reread.versions[0]!.title).not.toBe('mutated title')
-    expect(reread.versions[0]!.useWhen).not.toContain('mutated use-when')
+    expect(reread.versions[0]!.draft.title).not.toBe('mutated title')
+    expect(reread.versions[0]!.draft.useWhen).not.toContain('mutated use-when')
     expect(reread.sourceDiscussions[0]!.capturedContext).toHaveLength(2)
     expect((await storedBytes(root, created.idea.ideaId))?.equals(bytesAfterCreate ?? Buffer.alloc(0))).toBe(true)
 
     const [view] = service.list()
     view!.idea.status = 'dormant'
-    view!.currentVersion.title = 'mutated view title'
+    view!.currentVersion.draft.title = 'mutated view title'
     expect(service.get(created.idea.ideaId).idea.status).toBe('active')
-    expect(service.list()[0]!.currentVersion.title).not.toBe('mutated view title')
+    expect(service.list()[0]!.currentVersion.draft.title).not.toBe('mutated view title')
 
     // Even mutating one returned snapshot must not poison the next one.
-    reread.versions[0]!.title = 'poisoned'
-    expect(service.get(created.idea.ideaId).versions[0]!.title).not.toBe('poisoned')
+    reread.versions[0]!.draft.title = 'poisoned'
+    expect(service.get(created.idea.ideaId).versions[0]!.draft.title).not.toBe('poisoned')
   })
 })
 
@@ -235,6 +242,7 @@ describe('persistence across reopen', () => {
       draft({ title: 'v2' }),
       sourceDraft({ sessionId: 'session-2' }),
       created.idea.currentVersionId,
+      'manual-edit',
     )
     const second = await service.create(draft({ title: 'Second idea' }), sourceDraft())
     await service.archive(second.idea.ideaId, second.idea.currentVersionId)
@@ -263,6 +271,7 @@ describe('persistence across reopen', () => {
       draft({ title: 'v3' }),
       sourceDraft(),
       aggregate.idea.currentVersionId,
+      'continued-discussion',
     )
     expect(evolvedAgain.versions).toHaveLength(3)
     expect(evolvedAgain.versions[2]!.ordinal).toBe(3)

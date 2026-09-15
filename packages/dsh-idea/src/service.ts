@@ -1,6 +1,7 @@
 /**
  * The Idea domain service (`ctx.ideaService`): durable create/get/list/
- * archive/evolve over the `idea` storage domain. Every read is synchronous
+ * archive/evolve plus the read-only version queries (listVersions/getVersion)
+ * over the `idea` storage domain. Every read is synchronous
  * from the domain's authoritative in-memory state; every write is one
  * serialized single-record operation on the domain's write chain — durability
  * first, then memory. Evolve and archive are optimistic: they compare
@@ -20,11 +21,13 @@ import type { z } from 'zod'
 import { IdeaError } from './errors.ts'
 import { ideaAggregateSchema, ideaDraftSchema, sourceDiscussionDraftSchema } from './schema.ts'
 import { ideaDomainSpec } from './spec.ts'
-import { IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
+import { EvolutionEventId, IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
 import type {
   IdeaAggregate,
   IdeaCurrentView,
   IdeaDraft,
+  IdeaEvolutionEvent,
+  IdeaEvolutionReason,
   IdeaVersion,
   ListIdeasOptions,
   SourceDiscussion,
@@ -69,10 +72,11 @@ export class IdeaService extends Service {
   }
 
   /**
-   * Commit the first version of a new Idea: ordinal 1, status `active`,
-   * `currentVersionId` pointing at it, and the source snapshot stored in the
-   * same aggregate write. Nothing is persisted when the draft or source
-   * fails validation.
+   * Commit the first version of a new Idea: ordinal 1 with the
+   * `initial-save` reason, status `active`, `currentVersionId` pointing at
+   * it, its evolution event (no predecessor), and the source snapshot stored
+   * in the same aggregate write. Nothing is persisted when the draft or
+   * source fails validation.
    * @param draft - Prepared semantic content of version 1.
    * @param source - Prepared snapshot of the discussion the idea was saved from.
    * @returns the durably stored aggregate.
@@ -96,14 +100,9 @@ export class IdeaService extends Service {
         versionId,
         ideaId,
         ordinal: 1,
-        title: validatedDraft.title,
-        core: validatedDraft.core,
-        motivation: validatedDraft.motivation,
-        currentConclusion: validatedDraft.currentConclusion,
-        possibleValue: validatedDraft.possibleValue,
-        useWhen: [...validatedDraft.useWhen],
-        openQuestions: [...validatedDraft.openQuestions],
-        sourceDiscussionIds: [sourceDiscussionId],
+        draft: validatedDraft,
+        reason: 'initial-save',
+        sourceDiscussionId,
         createdAt: now,
       }],
       sourceDiscussions: [{
@@ -115,6 +114,13 @@ export class IdeaService extends Service {
         ...(validatedSource.endSeq !== undefined ? { endSeq: validatedSource.endSeq } : {}),
         capturedContext: validatedSource.capturedContext.map(message => ({ ...message })),
         capturedAt: now,
+      }],
+      evolutionEvents: [{
+        evolutionEventId: EvolutionEventId(createId('idea_evo')),
+        ideaId,
+        toVersionId: versionId,
+        reason: 'initial-save',
+        createdAt: now,
       }],
     })
     const table = this.records
@@ -183,14 +189,17 @@ export class IdeaService extends Service {
 
   /**
    * Commit the next linear version of an Idea atomically: append one source
-   * snapshot and one version (ordinal = previous + 1), advance
-   * `currentVersionId`, preserve every prior version unchanged. No
-   * branching, no merge graph, no rewrite of committed history.
+   * snapshot, one version (ordinal = previous + 1, carrying the given
+   * reason), and one evolution event linking from the superseded version;
+   * advance `currentVersionId`; preserve every prior version and event
+   * unchanged. No branching, no merge graph, no rewrite of committed history.
    * @param ideaId - The idea to evolve.
    * @param draft - Prepared semantic content of the new version.
    * @param source - Prepared snapshot of the discussion that produced it.
    * @param expectedCurrentVersionId - The version the caller last saw; a
    * mismatch rejects with `version-conflict` and writes nothing.
+   * @param reason - Why the Idea evolved (`manual-edit` or
+   * `continued-discussion`; the initial save is never an evolution).
    * @returns the stored aggregate after the evolve.
    */
   async evolve(
@@ -198,6 +207,7 @@ export class IdeaService extends Service {
     draft: IdeaDraft,
     source: SourceDiscussionDraft,
     expectedCurrentVersionId: IdeaVersionId,
+    reason: IdeaEvolutionReason,
   ): Promise<IdeaAggregate> {
     const validatedDraft = parseDraft(ideaDraftSchema, draft)
     const validatedSource = parseDraft(sourceDiscussionDraftSchema, source)
@@ -218,22 +228,54 @@ export class IdeaService extends Service {
         versionId,
         ideaId: current.idea.ideaId,
         ordinal: (current.versions.at(-1)?.ordinal ?? 0) + 1,
-        title: validatedDraft.title,
-        core: validatedDraft.core,
-        motivation: validatedDraft.motivation,
-        currentConclusion: validatedDraft.currentConclusion,
-        possibleValue: validatedDraft.possibleValue,
-        useWhen: [...validatedDraft.useWhen],
-        openQuestions: [...validatedDraft.openQuestions],
-        sourceDiscussionIds: [sourceDiscussionId],
+        draft: validatedDraft,
+        reason,
+        sourceDiscussionId,
+        createdAt: now,
+      }
+      const event: IdeaEvolutionEvent = {
+        evolutionEventId: EvolutionEventId(createId('idea_evo')),
+        ideaId: current.idea.ideaId,
+        fromVersionId: current.idea.currentVersionId,
+        toVersionId: versionId,
+        reason,
         createdAt: now,
       }
       return {
         idea: { ...current.idea, currentVersionId: versionId, updatedAt: now },
         versions: [...current.versions, version],
         sourceDiscussions: [...current.sourceDiscussions, discussion],
+        evolutionEvents: [...current.evolutionEvents, event],
       }
     })
+  }
+
+  /**
+   * Read one Idea's complete version history, v1 first, synchronously from
+   * memory. Versions are immutable: the returned snapshots are detached.
+   * @param ideaId - The idea whose history to read.
+   * @returns the versions ordered by ascending ordinal.
+   * @throws `IdeaError` with code `idea-not-found` when absent.
+   */
+  listVersions(ideaId: IdeaId): readonly IdeaVersion[] {
+    return this.get(ideaId).versions
+  }
+
+  /**
+   * Read one committed version of an Idea, synchronously from memory.
+   * @param ideaId - The idea the version belongs to.
+   * @param versionId - The version to read.
+   * @returns a detached snapshot of the version.
+   * @throws `IdeaError` with code `idea-not-found` when the idea is absent,
+   * or `version-not-found` when the idea carries no such version.
+   */
+  getVersion(ideaId: IdeaId, versionId: IdeaVersionId): IdeaVersion {
+    const aggregate = this.get(ideaId)
+    const version = aggregate.versions.find(entry => entry.versionId === versionId)
+    if (version === undefined) {
+      throw new IdeaError('version-not-found', `idea '${ideaId}' has no version '${versionId}'`)
+    }
+    return version
   }
 
   /**

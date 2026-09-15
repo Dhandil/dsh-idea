@@ -148,6 +148,8 @@ describe('client plugin mount', () => {
     expect(contribution.descriptors?.map(d => d.id).sort()).toEqual([
       '@dsh-external/dsh-idea#idea/create',
       '@dsh-external/dsh-idea#idea/get',
+      '@dsh-external/dsh-idea#idea/getVersion',
+      '@dsh-external/dsh-idea#idea/getVersions',
       '@dsh-external/dsh-idea#idea/list',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
     ])

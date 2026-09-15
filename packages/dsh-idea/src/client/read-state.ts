@@ -8,7 +8,7 @@
  */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { IdeaDetail, IdeaSummary } from '../remote-host/types.ts'
+import type { IdeaDetail, IdeaSummary, IdeaVersionSummary } from '../remote-host/types.ts'
 
 /** The wire outcome of one read call. */
 type RemoteRead<T> =
@@ -19,6 +19,7 @@ type RemoteRead<T> =
 export interface IdeaReadFace {
   list(): Promise<RemoteRead<IdeaSummary[]>>
   get(request: { id: string }): Promise<RemoteRead<IdeaDetail>>
+  getVersions(request: { id: string }): Promise<RemoteRead<IdeaVersionSummary[]>>
 }
 
 /** The list lifecycle the section renders. */
@@ -36,6 +37,9 @@ export interface IdeaReadState {
   detail: IdeaDetail | null
   /** The wire code of the detail failure, absent for a generic failure. */
   detailErrorCode: string | null
+  detailVersionsStatus: 'loading' | 'ready' | 'error'
+  /** The open idea's version history, v1 first; ready alongside the detail. */
+  detailVersions: readonly IdeaVersionSummary[]
 }
 
 const INITIAL: IdeaReadState = {
@@ -45,6 +49,8 @@ const INITIAL: IdeaReadState = {
   detailStatus: 'loading',
   detail: null,
   detailErrorCode: null,
+  detailVersionsStatus: 'loading',
+  detailVersions: [],
 }
 
 /**
@@ -95,7 +101,7 @@ export class IdeaReadSurface {
     })
   }
 
-  /** Open one idea's detail; any prior detail read is abandoned. */
+  /** Open one idea's detail and its version history; any prior read is abandoned. */
   open(id: string): void {
     this.detailAbort?.abort()
     const controller = new AbortController()
@@ -105,8 +111,11 @@ export class IdeaReadSurface {
       draft.detailStatus = 'loading'
       draft.detail = null
       draft.detailErrorCode = null
+      draft.detailVersionsStatus = 'loading'
+      draft.detailVersions = []
     })
     void this.runOpen(id, controller)
+    void this.runVersions(id, controller)
   }
 
   private async runOpen(id: string, controller: AbortController): Promise<void> {
@@ -121,7 +130,6 @@ export class IdeaReadSurface {
       // A thrown carrier failure renders as the generic detail error.
       if (controller.signal.aborted) return
     }
-    this.detailAbort = undefined
     this.state.update((draft) => {
       // The user moved on while this read was in flight.
       if (draft.detailId !== id) return
@@ -135,6 +143,30 @@ export class IdeaReadSurface {
     })
   }
 
+  /**
+   * Load the open idea's version history alongside its detail. A failure
+   * only hides the history block — the detail itself stays fully usable.
+   */
+  private async runVersions(id: string, controller: AbortController): Promise<void> {
+    let versions: readonly IdeaVersionSummary[] | undefined
+    try {
+      const result = await this.remote.getVersions({ id })
+      if (!controller.signal.aborted && result.ok) versions = result.value
+    } catch {
+      // A thrown carrier failure hides the history block, never the detail.
+    }
+    if (controller.signal.aborted) return
+    this.state.update((draft) => {
+      if (draft.detailId !== id) return
+      if (versions === undefined) {
+        draft.detailVersionsStatus = 'error'
+      } else {
+        draft.detailVersionsStatus = 'ready'
+        draft.detailVersions = versions
+      }
+    })
+  }
+
   /** Close the detail and return to the list. */
   closeDetail(): void {
     this.detailAbort?.abort()
@@ -144,6 +176,8 @@ export class IdeaReadSurface {
       draft.detailStatus = 'loading'
       draft.detail = null
       draft.detailErrorCode = null
+      draft.detailVersionsStatus = 'loading'
+      draft.detailVersions = []
     })
   }
 

@@ -168,6 +168,44 @@ const CSS = `
   font-size: 13px;
   line-height: 20px;
 }
+.dsh-idea-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dsh-idea-history-current {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-idea-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dsh-idea-history-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-idea-history-version,
+.dsh-idea-history-reason {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.dsh-idea-history-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 `
 
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css='${CSS_ID}']`) === null) {

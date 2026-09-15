@@ -45,6 +45,11 @@ export const zh = {
   'read.field.openQuestions': '待解决问题',
   'read.detail.error': '该 Idea 加载失败',
   'read.detail.notFound': '该 Idea 不存在或已不可用',
+  'read.history': '版本历史',
+  'read.history.current': '当前版本 v{ordinal}',
+  'read.reason.initial-save': '初次保存',
+  'read.reason.manual-edit': '手动修改',
+  'read.reason.continued-discussion': '继续讨论',
 } satisfies Record<string, string>
 
 /** The idea namespace key union. */
@@ -97,4 +102,9 @@ export const en = {
   'read.field.openQuestions': 'Open questions',
   'read.detail.error': 'Could not load this idea.',
   'read.detail.notFound': 'This idea does not exist or is no longer available.',
+  'read.history': 'Version history',
+  'read.history.current': 'Current version v{ordinal}',
+  'read.reason.initial-save': 'Initial save',
+  'read.reason.manual-edit': 'Manual edit',
+  'read.reason.continued-discussion': 'Continued discussion',
 } satisfies Record<IdeaLocaleKey, string>

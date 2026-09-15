@@ -7,8 +7,9 @@
  * idempotent commit state machine (`prepared → committing → committed`) so
  * one preparationId produces at most one durable Idea even under duplicate
  * or concurrent requests. `list`/`get` project stored aggregates onto
- * read-only wire summaries/details and never write. The browser may only
- * ever submit a draft plus a preparation reference.
+ * read-only wire summaries/details and never write, and `getVersions`/
+ * `getVersion` expose the immutable version history the same way. The
+ * browser may only ever submit a draft plus a preparation reference.
  * @module @dsh-external/dsh-idea/src/remote-host/service
  */
 
@@ -17,7 +18,7 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import { ideaDraftSchema } from '../schema.ts'
 import { IdeaPreparationError } from '../preparation/errors.ts'
 import type { IdeaPreparationId, PreparedIdeaSource } from '../preparation/types.ts'
-import { IdeaId } from '../types.ts'
+import { IdeaId, IdeaVersionId } from '../types.ts'
 import type { IdeaAggregate, IdeaDraft, IdeaVersion, SourceDiscussionDraft } from '../types.ts'
 import { remoteDomainError, remotePreparationError } from './errors.ts'
 import type {
@@ -27,6 +28,9 @@ import type {
   IdeaGetRequest,
   IdeaPrepareRequest,
   IdeaSummary,
+  IdeaVersionDetail,
+  IdeaVersionGetRequest,
+  IdeaVersionSummary,
 } from './types.ts'
 import type { IdeaPreparationPreview } from '../preparation/types.ts'
 
@@ -140,7 +144,7 @@ export class IdeaRemoteService extends TypertRemoteService {
         ideaId: aggregate.idea.ideaId,
         currentVersionId: aggregate.idea.currentVersionId,
         status,
-        title: currentVersion.title,
+        title: currentVersion.draft.title,
         createdAt: aggregate.idea.createdAt,
       }
       this.commits.set(preparationId, { kind: 'committed', result })
@@ -185,11 +189,38 @@ export class IdeaRemoteService extends TypertRemoteService {
       throw remoteDomainError(error) ?? error
     }
   }
+
+  /**
+   * Read one Idea's complete version history, v1 first. Read-only: nothing
+   * is ever written, and storage records never cross the wire.
+   */
+  @Remote
+  async getVersions(request: IdeaGetRequest): Promise<IdeaVersionSummary[]> {
+    try {
+      return this.ctx.ideaService.listVersions(IdeaId(request.id)).map(ideaVersionSummaryOf)
+    } catch (error) {
+      throw remoteDomainError(error) ?? error
+    }
+  }
+
+  /**
+   * Read one committed version in full detail. Read-only, like every other
+   * read of this namespace.
+   */
+  @Remote
+  async getVersion(request: IdeaVersionGetRequest): Promise<IdeaVersionDetail> {
+    try {
+      const version = this.ctx.ideaService.getVersion(IdeaId(request.id), IdeaVersionId(request.versionId))
+      return ideaVersionDetailOf(version)
+    } catch (error) {
+      throw remoteDomainError(error) ?? error
+    }
+  }
 }
 
 /** The source snapshot the version cites, absent when it cites none. */
 function citedSourceOf(aggregate: IdeaAggregate, version: IdeaVersion): IdeaSummary['source'] {
-  const discussionId = version.sourceDiscussionIds[0]
+  const discussionId = version.sourceDiscussionId
   if (discussionId === undefined) return undefined
   const discussion = aggregate.sourceDiscussions.find(entry => entry.sourceDiscussionId === discussionId)
   if (discussion === undefined) return undefined
@@ -204,9 +235,9 @@ function ideaSummaryOf(aggregate: IdeaAggregate, version: IdeaVersion): IdeaSumm
   const source = citedSourceOf(aggregate, version)
   return {
     id: aggregate.idea.ideaId,
-    title: version.title,
-    core: version.core,
-    motivation: version.motivation,
+    title: version.draft.title,
+    core: version.draft.core,
+    motivation: version.draft.motivation,
     createdAt: aggregate.idea.createdAt,
     updatedAt: aggregate.idea.updatedAt,
     ...(source !== undefined ? { source } : {}),
@@ -221,10 +252,34 @@ function ideaDetailOf(aggregate: IdeaAggregate): IdeaDetail {
   }
   return {
     ...ideaSummaryOf(aggregate, version),
-    currentConclusion: version.currentConclusion,
-    possibleValue: version.possibleValue,
-    useWhen: [...version.useWhen],
-    openQuestions: [...version.openQuestions],
+    currentConclusion: version.draft.currentConclusion,
+    possibleValue: version.draft.possibleValue,
+    useWhen: [...version.draft.useWhen],
+    openQuestions: [...version.draft.openQuestions],
     versionId: version.versionId,
+  }
+}
+
+/** The wire summary of one committed version: identity, reason, title. */
+function ideaVersionSummaryOf(version: IdeaVersion): IdeaVersionSummary {
+  return {
+    id: version.versionId,
+    ordinal: version.ordinal,
+    reason: version.reason,
+    title: version.draft.title,
+    createdAt: version.createdAt,
+  }
+}
+
+/** The full wire detail of one committed version, over its summary. */
+function ideaVersionDetailOf(version: IdeaVersion): IdeaVersionDetail {
+  return {
+    ...ideaVersionSummaryOf(version),
+    core: version.draft.core,
+    motivation: version.draft.motivation,
+    currentConclusion: version.draft.currentConclusion,
+    possibleValue: version.draft.possibleValue,
+    useWhen: [...version.draft.useWhen],
+    openQuestions: [...version.draft.openQuestions],
   }
 }

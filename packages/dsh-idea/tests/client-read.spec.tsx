@@ -18,7 +18,7 @@ import type { IdeaReadFace, IdeaReadState } from '../src/client/read-state.ts'
 import { IdeaSection } from '../src/client/IdeaSection.tsx'
 import type { IdeaSectionProps } from '../src/client/slots.ts'
 import { zh } from '../src/client/locales.ts'
-import type { IdeaDetail, IdeaSummary } from '../src/remote-host/types.ts'
+import type { IdeaDetail, IdeaSummary, IdeaVersionSummary } from '../src/remote-host/types.ts'
 import type { IdeaVersionId } from '../src/types.ts'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -58,12 +58,26 @@ const detailOf = (summary: IdeaSummary, overrides: Partial<IdeaDetail> = {}): Id
   ...overrides,
 })
 
+const versionSummary = (overrides: Partial<IdeaVersionSummary> = {}): IdeaVersionSummary => ({
+  id: 'idea_ver_1' as IdeaVersionId,
+  ordinal: 1,
+  reason: 'initial-save',
+  title: 'Saved idea',
+  createdAt: 1_700_000_000_000,
+  ...overrides,
+})
+
 /** A scripted read face plus the spies. */
 function faceWith(
   list: () => Promise<unknown> = async () => ({ ok: true as const, value: [summary()] }),
   get: () => Promise<unknown> = async () => ({ ok: true as const, value: detailOf(summary()) }),
+  getVersions: () => Promise<unknown> = async () => ({ ok: true as const, value: [versionSummary()] }),
 ): IdeaReadFace {
-  return { list: vi.fn(list), get: vi.fn(get) } as unknown as IdeaReadFace
+  return {
+    list: vi.fn(list),
+    get: vi.fn(get),
+    getVersions: vi.fn(getVersions),
+  } as unknown as IdeaReadFace
 }
 
 function newSurface(face: IdeaReadFace): IdeaReadSurface {
@@ -266,5 +280,66 @@ describe('Ideas section: detail', () => {
     expect(surface.state.getSnapshot().detailId).toBe('idea_2')
     expect(surface.state.getSnapshot().detail?.id).toBe('idea_2')
     expect(screen.getByRole('heading', { name: 'Second idea' })).toBeTruthy()
+  })
+})
+
+describe('Ideas section: version history', () => {
+  const historyFace = () => faceWith(
+    async () => ({ ok: true as const, value: [summary()] }),
+    async () => ({ ok: true as const, value: detailOf(summary(), { versionId: 'idea_ver_2' as IdeaVersionId }) }),
+    async () => ({
+      ok: true as const,
+      value: [
+        versionSummary(),
+        versionSummary({ id: 'idea_ver_2' as IdeaVersionId, ordinal: 2, reason: 'manual-edit', title: 'Edited idea' }),
+      ],
+    }),
+  )
+
+  it('renders the current version and the labeled history rows', async () => {
+    const face = historyFace()
+    const surface = newSurface(face)
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
+    await flush()
+
+    expect(face.getVersions).toHaveBeenCalledWith({ id: 'idea_1' })
+    expect(screen.getByText('版本历史')).toBeTruthy()
+    expect(screen.getByText('当前版本 v2')).toBeTruthy()
+    expect(screen.getByText('v1')).toBeTruthy()
+    expect(screen.getByText('初次保存')).toBeTruthy()
+    expect(screen.getByText('v2')).toBeTruthy()
+    expect(screen.getByText('手动修改')).toBeTruthy()
+    expect(screen.getByText('Edited idea')).toBeTruthy()
+  })
+
+  it('hides the history block on failure, keeps the detail, and reloads on reopen', async () => {
+    let failing = true
+    const face = faceWith(
+      async () => ({ ok: true as const, value: [summary()] }),
+      async () => ({ ok: true as const, value: detailOf(summary()) }),
+      async () => {
+        if (failing) return { ok: false as const, error: { code: 'idea/version-not-found' } }
+        return { ok: true as const, value: [versionSummary()] }
+      },
+    )
+    const surface = newSurface(face)
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
+    await flush()
+    // The detail stays fully usable; only the history block is hidden.
+    expect(screen.getByRole('heading', { name: 'Saved idea' })).toBeTruthy()
+    expect(screen.queryByText('版本历史')).toBeNull()
+
+    failing = false
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '返回列表' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
+    await flush()
+    expect(face.getVersions).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('版本历史')).toBeTruthy()
+    expect(screen.getByText('当前版本 v1')).toBeTruthy()
+    expect(screen.getByText('初次保存')).toBeTruthy()
   })
 })

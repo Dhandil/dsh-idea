@@ -11,6 +11,8 @@ export type IdeaErrorCode =
   | 'idea-not-found'
   /** `expectedCurrentVersionId` did not match the Idea's current version; zero writes happened. */
   | 'version-conflict'
+  /** No version with the given id exists on the Idea. */
+  | 'version-not-found'
 
 export class IdeaError extends Error {
   override readonly name = 'IdeaError'

@@ -128,3 +128,83 @@ describe('idea.get', () => {
     expect(await storedBytes(env.root, created.idea.ideaId)).toEqual(before)
   })
 })
+
+describe('idea.getVersions and idea.getVersion', () => {
+  /** One idea evolved to v2 so the history has two rows. */
+  async function evolvedHarness() {
+    const env = await readHarness()
+    const created = await env.service.create(draft(), sourceDraft({ sessionId: 'session-1', anchorMessageId: 'msg-1' }))
+    const evolved = await env.service.evolve(
+      created.idea.ideaId,
+      draft({ title: 'Second version' }),
+      sourceDraft(),
+      created.idea.currentVersionId,
+      'manual-edit',
+    )
+    return { env, created, evolved }
+  }
+
+  it('lists the version history v1 first with reasons and titles', async () => {
+    const { env, created, evolved } = await evolvedHarness()
+
+    const versions = await env.idea.getVersions({ id: created.idea.ideaId })
+    expect(versions).toHaveLength(2)
+    expect(versions.map(row => row.ordinal)).toEqual([1, 2])
+    expect(versions[0]).toEqual({
+      id: created.idea.currentVersionId,
+      ordinal: 1,
+      reason: 'initial-save',
+      title: draft().title,
+      createdAt: created.versions[0]!.createdAt,
+    })
+    expect(versions[1]!.reason).toBe('manual-edit')
+    expect(versions[1]!.title).toBe('Second version')
+    expect(versions[1]!.id).toBe(evolved.idea.currentVersionId)
+  })
+
+  it('produces JSON-representable version summaries with no storage record leakage', async () => {
+    const { env, created } = await evolvedHarness()
+    const versions = await env.idea.getVersions({ id: created.idea.ideaId })
+    for (const row of versions) {
+      expect(typeof row.id).toBe('string')
+      expect(Object.keys(row).sort()).toEqual(['createdAt', 'id', 'ordinal', 'reason', 'title'])
+      expect(JSON.parse(JSON.stringify(row)) as unknown).toEqual(row)
+    }
+  })
+
+  it('returns one version in full detail', async () => {
+    const { env, created, evolved } = await evolvedHarness()
+    const v2 = evolved.versions[1]!
+
+    const detail = await env.idea.getVersion({ id: created.idea.ideaId, versionId: v2.versionId })
+    expect(detail).toEqual({
+      id: v2.versionId,
+      ordinal: 2,
+      reason: 'manual-edit',
+      title: 'Second version',
+      createdAt: v2.createdAt,
+      core: draft({ title: 'Second version' }).core,
+      motivation: draft().motivation,
+      currentConclusion: draft().currentConclusion,
+      possibleValue: draft().possibleValue,
+      useWhen: [...draft().useWhen],
+      openQuestions: [...draft().openQuestions],
+    })
+  })
+
+  it('maps unknown ideas and unknown versions onto their not-found codes', async () => {
+    const { env, created } = await evolvedHarness()
+    expect(await remoteCodeOf(() => env.idea.getVersions({ id: 'idea_missing' }))).toBe('idea/not-found')
+    expect(await remoteCodeOf(() => env.idea.getVersion({ id: 'idea_missing', versionId: 'idea_ver_x' }))).toBe('idea/not-found')
+    expect(await remoteCodeOf(() => env.idea.getVersion({ id: created.idea.ideaId, versionId: 'idea_ver_absent' })))
+      .toBe('idea/version-not-found')
+  })
+
+  it('never writes: version queries leave the stored document byte-identical', async () => {
+    const { env, created, evolved } = await evolvedHarness()
+    const before = await storedBytes(env.root, created.idea.ideaId)
+    await env.idea.getVersions({ id: created.idea.ideaId })
+    await env.idea.getVersion({ id: created.idea.ideaId, versionId: evolved.versions[1]!.versionId })
+    expect(await storedBytes(env.root, created.idea.ideaId)).toEqual(before)
+  })
+})

@@ -17,7 +17,7 @@ import {
   sourceDiscussionDraftSchema,
 } from '../src/schema.ts'
 import { ideaDomainSpec } from '../src/spec.ts'
-import { IdeaId, IdeaVersionId, SourceDiscussionId } from '../src/types.ts'
+import { EvolutionEventId, IdeaId, IdeaVersionId, SourceDiscussionId } from '../src/types.ts'
 import type { IdeaAggregate } from '../src/types.ts'
 import { cleanup, draft, harness, sourceDraft } from './helpers/harness.ts'
 
@@ -34,14 +34,17 @@ const validAggregate = (): IdeaAggregate => ({
     versionId: IdeaVersionId('idea-ver-1'),
     ideaId: IdeaId('idea-a'),
     ordinal: 1,
-    title: 'First version',
-    core: 'core',
-    motivation: 'motivation',
-    currentConclusion: '',
-    possibleValue: '',
-    useWhen: ['when'],
-    openQuestions: [],
-    sourceDiscussionIds: [SourceDiscussionId('idea-src-1')],
+    draft: {
+      title: 'First version',
+      core: 'core',
+      motivation: 'motivation',
+      currentConclusion: '',
+      possibleValue: '',
+      useWhen: ['when'],
+      openQuestions: [],
+    },
+    reason: 'initial-save',
+    sourceDiscussionId: SourceDiscussionId('idea-src-1'),
     createdAt: 100,
   }],
   sourceDiscussions: [{
@@ -50,6 +53,13 @@ const validAggregate = (): IdeaAggregate => ({
     sessionId: 'session-1',
     capturedContext: [{ role: 'user', text: 'hello' }],
     capturedAt: 100,
+  }],
+  evolutionEvents: [{
+    evolutionEventId: EvolutionEventId('idea-evo-1'),
+    ideaId: IdeaId('idea-a'),
+    toVersionId: IdeaVersionId('idea-ver-1'),
+    reason: 'initial-save',
+    createdAt: 100,
   }],
 })
 
@@ -122,7 +132,6 @@ describe('idea aggregate validation', () => {
         ...aggregate.versions[0]!,
         versionId: IdeaVersionId('idea-ver-2'),
         ordinal: 3,
-        sourceDiscussionIds: [],
       },
     ]
     expect(ideaAggregateSchema.safeParse(aggregate).success).toBe(false)
@@ -140,7 +149,6 @@ describe('idea aggregate validation', () => {
       ...aggregate.versions[0]!,
       versionId: IdeaVersionId('idea-ver-2'),
       ordinal: 2,
-      sourceDiscussionIds: [],
     }]
     expect(ideaAggregateSchema.safeParse(aggregate).success).toBe(false)
   })
@@ -153,27 +161,86 @@ describe('idea aggregate validation', () => {
 
   it('rejects dangling source discussion references', () => {
     const aggregate = validAggregate()
-    aggregate.versions[0]!.sourceDiscussionIds = [SourceDiscussionId('idea-src-absent')]
+    aggregate.versions[0]!.sourceDiscussionId = SourceDiscussionId('idea-src-absent')
     expect(ideaAggregateSchema.safeParse(aggregate).success).toBe(false)
+  })
+
+  it('rejects a version without an evolution event', () => {
+    const aggregate = validAggregate()
+    aggregate.evolutionEvents = []
+    expect(ideaAggregateSchema.safeParse(aggregate).success).toBe(false)
+  })
+
+  it('rejects two evolution events pointing at one version', () => {
+    const aggregate = validAggregate()
+    aggregate.evolutionEvents = [
+      ...aggregate.evolutionEvents,
+      {
+        evolutionEventId: EvolutionEventId('idea-evo-2'),
+        ideaId: IdeaId('idea-a'),
+        toVersionId: IdeaVersionId('idea-ver-1'),
+        reason: 'manual-edit',
+        createdAt: 101,
+      },
+    ]
+    expect(ideaAggregateSchema.safeParse(aggregate).success).toBe(false)
+  })
+
+  it('rejects an evolution event pointing at an absent version', () => {
+    const aggregate = validAggregate()
+    aggregate.evolutionEvents[0]!.toVersionId = IdeaVersionId('idea-ver-absent')
+    expect(ideaAggregateSchema.safeParse(aggregate).success).toBe(false)
+  })
+
+  it('rejects an evolution event citing an absent predecessor', () => {
+    const aggregate = validAggregate()
+    aggregate.evolutionEvents[0]!.fromVersionId = IdeaVersionId('idea-ver-absent')
+    expect(ideaAggregateSchema.safeParse(aggregate).success).toBe(false)
+  })
+
+  it('accepts a two-version history with a linked event chain', () => {
+    const aggregate = validAggregate()
+    aggregate.versions = [...aggregate.versions, {
+      ...aggregate.versions[0]!,
+      versionId: IdeaVersionId('idea-ver-2'),
+      ordinal: 2,
+      reason: 'manual-edit',
+    }]
+    aggregate.idea = {
+      ...aggregate.idea,
+      currentVersionId: IdeaVersionId('idea-ver-2'),
+      updatedAt: 101,
+    }
+    aggregate.evolutionEvents = [...aggregate.evolutionEvents, {
+      evolutionEventId: EvolutionEventId('idea-evo-2'),
+      ideaId: IdeaId('idea-a'),
+      fromVersionId: IdeaVersionId('idea-ver-1'),
+      toVersionId: IdeaVersionId('idea-ver-2'),
+      reason: 'manual-edit',
+      createdAt: 101,
+    }]
+    const parsed = ideaAggregateSchema.parse(aggregate)
+    expect(parsed.versions).toHaveLength(2)
+    expect(parsed.evolutionEvents).toHaveLength(2)
   })
 })
 
 describe('durable bounds', () => {
   it('rejects durable versions whose fields exceed the draft-consistent bounds', () => {
     const aggregate = validAggregate()
-    aggregate.versions[0]!.title = 'x'.repeat(IDEA_LIMITS.titleMax + 1)
+    aggregate.versions[0]!.draft.title = 'x'.repeat(IDEA_LIMITS.titleMax + 1)
     expect(ideaAggregateSchema.safeParse(aggregate).success).toBe(false)
 
     const oversizedCore = validAggregate()
-    oversizedCore.versions[0]!.core = 'x'.repeat(IDEA_LIMITS.fieldMax + 1)
+    oversizedCore.versions[0]!.draft.core = 'x'.repeat(IDEA_LIMITS.fieldMax + 1)
     expect(ideaAggregateSchema.safeParse(oversizedCore).success).toBe(false)
 
     const oversizedItem = validAggregate()
-    oversizedItem.versions[0]!.useWhen = ['x'.repeat(IDEA_LIMITS.listItemMax + 1)]
+    oversizedItem.versions[0]!.draft.useWhen = ['x'.repeat(IDEA_LIMITS.listItemMax + 1)]
     expect(ideaAggregateSchema.safeParse(oversizedItem).success).toBe(false)
 
     const oversizedList = validAggregate()
-    oversizedList.versions[0]!.openQuestions = Array.from(
+    oversizedList.versions[0]!.draft.openQuestions = Array.from(
       { length: IDEA_LIMITS.listMax + 1 },
       (_, i) => `question ${i}`,
     )
@@ -198,12 +265,106 @@ describe('durable bounds', () => {
     const path = join(root, ideaDomainSpec.name, 'ideas', 'idea-overlimit.json')
     await mkdir(dirname(path), { recursive: true })
     const aggregate = validAggregate()
-    aggregate.versions[0]!.title = 'x'.repeat(IDEA_LIMITS.titleMax + 1)
+    aggregate.versions[0]!.draft.title = 'x'.repeat(IDEA_LIMITS.titleMax + 1)
     await writeFile(path, JSON.stringify({
       version: ideaDomainSpec.version,
       record: aggregate,
     }))
     await expect(harness(root)).rejects.toMatchObject({ code: 'invalid-record' })
+  })
+})
+
+describe('domain version 1 migration', () => {
+  /** The flat version shape domain version 1 stored, as plain JSON values. */
+  const legacyAggregate = (): Record<string, unknown> => ({
+    idea: {
+      ideaId: 'idea-legacy',
+      currentVersionId: 'idea-ver-1',
+      status: 'active',
+      createdAt: 100,
+      updatedAt: 100,
+    },
+    versions: [{
+      versionId: 'idea-ver-1',
+      ideaId: 'idea-legacy',
+      ordinal: 1,
+      title: 'Legacy title',
+      core: 'Legacy core',
+      motivation: 'Legacy motivation',
+      currentConclusion: 'Legacy conclusion',
+      possibleValue: '',
+      useWhen: ['when'],
+      openQuestions: [],
+      sourceDiscussionIds: ['idea-src-1'],
+      createdAt: 100,
+    }],
+    sourceDiscussions: [{
+      sourceDiscussionId: 'idea-src-1',
+      ideaId: 'idea-legacy',
+      sessionId: 'session-legacy',
+      capturedContext: [{ role: 'user', text: 'hello' }],
+      capturedAt: 100,
+    }],
+  })
+
+  it('migrates a legacy flat aggregate onto the current shape', () => {
+    const parsed = ideaAggregateSchema.parse(legacyAggregate())
+    const v1 = parsed.versions[0]!
+    expect(v1.draft.title).toBe('Legacy title')
+    expect(v1.draft.core).toBe('Legacy core')
+    expect(v1.draft.useWhen).toEqual(['when'])
+    expect(v1.reason).toBe('initial-save')
+    expect(v1.sourceDiscussionId).toBe('idea-src-1')
+    expect(parsed.evolutionEvents).toHaveLength(1)
+    const event = parsed.evolutionEvents[0]!
+    expect(event.toVersionId).toBe('idea-ver-1')
+    expect(event.fromVersionId).toBeUndefined()
+    expect(event.reason).toBe('initial-save')
+  })
+
+  it('migrates a legacy multi-version history with reasons and a linked event chain', () => {
+    const legacy = legacyAggregate()
+    ;(legacy.versions as Array<Record<string, unknown>>).push({
+      versionId: 'idea-ver-2',
+      ideaId: 'idea-legacy',
+      ordinal: 2,
+      title: 'Legacy v2',
+      core: 'Legacy core 2',
+      motivation: 'Legacy motivation 2',
+      currentConclusion: '',
+      possibleValue: '',
+      useWhen: [],
+      openQuestions: [],
+      sourceDiscussionIds: [],
+      createdAt: 200,
+    })
+    ;(legacy.idea as Record<string, unknown>).currentVersionId = 'idea-ver-2'
+    const parsed = ideaAggregateSchema.parse(legacy)
+    expect(parsed.versions[0]!.reason).toBe('initial-save')
+    expect(parsed.versions[1]!.reason).toBe('continued-discussion')
+    expect(parsed.versions[1]!.sourceDiscussionId).toBeUndefined()
+    expect(parsed.evolutionEvents).toHaveLength(2)
+    expect(parsed.evolutionEvents[1]!.fromVersionId).toBe('idea-ver-1')
+    expect(parsed.evolutionEvents[1]!.toVersionId).toBe('idea-ver-2')
+  })
+
+  it('reads version-1-stamped records at the durable boundary', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-idea-migrate-'))
+    const path = join(root, ideaDomainSpec.name, 'ideas', 'idea-legacy.json')
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, JSON.stringify({ version: 1, record: legacyAggregate() }))
+
+    const { service } = await harness(root)
+    const aggregate = service.get(IdeaId('idea-legacy'))
+    expect(aggregate.versions[0]!.draft.title).toBe('Legacy title')
+    expect(aggregate.versions[0]!.reason).toBe('initial-save')
+    expect(aggregate.evolutionEvents).toHaveLength(1)
+  })
+
+  it('still rejects a legacy document that violates the model invariants', () => {
+    const legacy = legacyAggregate()
+    ;(legacy.versions as Array<Record<string, unknown>>)[0]!.sourceDiscussionIds = ['idea-src-absent']
+    expect(ideaAggregateSchema.safeParse(legacy).success).toBe(false)
   })
 })
 
@@ -213,7 +374,7 @@ describe('durable boundary', () => {
     const path = join(root, ideaDomainSpec.name, 'ideas', 'idea-corrupt.json')
     await mkdir(dirname(path), { recursive: true })
     const aggregate = validAggregate()
-    aggregate.versions[0]!.sourceDiscussionIds = [SourceDiscussionId('idea-src-dangling')]
+    aggregate.versions[0]!.sourceDiscussionId = SourceDiscussionId('idea-src-dangling')
     await writeFile(path, JSON.stringify({
       version: ideaDomainSpec.version,
       record: aggregate,

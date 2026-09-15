@@ -10,12 +10,13 @@
  */
 
 import { z } from 'zod'
-import { IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
+import { EvolutionEventId, IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
 import type {
   CapturedMessage,
   Idea,
   IdeaAggregate,
   IdeaDraft,
+  IdeaEvolutionEvent,
   IdeaVersion,
   SourceDiscussion,
   SourceDiscussionDraft,
@@ -45,6 +46,7 @@ export const IDEA_LIMITS = {
 export const ideaIdSchema = z.string().min(1).max(IDEA_LIMITS.idMax).transform(IdeaId)
 export const ideaVersionIdSchema = z.string().min(1).max(IDEA_LIMITS.idMax).transform(IdeaVersionId)
 export const sourceDiscussionIdSchema = z.string().min(1).max(IDEA_LIMITS.idMax).transform(SourceDiscussionId)
+export const evolutionEventIdSchema = z.string().min(1).max(IDEA_LIMITS.idMax).transform(EvolutionEventId)
 
 const requiredText = (max: number) => z.string().trim().min(1).max(max)
 const optionalText = (max: number) => z.string().trim().max(max)
@@ -100,10 +102,12 @@ export const ideaSchema = z.object({
   updatedAt: z.number().int().nonnegative(),
 }) satisfies z.ZodType<Idea>
 
-export const ideaVersionSchema = z.object({
-  versionId: ideaVersionIdSchema,
-  ideaId: ideaIdSchema,
-  ordinal: z.number().int().positive(),
+/**
+ * Durable twin of {@link ideaDraftSchema}: same bounds, no normalization —
+ * stored version content was normalized at draft admission and must
+ * round-trip byte-identical.
+ */
+const durableDraftSchema = z.object({
   title: z.string().min(1).max(IDEA_LIMITS.titleMax),
   core: z.string().max(IDEA_LIMITS.fieldMax),
   motivation: z.string().max(IDEA_LIMITS.fieldMax),
@@ -111,9 +115,28 @@ export const ideaVersionSchema = z.object({
   possibleValue: z.string().max(IDEA_LIMITS.fieldMax),
   useWhen: durableList,
   openQuestions: durableList,
-  sourceDiscussionIds: z.array(sourceDiscussionIdSchema),
+}) satisfies z.ZodType<IdeaDraft>
+
+export const ideaVersionReasonSchema = z.enum(['initial-save', 'manual-edit', 'continued-discussion'])
+
+export const ideaVersionSchema = z.object({
+  versionId: ideaVersionIdSchema,
+  ideaId: ideaIdSchema,
+  ordinal: z.number().int().positive(),
+  draft: durableDraftSchema,
+  reason: ideaVersionReasonSchema,
+  sourceDiscussionId: sourceDiscussionIdSchema.optional(),
   createdAt: z.number().int().nonnegative(),
 }) satisfies z.ZodType<IdeaVersion>
+
+export const ideaEvolutionEventSchema = z.object({
+  evolutionEventId: evolutionEventIdSchema,
+  ideaId: ideaIdSchema,
+  fromVersionId: ideaVersionIdSchema.optional(),
+  toVersionId: ideaVersionIdSchema,
+  reason: ideaVersionReasonSchema,
+  createdAt: z.number().int().nonnegative(),
+}) satisfies z.ZodType<IdeaEvolutionEvent>
 
 export const sourceDiscussionSchema = z.object({
   sourceDiscussionId: sourceDiscussionIdSchema,
@@ -127,82 +150,195 @@ export const sourceDiscussionSchema = z.object({
 }) satisfies z.ZodType<SourceDiscussion>
 
 /**
- * The canonical per-Idea record. Beyond field shapes, the parser enforces the
- * aggregate invariants: at least one version, ordinals exactly `1..N` in
+ * A domain-version-1 aggregate document: version content sat flat on the
+ * version, citations were an array, and neither versions nor the aggregate
+ * carried a reason / evolution events. Detectable by a version without a
+ * `draft` object.
+ */
+interface LegacyAggregateShape {
+  idea?: { ideaId?: unknown }
+  versions?: unknown
+}
+
+/**
+ * Migrate a domain-version-1 aggregate document onto the current shape: the
+ * flat version content becomes the nested `draft`, the citation array
+ * collapses to its single entry, ordinal 1 gains the `initial-save` reason
+ * (a legacy history beyond v1 — never produced by a shipped build — reads as
+ * `continued-discussion`, matching what the old evolve did: saved from a
+ * continued discussion), and one evolution event per version is synthesized
+ * with a deterministic bounded id so the causal chain is complete.
+ * Current-shape documents pass through untouched.
+ */
+function migrateLegacyAggregate(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return value
+  const document = value as LegacyAggregateShape
+  if (!Array.isArray(document.versions)) return value
+  const versions = document.versions as Array<Record<string, unknown>>
+  if (!versions.some(version => typeof version === 'object' && version !== null && !('draft' in version))) {
+    return value
+  }
+  const migrated: Array<Record<string, unknown>> = versions.map((version, index) => {
+    const { title, core, motivation, currentConclusion, possibleValue, useWhen, openQuestions, sourceDiscussionIds, ...identity } = version
+    const citations = Array.isArray(sourceDiscussionIds) ? sourceDiscussionIds : []
+    const reason = index === 0 ? 'initial-save' : 'continued-discussion'
+    return {
+      ...identity,
+      draft: { title, core, motivation, currentConclusion, possibleValue, useWhen, openQuestions },
+      reason,
+      ...(citations.length > 0 ? { sourceDiscussionId: citations[0] } : {}),
+    }
+  })
+  return {
+    ...value,
+    versions: migrated,
+    evolutionEvents: migrated.map((version, index) => ({
+      evolutionEventId: `idea_evo_v${version.ordinal}`,
+      ideaId: document.idea?.ideaId,
+      ...(index > 0 ? { fromVersionId: migrated[index - 1]!.versionId } : {}),
+      toVersionId: version.versionId,
+      reason: version.reason,
+      createdAt: version.createdAt,
+    })),
+  }
+}
+
+/**
+ * The canonical per-Idea record, read at the durable boundary. Domain
+ * version 1 records are accepted and migrated onto the current shape (see
+ * {@link migrateLegacyAggregate}). Beyond field shapes, the parser enforces
+ * the aggregate invariants: at least one version, ordinals exactly `1..N` in
  * order, every version and snapshot owned by this Idea, unique version and
  * snapshot ids, `currentVersionId` pointing at the latest committed version,
- * and no version citing a snapshot the aggregate does not carry.
+ * no version citing a snapshot the aggregate does not carry, and exactly one
+ * evolution event per version with resolvable version references.
  */
-export const ideaAggregateSchema = z.object({
-  idea: ideaSchema,
-  versions: z.array(ideaVersionSchema).min(1),
-  sourceDiscussions: z.array(sourceDiscussionSchema),
-}).superRefine((aggregate, refine) => {
-  const { idea, versions, sourceDiscussions } = aggregate
+export const ideaAggregateSchema = z.preprocess(
+  migrateLegacyAggregate,
+  z.object({
+    idea: ideaSchema,
+    versions: z.array(ideaVersionSchema).min(1),
+    sourceDiscussions: z.array(sourceDiscussionSchema),
+    evolutionEvents: z.array(ideaEvolutionEventSchema),
+  }).superRefine((aggregate, refine) => {
+    const { idea, versions, sourceDiscussions, evolutionEvents } = aggregate
 
-  const seenVersionIds = new Set<string>()
-  versions.forEach((version, index) => {
-    if (version.ideaId !== idea.ideaId) {
-      refine.addIssue({
-        code: 'custom',
-        path: ['versions', index, 'ideaId'],
-        message: `version '${version.versionId}' belongs to idea '${version.ideaId}', not '${idea.ideaId}'`,
-      })
-    }
-    if (version.ordinal !== index + 1) {
-      refine.addIssue({
-        code: 'custom',
-        path: ['versions', index, 'ordinal'],
-        message: `version '${version.versionId}' has ordinal ${version.ordinal}, expected ${index + 1}`,
-      })
-    }
-    if (seenVersionIds.has(version.versionId)) {
-      refine.addIssue({
-        code: 'custom',
-        path: ['versions', index, 'versionId'],
-        message: `duplicate version id '${version.versionId}'`,
-      })
-    }
-    seenVersionIds.add(version.versionId)
-  })
-
-  const latest = versions[versions.length - 1]
-  if (latest !== undefined && idea.currentVersionId !== latest.versionId) {
-    refine.addIssue({
-      code: 'custom',
-      path: ['idea', 'currentVersionId'],
-      message: `currentVersionId '${idea.currentVersionId}' does not point at the latest version '${latest.versionId}'`,
-    })
-  }
-
-  const seenDiscussionIds = new Set<string>()
-  sourceDiscussions.forEach((discussion, index) => {
-    if (discussion.ideaId !== idea.ideaId) {
-      refine.addIssue({
-        code: 'custom',
-        path: ['sourceDiscussions', index, 'ideaId'],
-        message: `source discussion '${discussion.sourceDiscussionId}' belongs to idea '${discussion.ideaId}', not '${idea.ideaId}'`,
-      })
-    }
-    if (seenDiscussionIds.has(discussion.sourceDiscussionId)) {
-      refine.addIssue({
-        code: 'custom',
-        path: ['sourceDiscussions', index, 'sourceDiscussionId'],
-        message: `duplicate source discussion id '${discussion.sourceDiscussionId}'`,
-      })
-    }
-    seenDiscussionIds.add(discussion.sourceDiscussionId)
-  })
-
-  versions.forEach((version, index) => {
-    version.sourceDiscussionIds.forEach((discussionId, refIndex) => {
-      if (!seenDiscussionIds.has(discussionId)) {
+    const seenVersionIds = new Set<string>()
+    versions.forEach((version, index) => {
+      if (version.ideaId !== idea.ideaId) {
         refine.addIssue({
           code: 'custom',
-          path: ['versions', index, 'sourceDiscussionIds', refIndex],
-          message: `version '${version.versionId}' cites absent source discussion '${discussionId}'`,
+          path: ['versions', index, 'ideaId'],
+          message: `version '${version.versionId}' belongs to idea '${version.ideaId}', not '${idea.ideaId}'`,
+        })
+      }
+      if (version.ordinal !== index + 1) {
+        refine.addIssue({
+          code: 'custom',
+          path: ['versions', index, 'ordinal'],
+          message: `version '${version.versionId}' has ordinal ${version.ordinal}, expected ${index + 1}`,
+        })
+      }
+      if (seenVersionIds.has(version.versionId)) {
+        refine.addIssue({
+          code: 'custom',
+          path: ['versions', index, 'versionId'],
+          message: `duplicate version id '${version.versionId}'`,
+        })
+      }
+      seenVersionIds.add(version.versionId)
+    })
+
+    const latest = versions[versions.length - 1]
+    if (latest !== undefined && idea.currentVersionId !== latest.versionId) {
+      refine.addIssue({
+        code: 'custom',
+        path: ['idea', 'currentVersionId'],
+        message: `currentVersionId '${idea.currentVersionId}' does not point at the latest version '${latest.versionId}'`,
+      })
+    }
+
+    const seenDiscussionIds = new Set<string>()
+    sourceDiscussions.forEach((discussion, index) => {
+      if (discussion.ideaId !== idea.ideaId) {
+        refine.addIssue({
+          code: 'custom',
+          path: ['sourceDiscussions', index, 'ideaId'],
+          message: `source discussion '${discussion.sourceDiscussionId}' belongs to idea '${discussion.ideaId}', not '${idea.ideaId}'`,
+        })
+      }
+      if (seenDiscussionIds.has(discussion.sourceDiscussionId)) {
+        refine.addIssue({
+          code: 'custom',
+          path: ['sourceDiscussions', index, 'sourceDiscussionId'],
+          message: `duplicate source discussion id '${discussion.sourceDiscussionId}'`,
+        })
+      }
+      seenDiscussionIds.add(discussion.sourceDiscussionId)
+    })
+
+    versions.forEach((version, index) => {
+      if (version.sourceDiscussionId !== undefined && !seenDiscussionIds.has(version.sourceDiscussionId)) {
+        refine.addIssue({
+          code: 'custom',
+          path: ['versions', index, 'sourceDiscussionId'],
+          message: `version '${version.versionId}' cites absent source discussion '${version.sourceDiscussionId}'`,
         })
       }
     })
-  })
-}) satisfies z.ZodType<IdeaAggregate>
+
+    const seenEventIds = new Set<string>()
+    const eventsPerVersion = new Map<string, number>()
+    evolutionEvents.forEach((event, index) => {
+      if (event.ideaId !== idea.ideaId) {
+        refine.addIssue({
+          code: 'custom',
+          path: ['evolutionEvents', index, 'ideaId'],
+          message: `evolution event '${event.evolutionEventId}' belongs to idea '${event.ideaId}', not '${idea.ideaId}'`,
+        })
+      }
+      if (seenEventIds.has(event.evolutionEventId)) {
+        refine.addIssue({
+          code: 'custom',
+          path: ['evolutionEvents', index, 'evolutionEventId'],
+          message: `duplicate evolution event id '${event.evolutionEventId}'`,
+        })
+      }
+      seenEventIds.add(event.evolutionEventId)
+      if (!seenVersionIds.has(event.toVersionId)) {
+        refine.addIssue({
+          code: 'custom',
+          path: ['evolutionEvents', index, 'toVersionId'],
+          message: `evolution event '${event.evolutionEventId}' points at absent version '${event.toVersionId}'`,
+        })
+      }
+      eventsPerVersion.set(event.toVersionId, (eventsPerVersion.get(event.toVersionId) ?? 0) + 1)
+      if (event.fromVersionId !== undefined && !seenVersionIds.has(event.fromVersionId)) {
+        refine.addIssue({
+          code: 'custom',
+          path: ['evolutionEvents', index, 'fromVersionId'],
+          message: `evolution event '${event.evolutionEventId}' cites absent predecessor '${event.fromVersionId}'`,
+        })
+      }
+    })
+
+    for (const [versionId, count] of eventsPerVersion) {
+      if (count > 1) {
+        refine.addIssue({
+          code: 'custom',
+          path: ['evolutionEvents'],
+          message: `version '${versionId}' has ${count} evolution events, expected exactly one`,
+        })
+      }
+    }
+    versions.forEach((version) => {
+      if (!eventsPerVersion.has(version.versionId)) {
+        refine.addIssue({
+          code: 'custom',
+          path: ['evolutionEvents'],
+          message: `version '${version.versionId}' has no evolution event`,
+        })
+      }
+    })
+  }),
+) satisfies z.ZodType<IdeaAggregate>

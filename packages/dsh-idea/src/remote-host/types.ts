@@ -7,7 +7,7 @@
  * @module @dsh-external/dsh-idea/src/remote-host/types
  */
 
-import type { IdeaDraft, IdeaId, IdeaVersionId } from '../types.ts'
+import type { IdeaDraft, IdeaId, IdeaVersionId, IdeaVersionReason } from '../types.ts'
 import type { IdeaPreparationId, IdeaPreparationPreview } from '../preparation/types.ts'
 
 export type {
@@ -16,6 +16,7 @@ export type {
   IdeaPreparationId,
   IdeaPreparationPreview,
   IdeaVersionId,
+  IdeaVersionReason,
 }
 
 /** `idea.prepareFromMessage` request: the finalized assistant message to propose from. */
@@ -78,4 +79,38 @@ export interface IdeaDetail extends IdeaSummary {
   useWhen: readonly string[]
   openQuestions: readonly string[]
   versionId: IdeaVersionId
+}
+
+/** `idea.getVersion` request: one Idea plus one of its versions. */
+export interface IdeaVersionGetRequest {
+  /** The Idea the version belongs to. */
+  id: string
+  /** The requested version. */
+  versionId: string
+}
+
+/**
+ * One entry of the `idea.getVersions` history — a version's identity, why it
+ * exists, and its title: everything the minimal history UI renders. Storage
+ * records never cross the wire.
+ */
+export interface IdeaVersionSummary {
+  id: IdeaVersionId
+  ordinal: number
+  reason: IdeaVersionReason
+  title: string
+  createdAt: number
+}
+
+/**
+ * `idea.getVersion` result: the full immutable content of one committed
+ * version, over its summary.
+ */
+export interface IdeaVersionDetail extends IdeaVersionSummary {
+  core: string
+  motivation: string
+  currentConclusion: string
+  possibleValue: string
+  useWhen: readonly string[]
+  openQuestions: readonly string[]
 }
