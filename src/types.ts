@@ -1,0 +1,119 @@
+/**
+ * Frozen domain model of the Idea feature. An Idea is a long-term,
+ * user-owned possibility / hypothesis / direction / opportunity that evolves
+ * over time through explicit user-triggered saves. One Idea is one canonical
+ * aggregate record: the idea header, its immutable linear version history,
+ * and the source-discussion snapshots its versions cite.
+ * @module @dsh-external/dsh-idea/src/types
+ */
+
+declare const brand: unique symbol
+
+/** Branded string id of one Idea aggregate. */
+export type IdeaId = string & { readonly [brand]: 'IdeaId' }
+/** Branded string id of one immutable Idea version. */
+export type IdeaVersionId = string & { readonly [brand]: 'IdeaVersionId' }
+/** Branded string id of one captured source-discussion snapshot. */
+export type SourceDiscussionId = string & { readonly [brand]: 'SourceDiscussionId' }
+
+export function IdeaId(value: string): IdeaId {
+  return value as IdeaId
+}
+
+export function IdeaVersionId(value: string): IdeaVersionId {
+  return value as IdeaVersionId
+}
+
+export function SourceDiscussionId(value: string): SourceDiscussionId {
+  return value as SourceDiscussionId
+}
+
+/** Lifecycle of one Idea. `archived` is retrieval filtering, never deletion. */
+export type IdeaStatus = 'active' | 'dormant' | 'archived'
+
+/** The durable header of one Idea aggregate. */
+export interface Idea {
+  ideaId: IdeaId
+  currentVersionId: IdeaVersionId
+  status: IdeaStatus
+  createdAt: number
+  updatedAt: number
+}
+
+/** One immutable committed version of an Idea's semantic content. */
+export interface IdeaVersion {
+  versionId: IdeaVersionId
+  ideaId: IdeaId
+  /** 1-based position in the linear history; strictly increasing, no gaps. */
+  ordinal: number
+  title: string
+  core: string
+  motivation: string
+  currentConclusion: string
+  possibleValue: string
+  useWhen: readonly string[]
+  openQuestions: readonly string[]
+  sourceDiscussionIds: readonly SourceDiscussionId[]
+  createdAt: number
+}
+
+/** One captured user/assistant exchange used as an Idea's source context. */
+export interface CapturedMessage {
+  role: 'user' | 'assistant'
+  text: string
+}
+
+/** A snapshot of the discussion an Idea version was saved from. */
+export interface SourceDiscussion {
+  sourceDiscussionId: SourceDiscussionId
+  ideaId: IdeaId
+  sessionId: string
+  anchorMessageId?: string
+  startSeq?: number
+  endSeq?: number
+  capturedContext: readonly CapturedMessage[]
+  capturedAt: number
+}
+
+/**
+ * The single canonical record persisted per Idea: header plus the complete
+ * immutable linear history plus every source-discussion snapshot. One save
+ * (create or evolve) is one record put or update — the current Harness
+ * storage-domain has no cross-table transactions.
+ */
+export interface IdeaAggregate {
+  idea: Idea
+  versions: readonly IdeaVersion[]
+  sourceDiscussions: readonly SourceDiscussion[]
+}
+
+/** Prepared semantic input for one Idea version. No model calls in V1 T1. */
+export interface IdeaDraft {
+  title: string
+  core: string
+  motivation: string
+  currentConclusion: string
+  possibleValue: string
+  useWhen: readonly string[]
+  openQuestions: readonly string[]
+}
+
+/** Prepared source-snapshot input captured alongside a save. */
+export interface SourceDiscussionDraft {
+  sessionId: string
+  anchorMessageId?: string
+  startSeq?: number
+  endSeq?: number
+  capturedContext: readonly CapturedMessage[]
+}
+
+/** The current-Idea/current-version listing view of one Idea. */
+export interface IdeaCurrentView {
+  idea: Idea
+  currentVersion: IdeaVersion
+}
+
+/** Listing options: archived Ideas are excluded unless explicitly included. */
+export interface ListIdeasOptions {
+  includeArchived?: boolean
+}
