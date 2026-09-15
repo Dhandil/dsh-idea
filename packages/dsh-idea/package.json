@@ -1,0 +1,96 @@
+{
+  "name": "@dsh-external/dsh-idea",
+  "version": "0.1.0",
+  "description": "Idea domain for the DeepSeek Harness: long-lived user-owned ideas with immutable linear version history, source-discussion snapshots, model-drafted preparation, and an explicit Save Idea remote + web UI (T3: remote commit + preview modal)",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./preparation": {
+      "types": "./lib/preparation/index.d.ts",
+      "default": "./lib/preparation/index.js"
+    },
+    "./remote-host": {
+      "types": "./lib/remote-host/index.d.ts",
+      "default": "./lib/remote-host/index.js"
+    },
+    "./typert": {
+      "types": "./lib/typert.host.d.ts",
+      "default": "./lib/typert.host.js"
+    },
+    "./remote": {
+      "types": "./lib/typert.remote-client.d.ts",
+      "default": "./lib/typert.remote-client.js"
+    },
+    "./client": {
+      "types": "./lib/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "lib/typert.host.js",
+    "lib/typert.host.d.ts",
+    "lib/typert.remote-client.js",
+    "lib/typert.remote-client.d.ts",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-renderer"
+      ]
+    }
+  },
+  "scripts": {
+    "setup:dev": "node scripts/setup-dev.mjs",
+    "generate:typert": "node scripts/generate-typert.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "build:client": "tsdown -c tsdown.client.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "verify": "pnpm generate:typert && pnpm typecheck && pnpm test && pnpm build && pnpm build:client"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0 <5",
+    "@deepseek-ai/cosmokit": ">=1.0.0 <2",
+    "@deepseek-ai/dsh-agent-default-model": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-invariants": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-session": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-session-query": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-storage": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-storage-domain": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-storage-json": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": ">=3.18.0 <4",
+    "zod": ">=4.4.0 <5"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.1.0",
+    "@types/node": "^24.13.3",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.0",
+    "jsdom": "^26.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tsdown": "^0.22.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.8"
+  }
+}

@@ -1,4 +1,11 @@
-# pnpm 11 reads package settings from this file; the directory itself is not
-# a workspace. esbuild (a vitest/vite dependency) needs its install script.
+# pnpm 11 workspace: the plugin package lives under packages/*.
+# esbuild (a vitest/vite dependency) needs its install script.
+packages:
+  - packages/*
 onlyBuiltDependencies:
   - esbuild
+# Harness first-party runtime packages resolve through setup-dev junctions into
+# the local checkout; auto-installing their published npm copies would pull
+# transitively unpublished packages and duplicate service instances.
+autoInstallPeers: false
+dedupeInjectedDeps: true
