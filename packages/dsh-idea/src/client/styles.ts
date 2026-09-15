@@ -74,6 +74,100 @@ const CSS = `
 .dsh-idea-field > textarea:disabled {
   opacity: 0.6;
 }
+.dsh-idea-library {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dsh-idea-state {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-idea-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dsh-idea-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-primary, rgba(127, 127, 127, 0.35));
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dsh-idea-row:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.dsh-idea-row-title {
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.dsh-idea-row-core {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-idea-row-meta {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-idea-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dsh-idea-detail-title {
+  margin: 0;
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+.dsh-idea-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dsh-idea-detail-label {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-idea-detail-text {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-idea-detail-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 13px;
+  line-height: 20px;
+}
 `
 
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css='${CSS_ID}']`) === null) {

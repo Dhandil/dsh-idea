@@ -42,3 +42,40 @@ export interface IdeaCreateResult {
   title: string
   createdAt: number
 }
+
+/** `idea.get` request: the Idea to read. */
+export interface IdeaGetRequest {
+  id: string
+}
+
+/**
+ * The read-only summary of one Idea's current version — the `idea.list` row.
+ * Storage records never cross the wire; this is the projection the web
+ * client may see. `source` cites the conversation snapshot the current
+ * version was saved from, absent when the version cites none.
+ */
+export interface IdeaSummary {
+  id: string
+  title: string
+  core: string
+  motivation: string
+  createdAt: number
+  updatedAt: number
+  source?: {
+    sessionId: string
+    anchorMessageId?: string
+  }
+}
+
+/**
+ * The full read-only view of one Idea's current version — the `idea.get`
+ * result: the summary plus the version's remaining semantic content and the
+ * version identity it was read at.
+ */
+export interface IdeaDetail extends IdeaSummary {
+  currentConclusion: string
+  possibleValue: string
+  useWhen: readonly string[]
+  openQuestions: readonly string[]
+  versionId: IdeaVersionId
+}

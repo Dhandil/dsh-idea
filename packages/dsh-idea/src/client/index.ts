@@ -1,28 +1,33 @@
 /**
  * Idea client plugin (browser half): mounts the package's own generated
  * Remote contribution, then — only after the `idea` namespace is ready —
- * registers the per-message `💡` action and the Session's preview modal.
- * Unload runs in reverse: the UI scope dies first, then the Remote mount.
+ * registers the per-message `💡` action, the Session's preview modal, and
+ * the read-only Ideas library settings section. Unload runs in reverse: the
+ * UI scope dies first, then the Remote mount.
  * @module @dsh-external/dsh-idea/client
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only seat pulls: the Context merges (ctx.remote / ctx.locale /
-// ctx.slots) and the SlotMap entries the two registrations type against.
+// ctx.slots) and the SlotMap entries the three registrations type against.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { IdeaReadFace } from './read-state.ts'
 import type { IdeaRemoteFace } from './state.ts'
 
 import ideaRemote from '@dsh-external/dsh-idea/remote'
 import { IdeaSaveDialog } from './IdeaSaveDialog.tsx'
 import { IdeaMessageActions } from './IdeaMessageActions.tsx'
+import { IdeaSection } from './IdeaSection.tsx'
 import { en, zh } from './locales.ts'
-import type { IdeaActionInjected, IdeaDialogInjected } from './slots.ts'
+import { IdeaReadSurface } from './read-state.ts'
+import type { IdeaActionInjected, IdeaDialogInjected, IdeaSectionInjected } from './slots.ts'
 import { IdeaSaveSurface } from './state.ts'
 import './styles.ts'
 
@@ -82,6 +87,24 @@ function registerUi(ctx: ClientContext): void {
       }
     },
   }, IdeaSaveDialog))
+
+  // The read-only library: one root-scoped surface behind the settings
+  // section; the list loads when the user first opens the page.
+  const readSurface = new IdeaReadSurface(ctx.remote.idea as IdeaReadFace)
+  ctx.effect(() => () => { readSurface.dispose() }, 'dsh-idea: library read surface')
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'ideas',
+    order: 25,
+    label: () => ctx.locale.bind(NS)('read.nav'),
+    locale: NS,
+    inject: (): IdeaSectionInjected => ({
+      hooks: { ideaRead: readSurface.state },
+      load: () => { readSurface.load() },
+      open: (id) => { readSurface.open(id) },
+      closeDetail: () => { readSurface.closeDetail() },
+    }),
+  }, IdeaSection))
 }
 
 /**

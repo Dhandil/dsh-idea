@@ -147,22 +147,39 @@ describe('client plugin mount', () => {
     expect(contribution.package).toBe('@dsh-external/dsh-idea')
     expect(contribution.descriptors?.map(d => d.id).sort()).toEqual([
       '@dsh-external/dsh-idea#idea/create',
+      '@dsh-external/dsh-idea#idea/get',
+      '@dsh-external/dsh-idea#idea/list',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
     ])
     expect(localeRegisters).toEqual(['idea'])
-    expect(slotInjectNames).toEqual(['conversation.chat.assistant-actions', 'conversation.input.overlay'])
+    expect(slotInjectNames).toEqual([
+      'conversation.chat.assistant-actions',
+      'conversation.input.overlay',
+      'settings.section',
+    ])
 
     const action = slotRegistrations.find(entry => entry.id === 'idea')
     expect(action).toMatchObject({ name: 'conversation.chat.assistant-actions', order: 20, locale: 'idea' })
     const dialog = slotRegistrations.find(entry => entry.id === 'idea-dialog')
     expect(dialog).toMatchObject({ name: 'conversation.input.overlay', order: 3, locale: 'idea' })
-    expect(slotComponents).toHaveLength(2)
+    const section = slotRegistrations.find(entry => entry.id === 'ideas')
+    expect(section).toMatchObject({ name: 'settings.section', order: 25, locale: 'idea' })
+    expect(typeof (section as unknown as { label?: unknown } | undefined)?.label).toBe('function')
+    expect(slotComponents).toHaveLength(3)
 
     const injected = action !== undefined
       ? (action as unknown as { inject: (sessionId: string) => unknown }).inject('session-1') as { hooks: { idea: unknown }, prepare: (messageId: string) => void }
       : undefined
     expect(typeof injected?.prepare).toBe('function')
     expect(injected?.hooks.idea).toBeDefined()
+
+    const sectionInjected = section !== undefined
+      ? (section as unknown as { inject: () => unknown }).inject() as { hooks: { ideaRead: unknown }, load: () => void, open: (id: string) => void, closeDetail: () => void }
+      : undefined
+    expect(typeof sectionInjected?.load).toBe('function')
+    expect(typeof sectionInjected?.open).toBe('function')
+    expect(typeof sectionInjected?.closeDetail).toBe('function')
+    expect(sectionInjected?.hooks.ideaRead).toBeDefined()
 
     await dispose()
     expect(remoteUnmounts).toBe(1)

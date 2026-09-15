@@ -291,12 +291,14 @@ describe('create', () => {
 })
 
 describe('generated contributions', () => {
-  it('loads the generated host registration with both idea methods', async () => {
+  it('loads the generated host registration with every idea method', async () => {
     const { TYPERT } = await import('../lib/typert.host.js')
     expect(TYPERT).toMatchObject({ package: '@dsh-external/dsh-idea' })
     const record = JSON.stringify(TYPERT)
     expect(record).toContain('idea/prepareFromMessage')
     expect(record).toContain('idea/create')
+    expect(record).toContain('idea/list')
+    expect(record).toContain('idea/get')
     expect(record).toContain('IdeaRemoteService')
   })
 
@@ -306,11 +308,15 @@ describe('generated contributions', () => {
     const descriptors = (TYPERT_REMOTE.descriptors as readonly unknown[]) as Array<{ id: string, cancellation?: unknown, result?: { mode?: string } }>
     expect(descriptors.map(d => d.id).sort()).toEqual([
       '@dsh-external/dsh-idea#idea/create',
+      '@dsh-external/dsh-idea#idea/get',
+      '@dsh-external/dsh-idea#idea/list',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
     ])
     for (const descriptor of descriptors) {
       expect(descriptor.result?.mode).toBe('strict')
-      expect(descriptor.cancellation).toEqual({ parameter: 'signal' })
+      // The two save flights are cancellable; the synchronous reads are not.
+      const cancellable = descriptor.id.endsWith('#idea/create') || descriptor.id.endsWith('#idea/prepareFromMessage')
+      expect(descriptor.cancellation, descriptor.id).toEqual(cancellable ? { parameter: 'signal' } : undefined)
     }
   })
 })

@@ -30,7 +30,10 @@ export { IdeaRemoteService } from './remote-host/service.ts'
 export type {
   IdeaCreateRequest,
   IdeaCreateResult,
+  IdeaDetail,
+  IdeaGetRequest,
   IdeaPrepareRequest,
+  IdeaSummary,
 } from './remote-host/types.ts'
 export { IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
 export type {

@@ -1,12 +1,14 @@
 /**
- * The `idea` Remote service (`ctx.idea`): the explicit Save Idea path exposed
- * to the web client. `prepareFromMessage` delegates to the T2 preparation
- * service and maps its failures onto the wire vocabulary; `create` resolves
- * canonical source provenance from the Host-only registry, validates the
- * user-edited draft, and runs the idempotent commit state machine
- * (`prepared → committing → committed`) so one preparationId produces at
- * most one durable Idea even under duplicate or concurrent requests. The
- * browser may only ever submit a draft plus a preparation reference.
+ * The `idea` Remote service (`ctx.idea`): the Save Idea path and the
+ * read-only library path exposed to the web client. `prepareFromMessage`
+ * delegates to the T2 preparation service and maps its failures onto the
+ * wire vocabulary; `create` resolves canonical source provenance from the
+ * Host-only registry, validates the user-edited draft, and runs the
+ * idempotent commit state machine (`prepared → committing → committed`) so
+ * one preparationId produces at most one durable Idea even under duplicate
+ * or concurrent requests. `list`/`get` project stored aggregates onto
+ * read-only wire summaries/details and never write. The browser may only
+ * ever submit a draft plus a preparation reference.
  * @module @dsh-external/dsh-idea/src/remote-host/service
  */
 
@@ -15,9 +17,17 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import { ideaDraftSchema } from '../schema.ts'
 import { IdeaPreparationError } from '../preparation/errors.ts'
 import type { IdeaPreparationId, PreparedIdeaSource } from '../preparation/types.ts'
-import type { IdeaDraft, SourceDiscussionDraft } from '../types.ts'
+import { IdeaId } from '../types.ts'
+import type { IdeaAggregate, IdeaDraft, IdeaVersion, SourceDiscussionDraft } from '../types.ts'
 import { remoteDomainError, remotePreparationError } from './errors.ts'
-import type { IdeaCreateRequest, IdeaCreateResult, IdeaPrepareRequest } from './types.ts'
+import type {
+  IdeaCreateRequest,
+  IdeaCreateResult,
+  IdeaDetail,
+  IdeaGetRequest,
+  IdeaPrepareRequest,
+  IdeaSummary,
+} from './types.ts'
 import type { IdeaPreparationPreview } from '../preparation/types.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -147,5 +157,74 @@ export class IdeaRemoteService extends TypertRemoteService {
     const domain = remoteDomainError(error)
     if (domain !== undefined) return domain
     return new RemoteError('idea/storage-failed', 'the idea could not be saved', {}, { cause: error })
+  }
+
+  /**
+   * List the saved Ideas as read-only summaries, most recently updated first.
+   * Archived ideas are retrieval-filtered out; nothing is ever written.
+   */
+  @Remote
+  async list(): Promise<IdeaSummary[]> {
+    return this.ctx.ideaService.list().map(view => ideaSummaryOf(
+      this.ctx.ideaService.get(view.idea.ideaId),
+      view.currentVersion,
+    ))
+  }
+
+  /**
+   * Read one Idea's current version in full detail. Archived ideas stay
+   * readable — archived is retrieval filtering, never deletion. Unknown ids
+   * map onto `idea/not-found`.
+   */
+  @Remote
+  async get(request: IdeaGetRequest): Promise<IdeaDetail> {
+    try {
+      const aggregate = this.ctx.ideaService.get(IdeaId(request.id))
+      return ideaDetailOf(aggregate)
+    } catch (error) {
+      throw remoteDomainError(error) ?? error
+    }
+  }
+}
+
+/** The source snapshot the version cites, absent when it cites none. */
+function citedSourceOf(aggregate: IdeaAggregate, version: IdeaVersion): IdeaSummary['source'] {
+  const discussionId = version.sourceDiscussionIds[0]
+  if (discussionId === undefined) return undefined
+  const discussion = aggregate.sourceDiscussions.find(entry => entry.sourceDiscussionId === discussionId)
+  if (discussion === undefined) return undefined
+  return {
+    sessionId: discussion.sessionId,
+    ...(discussion.anchorMessageId !== undefined ? { anchorMessageId: discussion.anchorMessageId } : {}),
+  }
+}
+
+/** The wire summary of one Idea over its current version. */
+function ideaSummaryOf(aggregate: IdeaAggregate, version: IdeaVersion): IdeaSummary {
+  const source = citedSourceOf(aggregate, version)
+  return {
+    id: aggregate.idea.ideaId,
+    title: version.title,
+    core: version.core,
+    motivation: version.motivation,
+    createdAt: aggregate.idea.createdAt,
+    updatedAt: aggregate.idea.updatedAt,
+    ...(source !== undefined ? { source } : {}),
+  }
+}
+
+/** The full wire detail of one Idea: the summary plus its current version. */
+function ideaDetailOf(aggregate: IdeaAggregate): IdeaDetail {
+  const version = aggregate.versions.find(entry => entry.versionId === aggregate.idea.currentVersionId)
+  if (version === undefined) {
+    throw new Error(`idea '${aggregate.idea.ideaId}' has no current version`)
+  }
+  return {
+    ...ideaSummaryOf(aggregate, version),
+    currentConclusion: version.currentConclusion,
+    possibleValue: version.possibleValue,
+    useWhen: [...version.useWhen],
+    openQuestions: [...version.openQuestions],
+    versionId: version.versionId,
   }
 }

@@ -80,6 +80,8 @@ describe('web client bundle', () => {
     expect(source).not.toContain("require('@dsh-external/dsh-idea/remote')")
     expect(source).toContain('exports.apply')
     expect(source).toContain('exports.inject')
+    // The read-only library ships in the same bundle.
+    expect(source).toContain('settings.section')
 
     const loaded: Record<string, { id: string, exports: Record<string, unknown> }> = {}
     const previousWindow = (globalThis as { window?: unknown }).window

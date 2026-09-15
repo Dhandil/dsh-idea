@@ -32,6 +32,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'idea/invalid-draft': { readonly issues?: readonly object[] }
     /** The durable Idea write failed; the preparation stays retryable. */
     'idea/storage-failed': {}
+    /** The requested Idea does not exist. */
+    'idea/not-found': {}
   }
 }
 
@@ -48,6 +50,7 @@ export const IDEA_REMOTE_ERROR_CODES = [
   'idea/preparation-not-found',
   'idea/invalid-draft',
   'idea/storage-failed',
+  'idea/not-found',
 ] as const satisfies readonly (keyof RemoteErrorDetailsMap)[]
 
 export type IdeaRemoteErrorCode = (typeof IDEA_REMOTE_ERROR_CODES)[number]
@@ -80,12 +83,15 @@ export function remotePreparationError(error: unknown): RemoteError | undefined 
   return undefined
 }
 
-/** Map one Idea-domain failure raised inside the commit path. */
+/** Map one Idea-domain failure raised inside the commit and read paths. */
 export function remoteDomainError(error: unknown): RemoteError | undefined {
   if (!(error instanceof IdeaError)) return undefined
   const code: IdeaErrorCode = error.code
   if (code === 'invalid-input') {
     return new RemoteError('idea/invalid-draft', 'the edited idea draft is invalid', {}, { cause: error })
+  }
+  if (code === 'idea-not-found') {
+    return new RemoteError('idea/not-found', 'the idea does not exist', {}, { cause: error })
   }
   return new RemoteError('idea/storage-failed', 'the idea could not be saved', {}, { cause: error })
 }
