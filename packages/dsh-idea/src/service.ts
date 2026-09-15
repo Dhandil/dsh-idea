@@ -360,6 +360,22 @@ export class IdeaService extends Service {
   }
 
   /**
+   * Read one continued-discussion workspace, synchronously from memory.
+   * Read-only: the returned snapshot is detached, and nothing is ever
+   * written.
+   * @param discussionId - The discussion workspace to read.
+   * @returns a detached snapshot of the stored discussion.
+   * @throws `IdeaError` with code `discussion-not-found` when absent.
+   */
+  getDiscussion(discussionId: IdeaDiscussionId): IdeaDiscussion {
+    const discussion = this.workspaces.get(discussionId)
+    if (discussion === undefined) {
+      throw new IdeaError('discussion-not-found', `discussion '${discussionId}' does not exist`)
+    }
+    return structuredClone(discussion)
+  }
+
+  /**
    * One optimistic single-record update on the domain's write chain. The
    * expectation is compared inside the update transform, which runs before
    * any backend write: a mismatch throws out of the transform, so neither

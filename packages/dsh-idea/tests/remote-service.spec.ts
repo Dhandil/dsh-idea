@@ -24,6 +24,7 @@ import {
 import { cleanup, draft, storedBytes } from './helpers/harness.ts'
 import { IdeaPreparationError, type IdeaPreparationErrorCode } from '../src/preparation/errors.ts'
 import type { IdeaPreparationId, IdeaPreparationPreview, PreparedIdeaSource } from '../src/preparation/types.ts'
+import IdeaEvolutionService from '../src/evolution/index.ts'
 import IdeaRemoteService from '../src/remote-host/index.ts'
 import type { IdeaPrepareRequest } from '../src/remote-host/types.ts'
 import { EvolutionEventId, IdeaId, IdeaVersionId } from '../src/types.ts'
@@ -89,6 +90,7 @@ async function fullHarness() {
   sessionQuery.add('session-1', defaultEvents())
   const llm = new FakeLlm()
   const env = await preparationHarness({ sessionQuery, agentDefaultModel: new FakeAgentDefaultModel(), llm })
+  await env.ctx.plugin(IdeaEvolutionService)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, llm }
 }
@@ -131,6 +133,10 @@ function stubHarness(overrides: {
     const ctx = new Context()
     ctx.provide('ideaService', { create } as never)
     ctx.provide('ideaPreparations', { prepareFromMessage, preparations: { resolve } } as never)
+    ctx.provide('ideaEvolutions', {
+      prepare: vi.fn(async () => { throw new Error('this suite never prepares evolution') }),
+      commit: vi.fn(async () => { throw new Error('this suite never commits evolution') }),
+    } as never)
     await ctx.plugin(IdeaRemoteService)
     return { ctx, idea: ctx.idea, create, resolve, prepareFromMessage }
   })()
@@ -310,6 +316,9 @@ describe('generated contributions', () => {
     expect(record).toContain('idea/get')
     expect(record).toContain('idea/getVersions')
     expect(record).toContain('idea/getVersion')
+    expect(record).toContain('idea/continueDiscussion')
+    expect(record).toContain('idea/prepareEvolution')
+    expect(record).toContain('idea/commitEvolution')
     expect(record).toContain('IdeaRemoteService')
   })
 
@@ -318,18 +327,23 @@ describe('generated contributions', () => {
     expect(TYPERT_REMOTE).toMatchObject({ package: '@dsh-external/dsh-idea' })
     const descriptors = (TYPERT_REMOTE.descriptors as readonly unknown[]) as Array<{ id: string, cancellation?: unknown, result?: { mode?: string } }>
     expect(descriptors.map(d => d.id).sort()).toEqual([
+      '@dsh-external/dsh-idea#idea/commitEvolution',
       '@dsh-external/dsh-idea#idea/continueDiscussion',
       '@dsh-external/dsh-idea#idea/create',
       '@dsh-external/dsh-idea#idea/get',
       '@dsh-external/dsh-idea#idea/getVersion',
       '@dsh-external/dsh-idea#idea/getVersions',
       '@dsh-external/dsh-idea#idea/list',
+      '@dsh-external/dsh-idea#idea/prepareEvolution',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
     ])
     for (const descriptor of descriptors) {
       expect(descriptor.result?.mode).toBe('strict')
-      // The two save flights are cancellable; the synchronous reads are not.
-      const cancellable = descriptor.id.endsWith('#idea/create') || descriptor.id.endsWith('#idea/prepareFromMessage')
+      // The save/evolution proposal flights are cancellable; the synchronous
+      // reads and the durable commit are not.
+      const cancellable = descriptor.id.endsWith('#idea/create')
+        || descriptor.id.endsWith('#idea/prepareFromMessage')
+        || descriptor.id.endsWith('#idea/prepareEvolution')
       expect(descriptor.cancellation, descriptor.id).toEqual(cancellable ? { parameter: 'signal' } : undefined)
     }
   })

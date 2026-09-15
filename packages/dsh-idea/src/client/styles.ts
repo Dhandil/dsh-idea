@@ -206,6 +206,15 @@ const CSS = `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.dsh-idea-evolution {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dsh-idea-evolution-actions {
+  display: flex;
+  gap: 8px;
+}
 `
 
 if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css='${CSS_ID}']`) === null) {

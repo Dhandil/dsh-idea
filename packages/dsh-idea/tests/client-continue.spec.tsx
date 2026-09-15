@@ -19,6 +19,7 @@ import type { IdeaContinueDiscussionResult, IdeaDetail, IdeaSummary } from '../s
 import type { IdeaReadFace, IdeaReadState } from '../src/client/read-state.ts'
 import { IdeaSection } from '../src/client/IdeaSection.tsx'
 import type { IdeaSectionProps } from '../src/client/slots.ts'
+import type { EditableIdeaDraft } from '../src/client/state.ts'
 import { zh } from '../src/client/locales.ts'
 import type { IdeaVersionId } from '../src/types.ts'
 
@@ -91,6 +92,10 @@ function sectionProps(surface: IdeaReadSurface): IdeaSectionProps {
     open: (id: string) => { surface.open(id) },
     closeDetail: () => { surface.closeDetail() },
     continueIdea: (id: string) => { surface.continueDiscussion(id) },
+    prepareEvolution: () => { surface.prepareEvolution() },
+    editProposalDraft: (patch: Partial<EditableIdeaDraft>) => { surface.editProposalDraft(patch) },
+    cancelProposal: () => { surface.cancelProposal() },
+    commitProposal: () => { surface.commitProposal() },
     useIdeaRead: useIdeaReadOf(surface.state),
     t,
   } as unknown as IdeaSectionProps

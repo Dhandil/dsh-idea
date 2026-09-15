@@ -15,6 +15,10 @@
       "types": "./lib/preparation/index.d.ts",
       "default": "./lib/preparation/index.js"
     },
+    "./evolution": {
+      "types": "./lib/evolution/index.d.ts",
+      "default": "./lib/evolution/index.js"
+    },
     "./remote-host": {
       "types": "./lib/remote-host/index.d.ts",
       "default": "./lib/remote-host/index.js"

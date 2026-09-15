@@ -1,17 +1,21 @@
 /**
- * The `idea` Remote service (`ctx.idea`): the Save Idea path and the
- * read-only library path exposed to the web client. `prepareFromMessage`
- * delegates to the T2 preparation service and maps its failures onto the
- * wire vocabulary; `create` resolves canonical source provenance from the
- * Host-only registry, validates the user-edited draft, and runs the
- * idempotent commit state machine (`prepared → committing → committed`) so
- * one preparationId produces at most one durable Idea even under duplicate
- * or concurrent requests. `list`/`get` project stored aggregates onto
- * read-only wire summaries/details and never write, `getVersions`/
- * `getVersion` expose the immutable version history the same way, and
- * `continueDiscussion` opens the Idea's continuation conversation through
- * the Host Session Controller while the domain service owns idempotency.
- * The browser may only ever submit a draft plus a preparation reference.
+ * The `idea` Remote service (`ctx.idea`): the Save Idea path, the read-only
+ * library path, and the evolution path exposed to the web client.
+ * `prepareFromMessage` delegates to the T2 preparation service and maps its
+ * failures onto the wire vocabulary; `create` resolves canonical source
+ * provenance from the Host-only registry, validates the user-edited draft,
+ * and runs the idempotent commit state machine
+ * (`prepared → committing → committed`) so one preparationId produces at
+ * most one durable Idea even under duplicate or concurrent requests.
+ * `list`/`get` project stored aggregates onto read-only wire summaries/
+ * details and never write, `getVersions`/`getVersion` expose the immutable
+ * version history the same way, `continueDiscussion` opens the Idea's
+ * continuation conversation through the Host Session Controller while the
+ * domain service owns idempotency, and `prepareEvolution`/`commitEvolution`
+ * carry the evolution proposal pipeline — prepare is a read-only proposal,
+ * commit is the only durable write and stays subject to the domain's
+ * optimistic version check. The browser may only ever submit a draft plus a
+ * Host-owned reference.
  * @module @dsh-external/dsh-idea/src/remote-host/service
  */
 
@@ -23,14 +27,18 @@ import { IdeaPreparationError } from '../preparation/errors.ts'
 import type { IdeaPreparationId, PreparedIdeaSource } from '../preparation/types.ts'
 import { IdeaId, IdeaVersionId } from '../types.ts'
 import type { IdeaAggregate, IdeaDraft, IdeaVersion, SourceDiscussionDraft } from '../types.ts'
-import { remoteDomainError, remotePreparationError } from './errors.ts'
+import { remoteDomainError, remoteEvolutionError, remotePreparationError } from './errors.ts'
 import type {
+  IdeaCommitEvolutionRequest,
+  IdeaCommitEvolutionResult,
   IdeaContinueDiscussionRequest,
   IdeaContinueDiscussionResult,
   IdeaCreateRequest,
   IdeaCreateResult,
   IdeaDetail,
   IdeaGetRequest,
+  IdeaEvolutionProposalPreview,
+  IdeaPrepareEvolutionRequest,
   IdeaPrepareRequest,
   IdeaSummary,
   IdeaVersionDetail,
@@ -51,7 +59,7 @@ type CommitEntry =
   | { kind: 'committed'; result: IdeaCreateResult }
 
 export class IdeaRemoteService extends TypertRemoteService {
-  static inject = ['ideaService', 'ideaPreparations']
+  static inject = ['ideaService', 'ideaPreparations', 'ideaEvolutions']
 
   /** Commit state per preparationId; entries live for the process lifetime. */
   private readonly commits = new Map<IdeaPreparationId, CommitEntry>()
@@ -240,6 +248,60 @@ export class IdeaRemoteService extends TypertRemoteService {
       }
     } catch (error) {
       throw remoteDomainError(error) ?? error
+    }
+  }
+
+  /**
+   * Propose the next version of one Idea from its continued discussion.
+   * Delegates entirely to the evolution service; zero durable writes. A
+   * stale or expired conversation surfaces as a preparation failure, never
+   * as a write.
+   */
+  @Remote
+  async prepareEvolution(
+    request: IdeaPrepareEvolutionRequest,
+    signal?: AbortSignal,
+  ): Promise<IdeaEvolutionProposalPreview> {
+    try {
+      return await this.ctx.ideaEvolutions.prepare(request.discussionId, signal)
+    } catch (error) {
+      throw remoteEvolutionError(error) ?? remotePreparationError(error) ?? remoteDomainError(error) ?? error
+    }
+  }
+
+  /**
+   * Commit the user-approved proposal as the next immutable version. The
+   * optimistic version check runs twice — against the proposal's base and
+   * again inside the domain write — so a stale proposal is rejected with
+   * zero partial writes, and a consumed proposal can never commit twice.
+   */
+  @Remote
+  async commitEvolution(request: IdeaCommitEvolutionRequest): Promise<IdeaCommitEvolutionResult> {
+    const parsed = ideaDraftSchema.safeParse(request.draft)
+    if (!parsed.success) {
+      throw new RemoteError('idea/invalid-draft', 'the approved idea draft is invalid', {
+        issues: parsed.error.issues,
+      })
+    }
+    try {
+      const aggregate = await this.ctx.ideaEvolutions.commit(
+        request.proposalId,
+        IdeaVersionId(request.expectedCurrentVersionId),
+        parsed.data,
+      )
+      const version = aggregate.versions.find(entry => entry.versionId === aggregate.idea.currentVersionId)
+      if (version === undefined || aggregate.idea.status !== 'active') {
+        throw new Error('idea evolution commit returned an unexpected aggregate')
+      }
+      return {
+        ideaId: aggregate.idea.ideaId,
+        currentVersionId: version.versionId,
+        ordinal: version.ordinal,
+        title: version.draft.title,
+        status: aggregate.idea.status,
+      }
+    } catch (error) {
+      throw remoteEvolutionError(error) ?? remoteDomainError(error) ?? error
     }
   }
 

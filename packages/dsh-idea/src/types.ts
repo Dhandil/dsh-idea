@@ -20,6 +20,8 @@ export type SourceDiscussionId = string & { readonly [brand]: 'SourceDiscussionI
 export type EvolutionEventId = string & { readonly [brand]: 'EvolutionEventId' }
 /** Branded string id of one continued-discussion workspace. */
 export type IdeaDiscussionId = string & { readonly [brand]: 'IdeaDiscussionId' }
+/** Branded opaque id of one ephemeral Host-owned evolution proposal. */
+export type EvolutionProposalId = string & { readonly [brand]: 'EvolutionProposalId' }
 
 export function IdeaId(value: string): IdeaId {
   return value as IdeaId
@@ -39,6 +41,10 @@ export function EvolutionEventId(value: string): EvolutionEventId {
 
 export function IdeaDiscussionId(value: string): IdeaDiscussionId {
   return value as IdeaDiscussionId
+}
+
+export function EvolutionProposalId(value: string): EvolutionProposalId {
+  return value as EvolutionProposalId
 }
 
 /** Lifecycle of one Idea. `archived` is retrieval filtering, never deletion. */
@@ -163,6 +169,25 @@ export interface IdeaDiscussion {
   createdAt: number
   /** The context seed the conversation starts from. */
   context: IdeaContinuationContext
+}
+
+/**
+ * One ephemeral, Host-owned evolution proposal: the model's drafted next
+ * version for an Idea, held until the user approves or abandons it. A
+ * proposal is temporary by design — it never persists, never crosses a
+ * restart, and never touches the Idea. Only an explicit user-approved
+ * commit turns a proposal into a durable {@link IdeaVersion}.
+ */
+export interface IdeaEvolutionProposal {
+  proposalId: EvolutionProposalId
+  ideaId: IdeaId
+  /** The Idea version the proposal was prepared against. */
+  baseVersionId: IdeaVersionId
+  /** The proposed next version's semantic content. */
+  draft: IdeaDraft
+  /** The reason a commit of this proposal would carry. */
+  reason: IdeaEvolutionReason
+  createdAt: number
 }
 
 /**

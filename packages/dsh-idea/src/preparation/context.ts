@@ -13,17 +13,17 @@ import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
 import { IdeaPreparationError } from './errors.ts'
 import type { CapturedMessage } from '../types.ts'
 
+const TRUNCATION_MARKER = '\n…[truncated]…\n'
+
 /** Frozen Save-context policy of T2. Tighter than the durable bounds of T1. */
 export const IDEA_CAPTURE_LIMITS = {
   /** Most visible messages one capture may hold. */
   maxMessages: 12,
   /** Most normalized characters one capture may hold in total. */
   maxCharacters: 12_000,
+  /** Below this remaining budget a non-essential message is dropped whole. */
+  minTruncatable: TRUNCATION_MARKER.length + 2,
 } as const
-
-const TRUNCATION_MARKER = '\n…[truncated]…\n'
-/** Below this budget a message cannot retain head+tail around the marker. */
-const MIN_TRUNCATABLE = TRUNCATION_MARKER.length + 2
 
 /**
  * One deterministic normalization for captured text: CRLF/CR become `\n`,
@@ -49,7 +49,7 @@ export interface CapturedDiscussion {
 }
 
 /** Deterministic prefix/marker/suffix truncation within one character budget. */
-function truncateToBudget(text: string, budget: number): string {
+export function truncateToBudget(text: string, budget: number): string {
   const available = budget - TRUNCATION_MARKER.length
   const head = Math.ceil(available / 2)
   const tail = available - head
@@ -57,7 +57,7 @@ function truncateToBudget(text: string, budget: number): string {
 }
 
 /** Join only the `type: 'text'` blocks; every other block kind is ignored. */
-function visibleText(content: ReadonlyArray<{ readonly type: string; readonly text?: string }>): string {
+export function visibleText(content: ReadonlyArray<{ readonly type: string; readonly text?: string }>): string {
   let joined = ''
   for (const block of content) {
     if (block.type === 'text' && typeof block.text === 'string') {
@@ -122,7 +122,7 @@ export function captureDiscussionFromSurface(
     if (text.length > remaining) {
       // The anchor never disappears because it is large; earlier messages do
       // not survive a budget that cannot retain meaningful text.
-      if (!isAnchor && remaining < MIN_TRUNCATABLE) break
+      if (!isAnchor && remaining < IDEA_CAPTURE_LIMITS.minTruncatable) break
       text = truncateToBudget(text, remaining)
     }
     captured.push({ ...candidate, text })

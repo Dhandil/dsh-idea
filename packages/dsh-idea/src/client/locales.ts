@@ -53,6 +53,17 @@ export const zh = {
   'read.continue': '继续讨论',
   'read.continue.loading': '正在开启讨论…',
   'read.continue.error': '继续讨论失败，请稍后重试',
+  'read.evolve': '生成演化提案',
+  'read.evolve.loading': '正在生成提案…',
+  'read.evolve.prepareError': '生成演化提案失败，请稍后重试',
+  'read.evolve.title': '演化提案',
+  'read.evolve.base': '基于当前版本 v{ordinal}',
+  'read.evolve.baseUnknown': '基于当前版本',
+  'read.evolve.cancel': '取消',
+  'read.evolve.commit': '保存为新版本',
+  'read.evolve.committing': '正在保存…',
+  'read.evolve.commitError': '保存新版本失败，请稍后重试',
+  'read.evolve.readonlyHint': '当前版本「{title}」保持不变；确认后将追加为新版本。',
 } satisfies Record<string, string>
 
 /** The idea namespace key union. */
@@ -113,4 +124,15 @@ export const en = {
   'read.continue': 'Continue discussion',
   'read.continue.loading': 'Opening the discussion…',
   'read.continue.error': 'Could not continue the discussion. Try again later.',
+  'read.evolve': 'Propose evolution',
+  'read.evolve.loading': 'Preparing the proposal…',
+  'read.evolve.prepareError': 'Could not prepare the evolution proposal. Try again later.',
+  'read.evolve.title': 'Evolution proposal',
+  'read.evolve.base': 'Based on current version v{ordinal}',
+  'read.evolve.baseUnknown': 'Based on the current version',
+  'read.evolve.cancel': 'Cancel',
+  'read.evolve.commit': 'Save as new version',
+  'read.evolve.committing': 'Saving…',
+  'read.evolve.commitError': 'Could not save the new version. Try again later.',
+  'read.evolve.readonlyHint': 'The current version "{title}" stays unchanged; approving appends a new version.',
 } satisfies Record<IdeaLocaleKey, string>

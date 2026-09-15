@@ -115,6 +115,10 @@ function registerUi(ctx: ClientContext): void {
       open: (id) => { readSurface.open(id) },
       closeDetail: () => { readSurface.closeDetail() },
       continueIdea: (id) => { readSurface.continueDiscussion(id) },
+      prepareEvolution: () => { readSurface.prepareEvolution() },
+      editProposalDraft: (patch) => { readSurface.editProposalDraft(patch) },
+      cancelProposal: () => { readSurface.cancelProposal() },
+      commitProposal: () => { readSurface.commitProposal() },
     }),
   }, IdeaSection))
 }

@@ -147,12 +147,14 @@ describe('client plugin mount', () => {
     const contribution = mountedContributions[0]!
     expect(contribution.package).toBe('@dsh-external/dsh-idea')
     expect(contribution.descriptors?.map(d => d.id).sort()).toEqual([
+      '@dsh-external/dsh-idea#idea/commitEvolution',
       '@dsh-external/dsh-idea#idea/continueDiscussion',
       '@dsh-external/dsh-idea#idea/create',
       '@dsh-external/dsh-idea#idea/get',
       '@dsh-external/dsh-idea#idea/getVersion',
       '@dsh-external/dsh-idea#idea/getVersions',
       '@dsh-external/dsh-idea#idea/list',
+      '@dsh-external/dsh-idea#idea/prepareEvolution',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
     ])
     expect(localeRegisters).toEqual(['idea'])
@@ -178,12 +180,26 @@ describe('client plugin mount', () => {
     expect(injected?.hooks.idea).toBeDefined()
 
     const sectionInjected = section !== undefined
-      ? (section as unknown as { inject: () => unknown }).inject() as { hooks: { ideaRead: unknown }, load: () => void, open: (id: string) => void, closeDetail: () => void, continueIdea: (id: string) => void }
+      ? (section as unknown as { inject: () => unknown }).inject() as {
+          hooks: { ideaRead: unknown }
+          load: () => void
+          open: (id: string) => void
+          closeDetail: () => void
+          continueIdea: (id: string) => void
+          prepareEvolution: () => void
+          editProposalDraft: (patch: unknown) => void
+          cancelProposal: () => void
+          commitProposal: () => void
+        }
       : undefined
     expect(typeof sectionInjected?.load).toBe('function')
     expect(typeof sectionInjected?.open).toBe('function')
     expect(typeof sectionInjected?.closeDetail).toBe('function')
     expect(typeof sectionInjected?.continueIdea).toBe('function')
+    expect(typeof sectionInjected?.prepareEvolution).toBe('function')
+    expect(typeof sectionInjected?.editProposalDraft).toBe('function')
+    expect(typeof sectionInjected?.cancelProposal).toBe('function')
+    expect(typeof sectionInjected?.commitProposal).toBe('function')
     expect(sectionInjected?.hooks.ideaRead).toBeDefined()
 
     await dispose()

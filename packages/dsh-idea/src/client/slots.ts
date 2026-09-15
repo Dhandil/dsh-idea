@@ -63,6 +63,14 @@ export interface IdeaSectionInjected {
   closeDetail: () => void
   /** Continue one Idea as a new discussion and open its conversation. */
   continueIdea: (id: string) => void
+  /** Ask the Host to propose the next version from the detail's discussion. */
+  prepareEvolution: () => void
+  /** Apply one field edit to the proposal under review. */
+  editProposalDraft: (patch: Partial<EditableIdeaDraft>) => void
+  /** Discard the proposal under review; zero durable writes. */
+  cancelProposal: () => void
+  /** Commit the approved proposal as the next immutable version. */
+  commitProposal: () => void
 }
 
 /** Full props of the Ideas settings section entry. */

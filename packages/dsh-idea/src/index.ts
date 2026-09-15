@@ -37,7 +37,7 @@ export type {
   IdeaPrepareRequest,
   IdeaSummary,
 } from './remote-host/types.ts'
-export { IdeaId, IdeaVersionId, IdeaDiscussionId, SourceDiscussionId } from './types.ts'
+export { IdeaId, IdeaVersionId, IdeaDiscussionId, SourceDiscussionId, EvolutionProposalId } from './types.ts'
 export type {
   CapturedMessage,
   Idea,
@@ -46,6 +46,8 @@ export type {
   IdeaCurrentView,
   IdeaDiscussion,
   IdeaDraft,
+  IdeaEvolutionProposal,
+  IdeaEvolutionReason,
   IdeaHistorySummaryEntry,
   IdeaStatus,
   IdeaVersion,

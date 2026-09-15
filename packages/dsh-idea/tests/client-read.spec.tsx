@@ -17,6 +17,7 @@ import { IdeaReadSurface } from '../src/client/read-state.ts'
 import type { IdeaReadFace, IdeaReadState } from '../src/client/read-state.ts'
 import { IdeaSection } from '../src/client/IdeaSection.tsx'
 import type { IdeaSectionProps } from '../src/client/slots.ts'
+import type { EditableIdeaDraft } from '../src/client/state.ts'
 import { zh } from '../src/client/locales.ts'
 import type { IdeaDetail, IdeaSummary, IdeaVersionSummary } from '../src/remote-host/types.ts'
 import type { IdeaVersionId } from '../src/types.ts'
@@ -96,6 +97,11 @@ function sectionProps(surface: IdeaReadSurface): IdeaSectionProps {
     load: () => { surface.load() },
     open: (id: string) => { surface.open(id) },
     closeDetail: () => { surface.closeDetail() },
+    continueIdea: (id: string) => { surface.continueDiscussion(id) },
+    prepareEvolution: () => { surface.prepareEvolution() },
+    editProposalDraft: (patch: Partial<EditableIdeaDraft>) => { surface.editProposalDraft(patch) },
+    cancelProposal: () => { surface.cancelProposal() },
+    commitProposal: () => { surface.commitProposal() },
     useIdeaRead: useIdeaReadOf(surface.state),
     t,
   } as unknown as IdeaSectionProps

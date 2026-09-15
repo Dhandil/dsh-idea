@@ -7,11 +7,12 @@
  * @module @dsh-external/dsh-idea/src/remote-host/types
  */
 
-import type { IdeaDraft, IdeaId, IdeaVersionId, IdeaVersionReason } from '../types.ts'
+import type { IdeaDraft, IdeaEvolutionReason, IdeaId, IdeaVersionId, IdeaVersionReason } from '../types.ts'
 import type { IdeaPreparationId, IdeaPreparationPreview } from '../preparation/types.ts'
 
 export type {
   IdeaDraft,
+  IdeaEvolutionReason,
   IdeaId,
   IdeaPreparationId,
   IdeaPreparationPreview,
@@ -131,4 +132,46 @@ export interface IdeaContinueDiscussionResult {
   conversationId: string
   /** The Idea version the discussion was created from. */
   baseVersionId: string
+}
+
+/** `idea.prepareEvolution` request: the continued discussion to evolve from. */
+export interface IdeaPrepareEvolutionRequest {
+  discussionId: string
+}
+
+/**
+ * The preview returned by `idea.prepareEvolution`: the opaque proposal
+ * reference, the version the proposal was prepared against, and the
+ * proposed draft. Preparation never writes durable Idea state.
+ */
+export interface IdeaEvolutionProposalPreview {
+  proposalId: string
+  /** The Idea the proposal belongs to. */
+  ideaId: string
+  /** The version the proposal was prepared against. */
+  baseVersionId: string
+  reason: IdeaEvolutionReason
+  draft: IdeaDraft
+}
+
+/** `idea.commitEvolution` request: the approved proposal plus the draft to commit. */
+export interface IdeaCommitEvolutionRequest {
+  /** The opaque proposal reference returned by `prepareEvolution`. */
+  proposalId: string
+  /** The current version the client last saw; a mismatch rejects the commit. */
+  expectedCurrentVersionId: string
+  /** The user-approved draft. Source provenance is Host-owned. */
+  draft: IdeaDraft
+}
+
+/**
+ * `idea.commitEvolution` result: the new current version the commit
+ * appended. Historical versions are immutable and never rewritten.
+ */
+export interface IdeaCommitEvolutionResult {
+  ideaId: string
+  currentVersionId: string
+  ordinal: number
+  title: string
+  status: 'active'
 }

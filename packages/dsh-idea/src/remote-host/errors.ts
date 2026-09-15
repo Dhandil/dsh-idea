@@ -13,6 +13,7 @@ import { IdeaError } from '../errors.ts'
 import type { IdeaErrorCode } from '../errors.ts'
 import { IdeaPreparationError } from '../preparation/errors.ts'
 import type { IdeaPreparationErrorCode } from '../preparation/errors.ts'
+import { IdeaEvolutionError } from '../evolution/errors.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
@@ -38,6 +39,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'idea/version-not-found': {}
     /** The Host could not create the continuation conversation. */
     'idea/conversation-failed': {}
+    /** The requested continued-discussion workspace does not exist. */
+    'idea/discussion-not-found': {}
+    /** The evolution proposal id is unknown, expired, or already committed. */
+    'idea/proposal-not-found': {}
+    /** The Idea moved past the proposal's base version; zero writes happened. */
+    'idea/version-conflict': {}
   }
 }
 
@@ -57,6 +64,9 @@ export const IDEA_REMOTE_ERROR_CODES = [
   'idea/not-found',
   'idea/version-not-found',
   'idea/conversation-failed',
+  'idea/discussion-not-found',
+  'idea/proposal-not-found',
+  'idea/version-conflict',
 ] as const satisfies readonly (keyof RemoteErrorDetailsMap)[]
 
 export type IdeaRemoteErrorCode = (typeof IDEA_REMOTE_ERROR_CODES)[number]
@@ -89,6 +99,19 @@ export function remotePreparationError(error: unknown): RemoteError | undefined 
   return undefined
 }
 
+/**
+ * Map one thrown evolution failure onto the wire vocabulary.
+ * @returns the wire failure, or `undefined` when the error is unexpected and
+ * must stay unclassified (`gateway/internal`).
+ */
+export function remoteEvolutionError(error: unknown): RemoteError | undefined {
+  if (!(error instanceof IdeaEvolutionError)) return undefined
+  if (error.code === 'proposal-not-found') {
+    return new RemoteError('idea/proposal-not-found', 'this evolution proposal is no longer available', {})
+  }
+  return undefined
+}
+
 /** Map one Idea-domain failure raised inside the commit and read paths. */
 export function remoteDomainError(error: unknown): RemoteError | undefined {
   if (!(error instanceof IdeaError)) return undefined
@@ -101,6 +124,12 @@ export function remoteDomainError(error: unknown): RemoteError | undefined {
   }
   if (code === 'version-not-found') {
     return new RemoteError('idea/version-not-found', 'the idea version does not exist', {}, { cause: error })
+  }
+  if (code === 'discussion-not-found') {
+    return new RemoteError('idea/discussion-not-found', 'the continued discussion does not exist', {}, { cause: error })
+  }
+  if (code === 'version-conflict') {
+    return new RemoteError('idea/version-conflict', 'the idea changed while you were reviewing; nothing was saved', {}, { cause: error })
   }
   return new RemoteError('idea/storage-failed', 'the idea could not be saved', {}, { cause: error })
 }

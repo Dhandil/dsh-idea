@@ -1,17 +1,28 @@
 /**
  * The Ideas settings section's browser state: the saved-Idea list, the open
- * detail, and the detail's Continue Discussion action. The reads are
- * read-only by construction; the one write path (continueDiscussion) is
- * user-triggered from the detail view, guards against duplicate clicks, and
- * hands the returned conversation to the injected opener on success.
- * Every fact is fetched from the Host `idea` namespace on demand, and
- * disposing the surface aborts any in-flight read. No canonical Idea data
- * lives here beyond what a read returned.
+ * detail, the detail's Continue Discussion action, and the evolution
+ * proposal flow the discussion unlocks. The reads are read-only by
+ * construction; the write paths (continueDiscussion, commitProposal) are
+ * user-triggered, guard against duplicate clicks, and a commit failure keeps
+ * the reviewed draft on screen for retry. Preparing a proposal writes
+ * nothing durable. Every fact is fetched from the Host `idea` namespace on
+ * demand, and disposing the surface aborts any in-flight read. No canonical
+ * Idea data lives here beyond what a read returned.
  * @module @dsh-external/dsh-idea/client/read-state
  */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { IdeaContinueDiscussionResult, IdeaDetail, IdeaSummary, IdeaVersionSummary } from '../remote-host/types.ts'
+import type {
+  IdeaCommitEvolutionResult,
+  IdeaContinueDiscussionResult,
+  IdeaDetail,
+  IdeaEvolutionProposalPreview,
+  IdeaSummary,
+  IdeaVersionSummary,
+} from '../remote-host/types.ts'
+import { durableFrom, editableFrom } from './state.ts'
+import type { EditableIdeaDraft } from './state.ts'
+import type { IdeaDraft } from '../types.ts'
 
 /** The wire outcome of one read call. */
 type RemoteRead<T> =
@@ -24,10 +35,29 @@ export interface IdeaReadFace {
   get(request: { id: string }): Promise<RemoteRead<IdeaDetail>>
   getVersions(request: { id: string }): Promise<RemoteRead<IdeaVersionSummary[]>>
   continueDiscussion(request: { id: string }): Promise<RemoteRead<IdeaContinueDiscussionResult>>
+  prepareEvolution(
+    request: { discussionId: string },
+    signal?: AbortSignal,
+  ): Promise<RemoteRead<IdeaEvolutionProposalPreview>>
+  commitEvolution(request: {
+    proposalId: string
+    expectedCurrentVersionId: string
+    draft: IdeaDraft
+  }): Promise<RemoteRead<IdeaCommitEvolutionResult>>
 }
 
 /** The list lifecycle the section renders. */
 export type IdeaReadStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+/** The evolution proposal flow's lifecycle inside the detail view. */
+export type IdeaEvolutionStatus = 'idle' | 'preparing' | 'reviewing' | 'committing' | 'error'
+
+/** The open detail's pending evolution proposal: reference plus editable draft. */
+export interface IdeaProposalState {
+  proposalId: string
+  baseVersionId: string
+  draft: EditableIdeaDraft
+}
 
 /** The section snapshot. */
 export interface IdeaReadState {
@@ -46,6 +76,14 @@ export interface IdeaReadState {
   detailVersions: readonly IdeaVersionSummary[]
   /** The detail's Continue Discussion click lifecycle. */
   continueStatus: 'idle' | 'loading' | 'error'
+  /** The discussion workspace this detail's evolution flow reads from. */
+  discussionId: string | null
+  /** The evolution proposal flow's lifecycle. */
+  evolutionStatus: IdeaEvolutionStatus
+  /** Which half failed last, when `evolutionStatus` is `error`. */
+  evolutionFailure: 'prepare' | 'commit' | null
+  /** The proposal under review, present only while reviewing. */
+  proposal: IdeaProposalState | null
 }
 
 const INITIAL: IdeaReadState = {
@@ -58,6 +96,10 @@ const INITIAL: IdeaReadState = {
   detailVersionsStatus: 'loading',
   detailVersions: [],
   continueStatus: 'idle',
+  discussionId: null,
+  evolutionStatus: 'idle',
+  evolutionFailure: null,
+  proposal: null,
 }
 
 /**
@@ -73,6 +115,7 @@ export class IdeaReadSurface {
   private listAbort: AbortController | undefined
   private listInFlight = false
   private detailAbort: AbortController | undefined
+  private evolutionAbort: AbortController | undefined
 
   constructor(
     private readonly remote: IdeaReadFace,
@@ -126,6 +169,10 @@ export class IdeaReadSurface {
       draft.detailVersionsStatus = 'loading'
       draft.detailVersions = []
       draft.continueStatus = 'idle'
+      draft.discussionId = null
+      draft.evolutionStatus = 'idle'
+      draft.evolutionFailure = null
+      draft.proposal = null
     })
     void this.runOpen(id, controller)
     void this.runVersions(id, controller)
@@ -192,6 +239,10 @@ export class IdeaReadSurface {
       draft.detailVersionsStatus = 'loading'
       draft.detailVersions = []
       draft.continueStatus = 'idle'
+      draft.discussionId = null
+      draft.evolutionStatus = 'idle'
+      draft.evolutionFailure = null
+      draft.proposal = null
     })
   }
 
@@ -200,8 +251,9 @@ export class IdeaReadSurface {
    * flight is ignored — the button is the only entry, so duplicate clicks
    * collapse into one Host call (the Host additionally reuses the active
    * discussion for the same base version). On success the created
-   * conversation is handed to the opener; a failed opener lands in the same
-   * visible error state as a failed call — never a silent retry.
+   * conversation is handed to the opener and the discussion workspace is
+   * remembered as this detail's evolution source; a failed opener lands in
+   * the same visible error state as a failed call — never a silent retry.
    */
   continueDiscussion(id: string): void {
     if (this.state.getSnapshot().continueStatus === 'loading') return
@@ -211,9 +263,13 @@ export class IdeaReadSurface {
 
   private async runContinue(id: string): Promise<void> {
     let conversationId: string | undefined
+    let discussionId: string | undefined
     try {
       const result = await this.remote.continueDiscussion({ id })
-      if (result.ok) conversationId = result.value.conversationId
+      if (result.ok) {
+        conversationId = result.value.conversationId
+        discussionId = result.value.discussionId
+      }
     } catch {
       // A thrown carrier failure renders as the continue error state.
     }
@@ -227,6 +283,127 @@ export class IdeaReadSurface {
     this.state.update((draft) => {
       if (draft.detailId !== id) return
       draft.continueStatus = conversationId !== undefined ? 'idle' : 'error'
+      if (conversationId !== undefined && discussionId !== undefined) {
+        draft.discussionId = discussionId
+      }
+    })
+  }
+
+  /**
+   * Ask the Host to propose the next version from this detail's discussion.
+   * Guarded to the idle/error lifecycles; requires the discussion created by
+   * a previous Continue Discussion. Zero durable writes happen on this path.
+   */
+  prepareEvolution(): void {
+    const { discussionId, evolutionStatus } = this.state.getSnapshot()
+    if (discussionId === null || evolutionStatus === 'preparing' || evolutionStatus === 'reviewing' || evolutionStatus === 'committing') return
+    const controller = new AbortController()
+    this.evolutionAbort = controller
+    this.state.update((draft) => {
+      draft.evolutionStatus = 'preparing'
+      draft.evolutionFailure = null
+    })
+    void this.runPrepareEvolution(discussionId, controller)
+  }
+
+  private async runPrepareEvolution(discussionId: string, controller: AbortController): Promise<void> {
+    let preview: IdeaEvolutionProposalPreview | undefined
+    let cancelled = false
+    try {
+      const result = await this.remote.prepareEvolution({ discussionId }, controller.signal)
+      if (controller.signal.aborted) cancelled = true
+      else if (result.ok) preview = result.value
+    } catch {
+      // A thrown carrier failure renders as the prepare error state.
+    } finally {
+      this.evolutionAbort = undefined
+    }
+    if (cancelled) return
+    this.state.update((draft) => {
+      if (draft.discussionId !== discussionId) return
+      if (preview !== undefined) {
+        draft.evolutionStatus = 'reviewing'
+        draft.proposal = {
+          proposalId: preview.proposalId,
+          baseVersionId: preview.baseVersionId,
+          draft: editableFrom(preview.draft),
+        }
+      } else {
+        draft.evolutionStatus = 'error'
+        draft.evolutionFailure = 'prepare'
+      }
+    })
+  }
+
+  /** Apply one field edit to the proposal under review. */
+  editProposalDraft(patch: Partial<EditableIdeaDraft>): void {
+    const { proposal, evolutionStatus } = this.state.getSnapshot()
+    if (proposal === null || evolutionStatus !== 'reviewing') return
+    this.state.update((draft) => {
+      if (draft.proposal !== null && draft.proposal.proposalId === proposal.proposalId) {
+        draft.proposal = { ...draft.proposal, draft: { ...draft.proposal.draft, ...patch } }
+      }
+    })
+  }
+
+  /** Discard the proposal under review; zero durable writes, ignored while committing. */
+  cancelProposal(): void {
+    const { evolutionStatus } = this.state.getSnapshot()
+    if (evolutionStatus === 'committing') return
+    this.state.update((draft) => {
+      draft.proposal = null
+      draft.evolutionStatus = 'idle'
+      draft.evolutionFailure = null
+    })
+  }
+
+  /**
+   * Commit the approved proposal as the next version, at the current version
+   * this detail was read at. A failure keeps the reviewed draft on screen
+   * for retry; success resets the flow and re-opens the detail so the new
+   * current version and history are re-fetched.
+   */
+  commitProposal(): void {
+    const { detail, proposal, evolutionStatus } = this.state.getSnapshot()
+    if (detail === null || proposal === null || evolutionStatus !== 'reviewing') return
+    this.state.update((draft) => {
+      draft.evolutionStatus = 'committing'
+      draft.evolutionFailure = null
+    })
+    void this.runCommitProposal(detail.id, proposal)
+  }
+
+  private async runCommitProposal(id: string, proposal: IdeaProposalState): Promise<void> {
+    let committed: IdeaCommitEvolutionResult | undefined
+    let stale = false
+    try {
+      const { detail } = this.state.getSnapshot()
+      const result = await this.remote.commitEvolution({
+        proposalId: proposal.proposalId,
+        expectedCurrentVersionId: detail?.versionId ?? proposal.baseVersionId,
+        draft: durableFrom(proposal.draft),
+      })
+      if (result.ok) committed = result.value
+    } catch {
+      // A thrown carrier failure renders as the commit error state.
+    }
+    // The user moved to another detail while the commit ran.
+    if (this.state.getSnapshot().detailId !== id) stale = true
+    if (stale) return
+    if (committed !== undefined) {
+      this.state.update((draft) => {
+        draft.proposal = null
+        draft.evolutionStatus = 'idle'
+        draft.evolutionFailure = null
+        draft.discussionId = null
+      })
+      // Re-open so the refreshed current version and history show up.
+      this.open(id)
+      return
+    }
+    this.state.update((draft) => {
+      draft.evolutionStatus = 'reviewing'
+      draft.evolutionFailure = 'commit'
     })
   }
 
@@ -234,8 +411,10 @@ export class IdeaReadSurface {
   dispose(): void {
     this.listAbort?.abort()
     this.detailAbort?.abort()
+    this.evolutionAbort?.abort()
     this.listAbort = undefined
     this.detailAbort = undefined
+    this.evolutionAbort = undefined
     this.listInFlight = false
   }
 }

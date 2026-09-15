@@ -13,6 +13,8 @@ export type IdeaErrorCode =
   | 'version-conflict'
   /** No version with the given id exists on the Idea. */
   | 'version-not-found'
+  /** No discussion workspace with the given id exists. */
+  | 'discussion-not-found'
 
 export class IdeaError extends Error {
   override readonly name = 'IdeaError'
