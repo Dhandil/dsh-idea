@@ -1,8 +1,55 @@
 import { defineConfig } from 'vitest/config'
+import ts from 'typescript'
+
+const decoratorSyntax = /^\s*@[A-Za-z_$][\w$]*/m
+
+/**
+ * Transform standard TypeScript decorators (the `@Remote` face of Typert
+ * remote services) before Vite's default parser sees source files. Mirrors
+ * the harness's own vitest.shared.ts plugin.
+ * @returns a pre-transform Vite plugin shared by the package's test lane.
+ */
+function standardDecoratorPlugin() {
+  return {
+    name: 'dsh-standard-decorators',
+    enforce: 'pre' as const,
+    transform(code: string, id: string) {
+      const file = id.split('?', 1)[0]!
+      if (!/\.[cm]?tsx?$/.test(file) || !decoratorSyntax.test(code)) return
+      const result = ts.transpileModule(code, {
+        fileName: file,
+        compilerOptions: {
+          target: ts.ScriptTarget.ES2024,
+          module: ts.ModuleKind.ESNext,
+          jsx: file.endsWith('x') ? ts.JsxEmit.ReactJSX : undefined,
+          sourceMap: true,
+        },
+      })
+      return {
+        code: result.outputText
+          .replace(
+            /^(\s*)(__esDecorate\()/gmu,
+            '$1/* v8 ignore next -- compiler-synthetic decorator accessors have no source behavior */ $2',
+          )
+          .replace(/\n?\/\/# sourceMappingURL=.*$/u, '\n'),
+        map: result.sourceMapText,
+      }
+    },
+  }
+}
 
 export default defineConfig({
+  plugins: [standardDecoratorPlugin()],
+  resolve: {
+    // One React instance across the package and the harness-linked
+    // primitives: every 'react'/'react-dom' specifier resolves here first.
+    alias: [
+      { find: 'react-dom', replacement: new URL('./node_modules/react-dom', import.meta.url).pathname },
+      { find: 'react', replacement: new URL('./node_modules/react', import.meta.url).pathname },
+    ],
+  },
   test: {
     environment: 'node',
-    include: ['tests/**/*.spec.ts'],
+    include: ['tests/**/*.spec.ts', 'tests/**/*.spec.tsx'],
   },
 })

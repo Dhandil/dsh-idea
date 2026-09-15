@@ -26,6 +26,19 @@ const LINKS = [
   ['@deepseek-ai/dsh-llm', 'packages/llm/llm'],
   ['@deepseek-ai/dsh-agent-default-model', 'packages/core/agent-default-model'],
   ['@deepseek-ai/dsh-api-session-controller', 'packages/api/session-controller'],
+  ['@deepseek-ai/dsh-typert-protocol', 'packages/typert/protocol'],
+  ['@deepseek-ai/dsh-typert-generator', 'packages/typert/generator'],
+  ['@deepseek-ai/dsh-typert-loader', 'packages/typert/loader'],
+  ['@deepseek-ai/dsh-typert-registry', 'packages/typert/registry'],
+  ['@deepseek-ai/dsh-api-remotes', 'packages/api/remotes'],
+  ['@deepseek-ai/dsh-client-store', 'packages/client/store'],
+  ['@deepseek-ai/dsh-client-locale', 'packages/client/locale'],
+  ['@deepseek-ai/dsh-client-ui-slots', 'packages/client/ui-slots'],
+  ['@deepseek-ai/dsh-client-ui-primitives', 'packages/client/ui-primitives'],
+  ['@deepseek-ai/dsh-client-ui-renderer', 'packages/client/ui-renderer'],
+  ['@deepseek-ai/dsh-client-ui-conversation', 'packages/client/ui-conversation'],
+  ['@deepseek-ai/dsh-client-ui-chat', 'packages/client/ui-chat'],
+  ['@deepseek-ai/dsh-client-ui-session', 'packages/client/ui-session'],
 ]
 
 function link(name, target) {

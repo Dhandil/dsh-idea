@@ -1,9 +1,9 @@
 /**
- * Idea domain plugin (`@dsh-external/dsh-idea`): the host-only bundle entry
- * the Cordis loader mounts — a Service subclass exposed as the default
- * export. The bundle's `cordis.patch.yml` inserts the loader row naming this
- * package; Cordis waits for `storageDomain`, then constructs the service.
- * Host-only by design for T1: no browser code, no client injects.
+ * Idea domain plugin (`@dsh-external/dsh-idea`): the host bundle entry the
+ * Cordis loader mounts — the durable `IdeaService` as the default export.
+ * This row also carries the package's `./typert` registration, which the
+ * Typert loader auto-discovers from the package root. The Remote controller
+ * mounts separately through the `./remote-host` subpath row.
  * @module @dsh-external/dsh-idea
  */
 
@@ -26,6 +26,12 @@ export {
 } from './schema.ts'
 export { ideaDomainSpec } from './spec.ts'
 export { IdeaService } from './service.ts'
+export { IdeaRemoteService } from './remote-host/service.ts'
+export type {
+  IdeaCreateRequest,
+  IdeaCreateResult,
+  IdeaPrepareRequest,
+} from './remote-host/types.ts'
 export { IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
 export type {
   CapturedMessage,

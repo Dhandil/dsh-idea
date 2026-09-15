@@ -3,3 +3,5 @@
       name: '@dsh-external/dsh-idea'
     - id: dsh-idea-preparation
       name: '@dsh-external/dsh-idea/preparation'
+    - id: dsh-idea-remote
+      name: '@dsh-external/dsh-idea/remote-host'

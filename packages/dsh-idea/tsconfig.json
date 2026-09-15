@@ -3,7 +3,13 @@
     "target": "es2024",
     "module": "esnext",
     "moduleResolution": "bundler",
-    "lib": ["es2024"],
+    "lib": ["es2024", "dom"],
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@dsh-external/dsh-idea/preparation": ["./src/preparation/index.ts"],
+      "@dsh-external/dsh-idea/remote-host": ["./src/remote-host/index.ts"]
+    },
     "types": ["node"],
     "skipLibCheck": true,
     "esModuleInterop": true,
