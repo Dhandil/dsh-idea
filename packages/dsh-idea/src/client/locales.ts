@@ -50,6 +50,9 @@ export const zh = {
   'read.reason.initial-save': '初次保存',
   'read.reason.manual-edit': '手动修改',
   'read.reason.continued-discussion': '继续讨论',
+  'read.continue': '继续讨论',
+  'read.continue.loading': '正在开启讨论…',
+  'read.continue.error': '继续讨论失败，请稍后重试',
 } satisfies Record<string, string>
 
 /** The idea namespace key union. */
@@ -107,4 +110,7 @@ export const en = {
   'read.reason.initial-save': 'Initial save',
   'read.reason.manual-edit': 'Manual edit',
   'read.reason.continued-discussion': 'Continued discussion',
+  'read.continue': 'Continue discussion',
+  'read.continue.loading': 'Opening the discussion…',
+  'read.continue.error': 'Could not continue the discussion. Try again later.',
 } satisfies Record<IdeaLocaleKey, string>

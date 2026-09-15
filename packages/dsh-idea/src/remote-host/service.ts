@@ -7,14 +7,17 @@
  * idempotent commit state machine (`prepared → committing → committed`) so
  * one preparationId produces at most one durable Idea even under duplicate
  * or concurrent requests. `list`/`get` project stored aggregates onto
- * read-only wire summaries/details and never write, and `getVersions`/
- * `getVersion` expose the immutable version history the same way. The
- * browser may only ever submit a draft plus a preparation reference.
+ * read-only wire summaries/details and never write, `getVersions`/
+ * `getVersion` expose the immutable version history the same way, and
+ * `continueDiscussion` opens the Idea's continuation conversation through
+ * the Host Session Controller while the domain service owns idempotency.
+ * The browser may only ever submit a draft plus a preparation reference.
  * @module @dsh-external/dsh-idea/src/remote-host/service
  */
 
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { ideaDraftSchema } from '../schema.ts'
 import { IdeaPreparationError } from '../preparation/errors.ts'
 import type { IdeaPreparationId, PreparedIdeaSource } from '../preparation/types.ts'
@@ -22,6 +25,8 @@ import { IdeaId, IdeaVersionId } from '../types.ts'
 import type { IdeaAggregate, IdeaDraft, IdeaVersion, SourceDiscussionDraft } from '../types.ts'
 import { remoteDomainError, remotePreparationError } from './errors.ts'
 import type {
+  IdeaContinueDiscussionRequest,
+  IdeaContinueDiscussionResult,
   IdeaCreateRequest,
   IdeaCreateResult,
   IdeaDetail,
@@ -214,6 +219,56 @@ export class IdeaRemoteService extends TypertRemoteService {
       return ideaVersionDetailOf(version)
     } catch (error) {
       throw remoteDomainError(error) ?? error
+    }
+  }
+
+  /**
+   * Continue one Idea as a new focused conversation. Idempotency lives on
+   * the domain service (an active discussion for the same idea + current
+   * version is reused, so one click never duplicates workspaces); this
+   * layer owns only the conversation-creation seam. The Idea is never
+   * written, and the context seed stays Host-side.
+   */
+  @Remote
+  async continueDiscussion(request: IdeaContinueDiscussionRequest): Promise<IdeaContinueDiscussionResult> {
+    try {
+      const discussion = await this.ctx.ideaService.continueDiscussion(IdeaId(request.id), () => this.createConversation())
+      return {
+        discussionId: discussion.discussionId,
+        conversationId: discussion.conversationId,
+        baseVersionId: discussion.baseVersionId,
+      }
+    } catch (error) {
+      throw remoteDomainError(error) ?? error
+    }
+  }
+
+  /**
+   * The one conversation the continuation opens, through the Host Session
+   * Controller with its default workspace — the same deployment default the
+   * client's New Session affordance uses. Lazy resolution keeps the Idea
+   * remote mountable where session APIs are not (and matches the Harness
+   * convention for optional host services).
+   */
+  private async createConversation(): Promise<string> {
+    const sessions = this.ctx.get('sessionController')
+    if (sessions === undefined) {
+      throw new RemoteError(
+        'gateway/internal',
+        'continue discussion is unavailable: this deployment mounts no session controller',
+        {},
+      )
+    }
+    try {
+      const created = await sessions.create({})
+      return created.sessionId
+    } catch (error) {
+      throw new RemoteError(
+        'idea/conversation-failed',
+        'the continuation conversation could not be created',
+        {},
+        { cause: error },
+      )
     }
   }
 }

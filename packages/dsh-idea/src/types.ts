@@ -18,6 +18,8 @@ export type IdeaVersionId = string & { readonly [brand]: 'IdeaVersionId' }
 export type SourceDiscussionId = string & { readonly [brand]: 'SourceDiscussionId' }
 /** Branded string id of one recorded evolution event. */
 export type EvolutionEventId = string & { readonly [brand]: 'EvolutionEventId' }
+/** Branded string id of one continued-discussion workspace. */
+export type IdeaDiscussionId = string & { readonly [brand]: 'IdeaDiscussionId' }
 
 export function IdeaId(value: string): IdeaId {
   return value as IdeaId
@@ -33,6 +35,10 @@ export function SourceDiscussionId(value: string): SourceDiscussionId {
 
 export function EvolutionEventId(value: string): EvolutionEventId {
   return value as EvolutionEventId
+}
+
+export function IdeaDiscussionId(value: string): IdeaDiscussionId {
+  return value as IdeaDiscussionId
 }
 
 /** Lifecycle of one Idea. `archived` is retrieval filtering, never deletion. */
@@ -108,6 +114,55 @@ export interface IdeaEvolutionEvent {
   toVersionId: IdeaVersionId
   reason: IdeaVersionReason
   createdAt: number
+}
+
+/** One summary row of a continued discussion's version-history digest. */
+export interface IdeaHistorySummaryEntry {
+  ordinal: number
+  reason: IdeaVersionReason
+  title: string
+  createdAt: number
+}
+
+/**
+ * The context seed one continued discussion's conversation starts from: the
+ * current version in full, a bounded history digest, and the unresolved
+ * questions. Deliberately transcript-free — no captured messages and no
+ * unrelated conversation data ever enter it.
+ */
+export interface IdeaContinuationContext {
+  type: 'idea-continuation'
+  idea: {
+    id: IdeaId
+    title: string
+    /** The version the discussion was created from. */
+    currentVersion: IdeaVersionId
+    /** The current version's full draft. */
+    draft: IdeaDraft
+    /** The whole history as identity rows, v1 first; no message bodies. */
+    historySummary: readonly IdeaHistorySummaryEntry[]
+    /** The current draft's unresolved questions. */
+    openQuestions: readonly string[]
+  }
+}
+
+/**
+ * One continued-discussion workspace: the durable link between an Idea (at
+ * the version it was created from) and the new conversation that continues
+ * it. Creating a discussion never mutates the Idea; completing one is a
+ * later lifecycle step, never an Idea write.
+ */
+export interface IdeaDiscussion {
+  discussionId: IdeaDiscussionId
+  ideaId: IdeaId
+  /** The conversation created for (or reused by) this discussion. */
+  conversationId: string
+  /** The Idea version the discussion was created from. */
+  baseVersionId: IdeaVersionId
+  status: 'active' | 'completed'
+  createdAt: number
+  /** The context seed the conversation starts from. */
+  context: IdeaContinuationContext
 }
 
 /**

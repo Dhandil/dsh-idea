@@ -137,6 +137,7 @@ describe('client plugin mount', () => {
         slotComponents.push(component)
       }),
     } as never)
+    ctx.provide('sessions', { refresh: vi.fn(async () => {}), open: vi.fn(() => {}) } as never)
 
     const { apply } = await import('../src/client/index.ts')
     const dispose = await apply(ctx)
@@ -146,6 +147,7 @@ describe('client plugin mount', () => {
     const contribution = mountedContributions[0]!
     expect(contribution.package).toBe('@dsh-external/dsh-idea')
     expect(contribution.descriptors?.map(d => d.id).sort()).toEqual([
+      '@dsh-external/dsh-idea#idea/continueDiscussion',
       '@dsh-external/dsh-idea#idea/create',
       '@dsh-external/dsh-idea#idea/get',
       '@dsh-external/dsh-idea#idea/getVersion',
@@ -176,11 +178,12 @@ describe('client plugin mount', () => {
     expect(injected?.hooks.idea).toBeDefined()
 
     const sectionInjected = section !== undefined
-      ? (section as unknown as { inject: () => unknown }).inject() as { hooks: { ideaRead: unknown }, load: () => void, open: (id: string) => void, closeDetail: () => void }
+      ? (section as unknown as { inject: () => unknown }).inject() as { hooks: { ideaRead: unknown }, load: () => void, open: (id: string) => void, closeDetail: () => void, continueIdea: (id: string) => void }
       : undefined
     expect(typeof sectionInjected?.load).toBe('function')
     expect(typeof sectionInjected?.open).toBe('function')
     expect(typeof sectionInjected?.closeDetail).toBe('function')
+    expect(typeof sectionInjected?.continueIdea).toBe('function')
     expect(sectionInjected?.hooks.ideaRead).toBeDefined()
 
     await dispose()

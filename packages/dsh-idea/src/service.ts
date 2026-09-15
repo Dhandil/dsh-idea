@@ -1,15 +1,16 @@
 /**
  * The Idea domain service (`ctx.ideaService`): durable create/get/list/
- * archive/evolve plus the read-only version queries (listVersions/getVersion)
- * over the `idea` storage domain. Every read is synchronous
- * from the domain's authoritative in-memory state; every write is one
- * serialized single-record operation on the domain's write chain — durability
- * first, then memory. Evolve and archive are optimistic: they compare
- * `expectedCurrentVersionId` inside the atomic record update, so a stale
- * expectation rejects with `version-conflict` and writes nothing. History is
- * an immutable linear append; nothing ever rewrites a committed version.
- * All operations are user-triggered — no automatic detection or background
- * writes exist here.
+ * archive/evolve, the read-only version queries (listVersions/getVersion),
+ * and continued-discussion workspaces over the `idea` storage domain. Every
+ * read is synchronous from the domain's authoritative in-memory state; every
+ * write is one serialized single-record operation on the domain's write
+ * chain — durability first, then memory. Evolve and archive are optimistic:
+ * they compare `expectedCurrentVersionId` inside the atomic record update,
+ * so a stale expectation rejects with `version-conflict` and writes
+ * nothing. History is an immutable linear append; nothing ever rewrites a
+ * committed version. Continue Discussion creates the workspace and its
+ * context seed without touching the Idea aggregate. All operations are
+ * user-triggered — no automatic detection or background writes exist here.
  * @module @dsh-external/dsh-idea/src/service
  */
 
@@ -19,15 +20,23 @@ import { DomainError } from '@deepseek-ai/dsh-storage-domain'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { z } from 'zod'
 import { IdeaError } from './errors.ts'
-import { ideaAggregateSchema, ideaDraftSchema, sourceDiscussionDraftSchema } from './schema.ts'
+import {
+  ideaAggregateSchema,
+  ideaDiscussionSchema,
+  ideaDraftSchema,
+  sourceDiscussionDraftSchema,
+} from './schema.ts'
 import { ideaDomainSpec } from './spec.ts'
-import { EvolutionEventId, IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
+import { EvolutionEventId, IdeaDiscussionId, IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
 import type {
   IdeaAggregate,
+  IdeaContinuationContext,
   IdeaCurrentView,
+  IdeaDiscussion,
   IdeaDraft,
   IdeaEvolutionEvent,
   IdeaEvolutionReason,
+  IdeaHistorySummaryEntry,
   IdeaVersion,
   ListIdeasOptions,
   SourceDiscussion,
@@ -60,6 +69,7 @@ export class IdeaService extends Service {
   static inject = ['storageDomain']
 
   private table?: KvTable<IdeaId, IdeaAggregate>
+  private discussions?: KvTable<IdeaDiscussionId, IdeaDiscussion>
 
   constructor(ctx: Context) {
     super(ctx, 'ideaService')
@@ -69,6 +79,7 @@ export class IdeaService extends Service {
     const domain = await this.ctx.storageDomain.open(ideaDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'idea.domainClose')
     this.table = domain.table('ideas')
+    this.discussions = domain.table('discussions')
   }
 
   /**
@@ -262,6 +273,76 @@ export class IdeaService extends Service {
   }
 
   /**
+   * Continue an Idea as a new discussion workspace. Idempotent per
+   * `ideaId` + current version: an existing `active` discussion for the same
+   * base version is reused, and its conversation creator is not invoked
+   * again. A new discussion creates exactly one conversation through the
+   * caller-supplied seam (the Idea service itself has no session knowledge)
+   * and stores the durable workspace with its `idea-continuation` context
+   * seed. The Idea aggregate is never touched: no version, no metadata
+   * change, no event — the discussion is not an evolution.
+   * @param ideaId - The idea to continue.
+   * @param createConversation - Creates one new conversation, resolving to
+   * its conversation id; invoked only when no reusable discussion exists.
+   * @returns the reused or newly created discussion.
+   * @throws `IdeaError` with code `idea-not-found` when the idea is absent.
+   */
+  async continueDiscussion(
+    ideaId: IdeaId,
+    createConversation: () => Promise<string>,
+  ): Promise<IdeaDiscussion> {
+    const current = this.get(ideaId)
+    const baseVersionId = current.idea.currentVersionId
+    for (const [, existing] of this.workspaces.entries()) {
+      if (existing.ideaId === ideaId && existing.baseVersionId === baseVersionId && existing.status === 'active') {
+        return structuredClone(existing)
+      }
+    }
+    const conversationId = await createConversation()
+    const discussion = ideaDiscussionSchema.parse({
+      discussionId: IdeaDiscussionId(createId('idea_dis')),
+      ideaId,
+      conversationId,
+      baseVersionId,
+      status: 'active',
+      createdAt: this.now(),
+      context: this.continuationContextOf(current),
+    })
+    await this.workspaces.put(discussion.discussionId, discussion)
+    return structuredClone(discussion)
+  }
+
+  /**
+   * The bounded `idea-continuation` seed for one discussion: the current
+   * version in full, a history digest of identity rows only, and the
+   * unresolved questions. Captured source messages and any other
+   * conversation data are deliberately absent — an Idea is a seed, not a
+   * transcript archive.
+   */
+  private continuationContextOf(aggregate: IdeaAggregate): IdeaContinuationContext {
+    const currentVersion = aggregate.versions.find(version => version.versionId === aggregate.idea.currentVersionId)
+    if (currentVersion === undefined) {
+      throw new IdeaError('idea-not-found', `idea '${aggregate.idea.ideaId}' has no current version`)
+    }
+    const historySummary: IdeaHistorySummaryEntry[] = aggregate.versions.map(version => ({
+      ordinal: version.ordinal,
+      reason: version.reason,
+      title: version.draft.title,
+      createdAt: version.createdAt,
+    }))
+    return {
+      type: 'idea-continuation',
+      idea: {
+        id: aggregate.idea.ideaId,
+        title: currentVersion.draft.title,
+        currentVersion: currentVersion.versionId,
+        draft: structuredClone(currentVersion.draft),
+        historySummary,
+        openQuestions: [...currentVersion.draft.openQuestions],
+      },
+    }
+  }
+  /**
    * Read one committed version of an Idea, synchronously from memory.
    * @param ideaId - The idea the version belongs to.
    * @param versionId - The version to read.
@@ -314,6 +395,13 @@ export class IdeaService extends Service {
       throw new Error('idea service is not initialized')
     }
     return this.table
+  }
+
+  private get workspaces(): KvTable<IdeaDiscussionId, IdeaDiscussion> {
+    if (this.discussions === undefined) {
+      throw new Error('idea service is not initialized')
+    }
+    return this.discussions
   }
 
   /**

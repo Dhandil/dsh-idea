@@ -114,3 +114,21 @@ export interface IdeaVersionDetail extends IdeaVersionSummary {
   useWhen: readonly string[]
   openQuestions: readonly string[]
 }
+
+/** `idea.continueDiscussion` request: the Idea to continue. */
+export interface IdeaContinueDiscussionRequest {
+  /** The Idea whose current version seeds the new discussion. */
+  id: string
+}
+
+/**
+ * `idea.continueDiscussion` result: the reused or newly created discussion
+ * workspace and the conversation that carries it. The context seed stays
+ * Host-side — only identities cross the wire.
+ */
+export interface IdeaContinueDiscussionResult {
+  discussionId: string
+  conversationId: string
+  /** The Idea version the discussion was created from. */
+  baseVersionId: string
+}

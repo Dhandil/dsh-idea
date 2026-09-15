@@ -318,6 +318,7 @@ describe('generated contributions', () => {
     expect(TYPERT_REMOTE).toMatchObject({ package: '@dsh-external/dsh-idea' })
     const descriptors = (TYPERT_REMOTE.descriptors as readonly unknown[]) as Array<{ id: string, cancellation?: unknown, result?: { mode?: string } }>
     expect(descriptors.map(d => d.id).sort()).toEqual([
+      '@dsh-external/dsh-idea#idea/continueDiscussion',
       '@dsh-external/dsh-idea#idea/create',
       '@dsh-external/dsh-idea#idea/get',
       '@dsh-external/dsh-idea#idea/getVersion',

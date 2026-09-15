@@ -36,6 +36,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'idea/not-found': {}
     /** The requested version does not exist on the Idea. */
     'idea/version-not-found': {}
+    /** The Host could not create the continuation conversation. */
+    'idea/conversation-failed': {}
   }
 }
 
@@ -54,6 +56,7 @@ export const IDEA_REMOTE_ERROR_CODES = [
   'idea/storage-failed',
   'idea/not-found',
   'idea/version-not-found',
+  'idea/conversation-failed',
 ] as const satisfies readonly (keyof RemoteErrorDetailsMap)[]
 
 export type IdeaRemoteErrorCode = (typeof IDEA_REMOTE_ERROR_CODES)[number]

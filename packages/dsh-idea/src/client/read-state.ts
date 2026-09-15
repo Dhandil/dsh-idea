@@ -1,14 +1,17 @@
 /**
- * The Ideas settings section's browser state: the saved-Idea list and the
- * open detail. Read-only by construction — this surface has no submit path;
- * every fact is fetched from the Host `idea` namespace on demand, and
+ * The Ideas settings section's browser state: the saved-Idea list, the open
+ * detail, and the detail's Continue Discussion action. The reads are
+ * read-only by construction; the one write path (continueDiscussion) is
+ * user-triggered from the detail view, guards against duplicate clicks, and
+ * hands the returned conversation to the injected opener on success.
+ * Every fact is fetched from the Host `idea` namespace on demand, and
  * disposing the surface aborts any in-flight read. No canonical Idea data
  * lives here beyond what a read returned.
  * @module @dsh-external/dsh-idea/client/read-state
  */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { IdeaDetail, IdeaSummary, IdeaVersionSummary } from '../remote-host/types.ts'
+import type { IdeaContinueDiscussionResult, IdeaDetail, IdeaSummary, IdeaVersionSummary } from '../remote-host/types.ts'
 
 /** The wire outcome of one read call. */
 type RemoteRead<T> =
@@ -20,6 +23,7 @@ export interface IdeaReadFace {
   list(): Promise<RemoteRead<IdeaSummary[]>>
   get(request: { id: string }): Promise<RemoteRead<IdeaDetail>>
   getVersions(request: { id: string }): Promise<RemoteRead<IdeaVersionSummary[]>>
+  continueDiscussion(request: { id: string }): Promise<RemoteRead<IdeaContinueDiscussionResult>>
 }
 
 /** The list lifecycle the section renders. */
@@ -40,6 +44,8 @@ export interface IdeaReadState {
   detailVersionsStatus: 'loading' | 'ready' | 'error'
   /** The open idea's version history, v1 first; ready alongside the detail. */
   detailVersions: readonly IdeaVersionSummary[]
+  /** The detail's Continue Discussion click lifecycle. */
+  continueStatus: 'idle' | 'loading' | 'error'
 }
 
 const INITIAL: IdeaReadState = {
@@ -51,12 +57,14 @@ const INITIAL: IdeaReadState = {
   detailErrorCode: null,
   detailVersionsStatus: 'loading',
   detailVersions: [],
+  continueStatus: 'idle',
 }
 
 /**
  * The Ideas section's controller: one lazy whole-list load, one detail read
- * at a time (opening a new detail aborts the previous), and a dispose that
- * aborts everything in flight.
+ * at a time (opening a new detail aborts the previous), at most one
+ * continuation click in flight, and a dispose that aborts everything in
+ * flight.
  */
 export class IdeaReadSurface {
   /** Observable section state; the section component selects slices of it. */
@@ -66,7 +74,11 @@ export class IdeaReadSurface {
   private listInFlight = false
   private detailAbort: AbortController | undefined
 
-  constructor(private readonly remote: IdeaReadFace) {}
+  constructor(
+    private readonly remote: IdeaReadFace,
+    /** Hands a created continuation conversation to the client session domain. */
+    private readonly openConversation: (conversationId: string) => void | Promise<void> = () => {},
+  ) {}
 
   /** Load the list once; repeats while ready or already loading are no-ops. */
   load(): void {
@@ -113,6 +125,7 @@ export class IdeaReadSurface {
       draft.detailErrorCode = null
       draft.detailVersionsStatus = 'loading'
       draft.detailVersions = []
+      draft.continueStatus = 'idle'
     })
     void this.runOpen(id, controller)
     void this.runVersions(id, controller)
@@ -178,6 +191,42 @@ export class IdeaReadSurface {
       draft.detailErrorCode = null
       draft.detailVersionsStatus = 'loading'
       draft.detailVersions = []
+      draft.continueStatus = 'idle'
+    })
+  }
+
+  /**
+   * Continue the open idea as a new discussion. A click while one is in
+   * flight is ignored — the button is the only entry, so duplicate clicks
+   * collapse into one Host call (the Host additionally reuses the active
+   * discussion for the same base version). On success the created
+   * conversation is handed to the opener; a failed opener lands in the same
+   * visible error state as a failed call — never a silent retry.
+   */
+  continueDiscussion(id: string): void {
+    if (this.state.getSnapshot().continueStatus === 'loading') return
+    this.state.update((draft) => { draft.continueStatus = 'loading' })
+    void this.runContinue(id)
+  }
+
+  private async runContinue(id: string): Promise<void> {
+    let conversationId: string | undefined
+    try {
+      const result = await this.remote.continueDiscussion({ id })
+      if (result.ok) conversationId = result.value.conversationId
+    } catch {
+      // A thrown carrier failure renders as the continue error state.
+    }
+    if (conversationId !== undefined) {
+      try {
+        await this.openConversation(conversationId)
+      } catch {
+        conversationId = undefined
+      }
+    }
+    this.state.update((draft) => {
+      if (draft.detailId !== id) return
+      draft.continueStatus = conversationId !== undefined ? 'idle' : 'error'
     })
   }
 

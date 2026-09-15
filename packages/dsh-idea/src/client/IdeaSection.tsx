@@ -1,9 +1,10 @@
 /**
  * The Ideas settings section: the saved-Idea list (title, core, created
  * time, source indicator) and the read-only detail view over one Idea's
- * current version, including its source-conversation linkage. Strictly
- * read-only — the section loads on mount, opens details on click, and has
- * no write path at all.
+ * current version, including its source-conversation linkage and the
+ * Continue Discussion entry. The list and the detail renders are strictly
+ * read-only — the section loads on mount, opens details on click, and its
+ * one write path is the explicit 继续讨论 button.
  * @module @dsh-external/dsh-idea/client/IdeaSection
  */
 
@@ -38,7 +39,7 @@ const REASON_LABELS: Readonly<Record<IdeaVersionReason, IdeaLocaleKey>> = {
  * @param props - the injected verbs, the read-state hook, and the locale seat.
  * @returns the section element tree.
  */
-export function IdeaSection({ open, closeDetail, load, useIdeaRead, t }: IdeaSectionProps): ReactNode {
+export function IdeaSection({ open, closeDetail, continueIdea, load, useIdeaRead, t }: IdeaSectionProps): ReactNode {
   const state = useIdeaRead(view => view)
   useEffect(() => { load() }, [load])
 
@@ -57,6 +58,8 @@ export function IdeaSection({ open, closeDetail, load, useIdeaRead, t }: IdeaSec
             detail={state.detail}
             versions={state.detailVersions}
             versionsStatus={state.detailVersionsStatus}
+            continueStatus={state.continueStatus}
+            continueIdea={continueIdea}
             t={t}
           />
         )}
@@ -100,12 +103,14 @@ export function IdeaSection({ open, closeDetail, load, useIdeaRead, t }: IdeaSec
   )
 }
 
-/** The read-only detail over one Idea's current version, plus its history. */
+/** The read-only detail over one Idea's current version, plus its history and the continuation entry. */
 function IdeaDetailView(
-  { detail, versions, versionsStatus, t }: {
+  { detail, versions, versionsStatus, continueStatus, continueIdea, t }: {
     detail: IdeaDetail
     versions: readonly IdeaVersionSummary[]
     versionsStatus: 'loading' | 'ready' | 'error'
+    continueStatus: 'idle' | 'loading' | 'error'
+    continueIdea: (id: string) => void
     t: (key: IdeaLocaleKey, params?: Record<string, unknown>) => string
   },
 ): ReactNode {
@@ -126,6 +131,16 @@ function IdeaDetailView(
             : t('read.source.detail.noAnchor', { sessionId: source.sessionId })}
         </p>
       )}
+      <div className="dsh-idea-continue">
+        <Button
+          variant="outline"
+          disabled={continueStatus === 'loading'}
+          onClick={() => { continueIdea(detail.id) }}
+        >
+          {continueStatus === 'loading' ? t('read.continue.loading') : t('read.continue')}
+        </Button>
+        {continueStatus === 'error' && <p className="dsh-idea-state">{t('read.continue.error')}</p>}
+      </div>
       {DETAIL_FIELDS.map(({ key, label }) => (
         detail[key].trim().length > 0
           ? (

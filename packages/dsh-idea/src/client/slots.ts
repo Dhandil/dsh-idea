@@ -61,6 +61,8 @@ export interface IdeaSectionInjected {
   open: (id: string) => void
   /** Return from the detail to the list. */
   closeDetail: () => void
+  /** Continue one Idea as a new discussion and open its conversation. */
+  continueIdea: (id: string) => void
 }
 
 /** Full props of the Ideas settings section entry. */

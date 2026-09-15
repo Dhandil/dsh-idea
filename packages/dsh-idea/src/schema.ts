@@ -10,13 +10,16 @@
  */
 
 import { z } from 'zod'
-import { EvolutionEventId, IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
+import { EvolutionEventId, IdeaDiscussionId, IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
 import type {
   CapturedMessage,
   Idea,
   IdeaAggregate,
+  IdeaContinuationContext,
+  IdeaDiscussion,
   IdeaDraft,
   IdeaEvolutionEvent,
+  IdeaHistorySummaryEntry,
   IdeaVersion,
   SourceDiscussion,
   SourceDiscussionDraft,
@@ -47,6 +50,7 @@ export const ideaIdSchema = z.string().min(1).max(IDEA_LIMITS.idMax).transform(I
 export const ideaVersionIdSchema = z.string().min(1).max(IDEA_LIMITS.idMax).transform(IdeaVersionId)
 export const sourceDiscussionIdSchema = z.string().min(1).max(IDEA_LIMITS.idMax).transform(SourceDiscussionId)
 export const evolutionEventIdSchema = z.string().min(1).max(IDEA_LIMITS.idMax).transform(EvolutionEventId)
+export const ideaDiscussionIdSchema = z.string().min(1).max(IDEA_LIMITS.idMax).transform(IdeaDiscussionId)
 
 const requiredText = (max: number) => z.string().trim().min(1).max(max)
 const optionalText = (max: number) => z.string().trim().max(max)
@@ -342,3 +346,44 @@ export const ideaAggregateSchema = z.preprocess(
     })
   }),
 ) satisfies z.ZodType<IdeaAggregate>
+
+/**
+ * The history digest rows of a continuation context. Identity-only by
+ * construction — the durable boundary rejects any entry that carries more
+ * than ordinal/reason/title/createdAt, so a transcript can never hide here.
+ */
+const ideaHistorySummaryEntrySchema = z.object({
+  ordinal: z.number().int().positive(),
+  reason: ideaVersionReasonSchema,
+  title: z.string().min(1).max(IDEA_LIMITS.titleMax),
+  createdAt: z.number().int().nonnegative(),
+}) satisfies z.ZodType<IdeaHistorySummaryEntry>
+
+/**
+ * The context seed of one continued discussion, read at the durable
+ * boundary. The draft rides {@link durableDraftSchema} (stored content
+ * round-trips byte-identical); the summary and questions are plain bounded
+ * lists; no message transcript field exists to accept one.
+ */
+const ideaContinuationContextSchema = z.object({
+  type: z.literal('idea-continuation'),
+  idea: z.object({
+    id: ideaIdSchema,
+    title: z.string().min(1).max(IDEA_LIMITS.titleMax),
+    currentVersion: ideaVersionIdSchema,
+    draft: durableDraftSchema,
+    historySummary: z.array(ideaHistorySummaryEntrySchema),
+    openQuestions: durableList,
+  }),
+}) satisfies z.ZodType<IdeaContinuationContext>
+
+/** One durable continued-discussion record over the `discussions` table. */
+export const ideaDiscussionSchema = z.object({
+  discussionId: ideaDiscussionIdSchema,
+  ideaId: ideaIdSchema,
+  conversationId: z.string().min(1).max(IDEA_LIMITS.idMax),
+  baseVersionId: ideaVersionIdSchema,
+  status: z.enum(['active', 'completed']),
+  createdAt: z.number().int().nonnegative(),
+  context: ideaContinuationContextSchema,
+}) satisfies z.ZodType<IdeaDiscussion>

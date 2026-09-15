@@ -8,7 +8,8 @@
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only seat pulls: the Context merges (ctx.remote / ctx.locale /
 // ctx.slots) and the SlotMap entries the three registrations type against.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -34,8 +35,8 @@ import './styles.ts'
 /** Dictionary namespace owned by this plugin. */
 const NS = 'idea'
 
-/** Required services: the typed Remote mount carrier, the copy, and the slots. */
-export const inject = ['remote', 'locale', 'slots']
+/** Required services: the typed Remote mount carrier, the copy, the slots, and the session domain. */
+export const inject = ['remote', 'locale', 'slots', 'sessions']
 
 /**
  * Register the UI half once the mounted `idea` namespace is available. Lives
@@ -88,9 +89,19 @@ function registerUi(ctx: ClientContext): void {
     },
   }, IdeaSaveDialog))
 
-  // The read-only library: one root-scoped surface behind the settings
-  // section; the list loads when the user first opens the page.
-  const readSurface = new IdeaReadSurface(ctx.remote.idea as IdeaReadFace)
+  // The read-only library plus its one write path: one root-scoped surface
+  // behind the settings section; the list loads when the user first opens
+  // the page, and Continue Discussion re-pulls the session list before
+  // opening the created conversation (the Host's `session/created` stream
+  // and the RPC response race, so select must see a refreshed baseline).
+  // The cast pins the client Session domain face: two published packages
+  // augment `ctx.sessions` with conflicting types, so the ambient property
+  // type is unusable and the installed service is the session-controller's.
+  const sessions = ctx.sessions as unknown as ISessions
+  const readSurface = new IdeaReadSurface(ctx.remote.idea as IdeaReadFace, async (conversationId) => {
+    await sessions.refresh()
+    sessions.open(SessionId(conversationId))
+  })
   ctx.effect(() => () => { readSurface.dispose() }, 'dsh-idea: library read surface')
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
@@ -103,6 +114,7 @@ function registerUi(ctx: ClientContext): void {
       load: () => { readSurface.load() },
       open: (id) => { readSurface.open(id) },
       closeDetail: () => { readSurface.closeDetail() },
+      continueIdea: (id) => { readSurface.continueDiscussion(id) },
     }),
   }, IdeaSection))
 }

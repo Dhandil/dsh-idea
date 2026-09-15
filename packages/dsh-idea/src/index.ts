@@ -14,6 +14,8 @@ export type { IdeaErrorCode } from './errors.ts'
 export {
   capturedMessageSchema,
   ideaAggregateSchema,
+  ideaDiscussionIdSchema,
+  ideaDiscussionSchema,
   ideaDraftSchema,
   ideaIdSchema,
   ideaSchema,
@@ -35,13 +37,16 @@ export type {
   IdeaPrepareRequest,
   IdeaSummary,
 } from './remote-host/types.ts'
-export { IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
+export { IdeaId, IdeaVersionId, IdeaDiscussionId, SourceDiscussionId } from './types.ts'
 export type {
   CapturedMessage,
   Idea,
   IdeaAggregate,
+  IdeaContinuationContext,
   IdeaCurrentView,
+  IdeaDiscussion,
   IdeaDraft,
+  IdeaHistorySummaryEntry,
   IdeaStatus,
   IdeaVersion,
   ListIdeasOptions,
