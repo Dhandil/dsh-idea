@@ -11,6 +11,10 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./preparation": {
+      "types": "./lib/preparation/index.d.ts",
+      "default": "./lib/preparation/index.js"
+    },
     "./package.json": "./package.json"
   },
   "license": "MIT",

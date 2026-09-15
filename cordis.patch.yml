@@ -1,3 +1,5 @@
 - insert:
     - id: dsh-idea
       name: '@dsh-external/dsh-idea'
+    - id: dsh-idea-preparation
+      name: '@dsh-external/dsh-idea/preparation'

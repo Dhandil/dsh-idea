@@ -21,6 +21,11 @@ const LINKS = [
   ['@deepseek-ai/dsh-storage-json', 'packages/storage/storage-json'],
   ['@deepseek-ai/dsh-storage-domain', 'packages/storage/storage-domain'],
   ['@deepseek-ai/dsh-invariants', 'packages/runtime-diagnostics/invariants'],
+  ['@deepseek-ai/dsh-session', 'packages/core/session'],
+  ['@deepseek-ai/dsh-session-query', 'packages/session-query/session-query'],
+  ['@deepseek-ai/dsh-llm', 'packages/llm/llm'],
+  ['@deepseek-ai/dsh-agent-default-model', 'packages/core/agent-default-model'],
+  ['@deepseek-ai/dsh-api-session-controller', 'packages/api/session-controller'],
 ]
 
 function link(name, target) {
