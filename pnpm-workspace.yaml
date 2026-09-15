@@ -1,0 +1,4 @@
+# pnpm 11 reads package settings from this file; the directory itself is not
+# a workspace. esbuild (a vitest/vite dependency) needs its install script.
+onlyBuiltDependencies:
+  - esbuild

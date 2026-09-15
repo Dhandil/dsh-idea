@@ -1,0 +1,62 @@
+#!/usr/bin/env node
+// Links this package's Harness dependencies to a local deepseek-harness checkout
+// so typecheck, tests, and builds resolve the same module instances the runtime
+// profile uses. The checkout must be installed AND built (its packages ship lib/).
+//
+// Usage: DSH_CHECKOUT=D:/Harness/deepseek-harness node scripts/setup-dev.mjs
+import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+
+const checkout = resolve(process.env.DSH_CHECKOUT ?? '')
+if (!checkout || !existsSync(join(checkout, 'package.json'))) {
+  console.error('setup-dev: set DSH_CHECKOUT to a deepseek-harness checkout')
+  process.exit(1)
+}
+
+const LINKS = [
+  ['@deepseek-ai/cordis', 'vendor/cordis'],
+  ['@deepseek-ai/cosmokit', 'vendor/cosmokit'],
+  ['@deepseek-ai/schemastery', 'vendor/schemastery'],
+  ['@deepseek-ai/dsh-storage', 'packages/storage/storage'],
+  ['@deepseek-ai/dsh-storage-json', 'packages/storage/storage-json'],
+  ['@deepseek-ai/dsh-storage-domain', 'packages/storage/storage-domain'],
+  ['@deepseek-ai/dsh-invariants', 'packages/runtime-diagnostics/invariants'],
+]
+
+function link(name, target) {
+  const link_ = join('node_modules', name)
+  if (!existsSync(join(target, 'package.json'))) {
+    console.error(`setup-dev: missing package at ${target} (is the checkout installed?)`)
+    process.exit(1)
+  }
+  const built = ['lib/index.js', 'lib/index.cjs', 'index.js', 'index.cjs'].some(file => existsSync(join(target, file)))
+  if (!built) {
+    console.error(`setup-dev: ${target} has no built output — build the checkout first (pnpm build)`)
+    process.exit(1)
+  }
+  rmSync(link_, { recursive: true, force: true })
+  mkdirSync(join(link_, '..'), { recursive: true })
+  symlinkSync(target, link_, 'junction')
+  console.log(`setup-dev: linked ${name} -> ${target}`)
+}
+
+for (const [name, rel] of LINKS) {
+  link(name, join(checkout, rel))
+}
+
+// One zod instance across the whole graph: link the checkout's installed copy
+// so record schemas passed into storage-domain share its zod.
+const pnpmRoot = join(checkout, 'node_modules', '.pnpm')
+const zodDirs = existsSync(pnpmRoot)
+  ? readdirSync(pnpmRoot).filter(name => /^zod@4\./.test(name)).sort((a, b) => {
+      const version = name => name.match(/^zod@(\d+\.\d+\.\d+)/)?.[1] ?? '0.0.0'
+      return version(a).localeCompare(version(b), undefined, { numeric: true })
+    })
+  : []
+if (zodDirs.length === 0) {
+  console.error('setup-dev: no zod@4.* found in the checkout (is the checkout installed?)')
+  process.exit(1)
+}
+link('zod', join(pnpmRoot, zodDirs[zodDirs.length - 1], 'node_modules', 'zod'))
+
+console.log('setup-dev: done')

@@ -1,0 +1,44 @@
+{
+  "name": "@dsh-external/dsh-idea",
+  "version": "0.1.0",
+  "description": "Idea domain for the DeepSeek Harness: long-lived user-owned ideas with immutable linear version history and source-discussion snapshots over the storage-domain data form (T1: host-only domain + persistence)",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "setup:dev": "node scripts/setup-dev.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "verify": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0 <5",
+    "@deepseek-ai/cosmokit": ">=1.0.0 <2",
+    "@deepseek-ai/dsh-invariants": ">=0.1.0-rc <2",
+    "@deepseek-ai/dsh-storage": ">=0.1.0-rc <2",
+    "@deepseek-ai/dsh-storage-domain": ">=0.1.0-rc <2",
+    "@deepseek-ai/dsh-storage-json": ">=0.1.0-rc <2",
+    "@deepseek-ai/schemastery": ">=3.18.0 <4",
+    "zod": ">=4.4.0 <5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.8"
+  }
+}

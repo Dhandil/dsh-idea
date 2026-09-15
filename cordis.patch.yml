@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-idea
+      name: '@dsh-external/dsh-idea'
