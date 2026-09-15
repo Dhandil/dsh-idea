@@ -158,6 +158,55 @@ describe('idea aggregate validation', () => {
   })
 })
 
+describe('durable bounds', () => {
+  it('rejects durable versions whose fields exceed the draft-consistent bounds', () => {
+    const aggregate = validAggregate()
+    aggregate.versions[0]!.title = 'x'.repeat(IDEA_LIMITS.titleMax + 1)
+    expect(ideaAggregateSchema.safeParse(aggregate).success).toBe(false)
+
+    const oversizedCore = validAggregate()
+    oversizedCore.versions[0]!.core = 'x'.repeat(IDEA_LIMITS.fieldMax + 1)
+    expect(ideaAggregateSchema.safeParse(oversizedCore).success).toBe(false)
+
+    const oversizedItem = validAggregate()
+    oversizedItem.versions[0]!.useWhen = ['x'.repeat(IDEA_LIMITS.listItemMax + 1)]
+    expect(ideaAggregateSchema.safeParse(oversizedItem).success).toBe(false)
+
+    const oversizedList = validAggregate()
+    oversizedList.versions[0]!.openQuestions = Array.from(
+      { length: IDEA_LIMITS.listMax + 1 },
+      (_, i) => `question ${i}`,
+    )
+    expect(ideaAggregateSchema.safeParse(oversizedList).success).toBe(false)
+  })
+
+  it('rejects durable source discussions that exceed the source bounds', () => {
+    const aggregate = validAggregate()
+    aggregate.sourceDiscussions[0]!.sessionId = 'x'.repeat(IDEA_LIMITS.idMax + 1)
+    expect(ideaAggregateSchema.safeParse(aggregate).success).toBe(false)
+
+    const tooManyMessages = validAggregate()
+    tooManyMessages.sourceDiscussions[0]!.capturedContext = Array.from(
+      { length: IDEA_LIMITS.capturedMessagesMax + 1 },
+      (_, i) => ({ role: 'user' as const, text: `message ${i}` }),
+    )
+    expect(ideaAggregateSchema.safeParse(tooManyMessages).success).toBe(false)
+  })
+
+  it('fails the durable open when a stored version exceeds its bounds', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-idea-overlimit-'))
+    const path = join(root, ideaDomainSpec.name, 'ideas', 'idea-overlimit.json')
+    await mkdir(dirname(path), { recursive: true })
+    const aggregate = validAggregate()
+    aggregate.versions[0]!.title = 'x'.repeat(IDEA_LIMITS.titleMax + 1)
+    await writeFile(path, JSON.stringify({
+      version: ideaDomainSpec.version,
+      record: aggregate,
+    }))
+    await expect(harness(root)).rejects.toMatchObject({ code: 'invalid-record' })
+  })
+})
+
 describe('durable boundary', () => {
   it('fails the domain open when a stored aggregate is malformed', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-idea-corrupt-'))

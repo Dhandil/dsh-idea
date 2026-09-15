@@ -124,13 +124,13 @@ export class IdeaService extends Service {
       throw new IdeaError('invalid-input', `idea '${ideaId}' already exists`)
     }
     await table.put(aggregate.idea.ideaId, aggregate)
-    return aggregate
+    return this.detach(aggregate)
   }
 
   /**
    * Read one Idea aggregate, synchronously from memory.
    * @param ideaId - The idea to read.
-   * @returns the stored aggregate.
+   * @returns a detached snapshot of the stored aggregate.
    * @throws `IdeaError` with code `idea-not-found` when absent.
    */
   get(ideaId: IdeaId): IdeaAggregate {
@@ -138,7 +138,7 @@ export class IdeaService extends Service {
     if (aggregate === undefined) {
       throw new IdeaError('idea-not-found', `idea '${ideaId}' does not exist`)
     }
-    return aggregate
+    return this.detach(aggregate)
   }
 
   /**
@@ -155,7 +155,11 @@ export class IdeaService extends Service {
       if (aggregate.idea.status === 'archived' && !includeArchived) continue
       const currentVersion = aggregate.versions.find(version => version.versionId === aggregate.idea.currentVersionId)
       if (currentVersion === undefined) continue
-      views.push({ idea: aggregate.idea, currentVersion })
+      const snapshot = this.detach(aggregate)
+      views.push({
+        idea: snapshot.idea,
+        currentVersion: snapshot.versions.find(version => version.versionId === snapshot.idea.currentVersionId)!,
+      })
     }
     return views.sort((a, b) =>
       (b.idea.updatedAt - a.idea.updatedAt) || (a.idea.ideaId < b.idea.ideaId ? -1 : 1))
@@ -244,7 +248,7 @@ export class IdeaService extends Service {
     transform: (current: IdeaAggregate, now: number) => IdeaAggregate,
   ): Promise<IdeaAggregate> {
     try {
-      return await this.records.update(ideaId, (current) => {
+      const stored = await this.records.update(ideaId, (current) => {
         if (current.idea.currentVersionId !== expectedCurrentVersionId) {
           throw new IdeaError(
             'version-conflict',
@@ -254,6 +258,7 @@ export class IdeaService extends Service {
         }
         return ideaAggregateSchema.parse(transform(current, this.now()))
       })
+      return this.detach(stored)
     } catch (error) {
       if (error instanceof DomainError && error.code === 'missing-key') {
         throw new IdeaError('idea-not-found', `idea '${ideaId}' does not exist`, { cause: error })
@@ -267,6 +272,14 @@ export class IdeaService extends Service {
       throw new Error('idea service is not initialized')
     }
     return this.table
+  }
+
+  /**
+   * Public results are detached snapshots: mutating a returned object must
+   * never reach the domain's canonical in-memory state (or the medium).
+   */
+  private detach(aggregate: IdeaAggregate): IdeaAggregate {
+    return structuredClone(aggregate)
   }
 
   private now(): number {

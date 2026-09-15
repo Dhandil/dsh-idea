@@ -51,6 +51,11 @@ const optionalText = (max: number) => z.string().trim().max(max)
 /** Optional, bounded, non-empty when present. */
 const optionalIdText = optionalText(IDEA_LIMITS.idMax).refine(value => value.length > 0, 'must be non-empty when present')
 const boundedList = z.array(z.string().trim().min(1).max(IDEA_LIMITS.listItemMax)).max(IDEA_LIMITS.listMax)
+/**
+ * Durable twin of {@link boundedList}: same bounds, no normalization — stored
+ * data was normalized at draft admission and must round-trip byte-identical.
+ */
+const durableList = z.array(z.string().min(1).max(IDEA_LIMITS.listItemMax)).max(IDEA_LIMITS.listMax)
 
 /**
  * Prepared semantic input for one save. `title`, `core`, and `motivation`
@@ -99,13 +104,13 @@ export const ideaVersionSchema = z.object({
   versionId: ideaVersionIdSchema,
   ideaId: ideaIdSchema,
   ordinal: z.number().int().positive(),
-  title: z.string().min(1),
-  core: z.string(),
-  motivation: z.string(),
-  currentConclusion: z.string(),
-  possibleValue: z.string(),
-  useWhen: z.array(z.string().min(1)),
-  openQuestions: z.array(z.string().min(1)),
+  title: z.string().min(1).max(IDEA_LIMITS.titleMax),
+  core: z.string().max(IDEA_LIMITS.fieldMax),
+  motivation: z.string().max(IDEA_LIMITS.fieldMax),
+  currentConclusion: z.string().max(IDEA_LIMITS.fieldMax),
+  possibleValue: z.string().max(IDEA_LIMITS.fieldMax),
+  useWhen: durableList,
+  openQuestions: durableList,
   sourceDiscussionIds: z.array(sourceDiscussionIdSchema),
   createdAt: z.number().int().nonnegative(),
 }) satisfies z.ZodType<IdeaVersion>
@@ -113,11 +118,11 @@ export const ideaVersionSchema = z.object({
 export const sourceDiscussionSchema = z.object({
   sourceDiscussionId: sourceDiscussionIdSchema,
   ideaId: ideaIdSchema,
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).max(IDEA_LIMITS.idMax),
   anchorMessageId: z.string().min(1).optional(),
   startSeq: z.number().int().nonnegative().optional(),
   endSeq: z.number().int().nonnegative().optional(),
-  capturedContext: z.array(capturedMessageSchema).min(1),
+  capturedContext: z.array(capturedMessageSchema).min(1).max(IDEA_LIMITS.capturedMessagesMax),
   capturedAt: z.number().int().nonnegative(),
 }) satisfies z.ZodType<SourceDiscussion>
 

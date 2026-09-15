@@ -11,6 +11,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { IdeaError } from '../src/errors.ts'
 import { IdeaId, IdeaVersionId } from '../src/types.ts'
+import type { CapturedMessage } from '../src/types.ts'
 import { cleanup, draft, harness, sourceDraft, storedAggregate, storedBytes } from './helpers/harness.ts'
 
 afterEach(cleanup)
@@ -191,6 +192,37 @@ describe('archive', () => {
 
     expect((await storedBytes(root, created.idea.ideaId))?.equals(bytesBefore ?? Buffer.alloc(0))).toBe(true)
     expect(service.get(created.idea.ideaId).idea.status).toBe('active')
+  })
+})
+
+describe('detached public returns', () => {
+  it('never lets caller mutations of returned objects reach stored state', async () => {
+    const { root, service } = await harness()
+    const created = await service.create(draft(), sourceDraft())
+    const bytesAfterCreate = await storedBytes(root, created.idea.ideaId)
+
+    // Mutate everything a caller can reach on the returned snapshots.
+    created.idea.status = 'archived'
+    created.versions[0]!.title = 'mutated title'
+    ;(created.versions[0]!.useWhen as string[]).push('mutated use-when')
+    ;(created.sourceDiscussions[0]!.capturedContext as CapturedMessage[]).push({ role: 'assistant', text: 'injected' })
+
+    const reread = service.get(created.idea.ideaId)
+    expect(reread.idea.status).toBe('active')
+    expect(reread.versions[0]!.title).not.toBe('mutated title')
+    expect(reread.versions[0]!.useWhen).not.toContain('mutated use-when')
+    expect(reread.sourceDiscussions[0]!.capturedContext).toHaveLength(2)
+    expect((await storedBytes(root, created.idea.ideaId))?.equals(bytesAfterCreate ?? Buffer.alloc(0))).toBe(true)
+
+    const [view] = service.list()
+    view!.idea.status = 'dormant'
+    view!.currentVersion.title = 'mutated view title'
+    expect(service.get(created.idea.ideaId).idea.status).toBe('active')
+    expect(service.list()[0]!.currentVersion.title).not.toBe('mutated view title')
+
+    // Even mutating one returned snapshot must not poison the next one.
+    reread.versions[0]!.title = 'poisoned'
+    expect(service.get(created.idea.ideaId).versions[0]!.title).not.toBe('poisoned')
   })
 })
 
