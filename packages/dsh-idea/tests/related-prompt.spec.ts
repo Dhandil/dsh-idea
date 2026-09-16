@@ -101,6 +101,103 @@ describe('candidate projection budget', () => {
   })
 })
 
+describe('priority-aware degradation', () => {
+  /** One candidate with modest content in every tier, overridable per field. */
+  const tiered = (ideaId: string, overrides: Partial<RelatedIdeaCandidate> = {}): RelatedIdeaCandidate =>
+    candidate(ideaId, {
+      core: 'c'.repeat(500),
+      currentConclusion: 'x'.repeat(500),
+      useWhen: ['u'.repeat(500)],
+      openQuestions: ['q'.repeat(500)],
+      motivation: 'm'.repeat(500),
+      possibleValue: 'v'.repeat(500),
+      ...overrides,
+    })
+
+  it('Case A: reduces possibleValue alone before any higher tier moves', () => {
+    const corpus = [
+      tiered('idea_a', { possibleValue: 'v'.repeat(30_000) }),
+      tiered('idea_b', { possibleValue: 'v'.repeat(30_000) }),
+    ]
+    const projection = projectCandidates(corpus)
+    const serialized = JSON.stringify(projection)
+    expect(serialized.length).toBeLessThanOrEqual(RELATED_PAYLOAD_LIMIT)
+    for (const entry of projection) {
+      // possibleValue took the cut, but survived the first rung.
+      expect(entry.possibleValue).toBeDefined()
+      expect(entry.possibleValue!.length).toBeGreaterThan(0)
+      expect(entry.possibleValue!.length).toBeLessThanOrEqual(4_000)
+      // Every higher tier is untouched, byte for byte.
+      expect(entry.title).toBe(`${entry.ideaId} title`)
+      expect(entry.core).toBe('c'.repeat(500))
+      expect(entry.currentConclusion).toBe('x'.repeat(500))
+      expect(entry.useWhen).toEqual(['u'.repeat(500)])
+      expect(entry.openQuestions).toEqual(['q'.repeat(500)])
+      expect(entry.motivation).toBe('m'.repeat(500))
+    }
+  })
+
+  it('Case B: exhausts possibleValue and motivation completely before openQuestions moves', () => {
+    const corpus = Array.from({ length: 12 }, (_, index) =>
+      tiered(`idea_${String(index).padStart(2, '0')}`, {
+        core: 'c'.repeat(2_000),
+        currentConclusion: 'x'.repeat(1_000),
+        useWhen: ['u'.repeat(600)],
+        openQuestions: ['q'.repeat(270)],
+        motivation: 'm'.repeat(30_000),
+        possibleValue: 'v'.repeat(30_000),
+      }))
+    const projection = projectCandidates(corpus)
+    const serialized = JSON.stringify(projection)
+    expect(serialized.length).toBeLessThanOrEqual(RELATED_PAYLOAD_LIMIT)
+    for (const entry of projection) {
+      // Both lowest tiers fully dropped.
+      expect(entry.possibleValue).toBeUndefined()
+      expect(entry.motivation).toBeUndefined()
+      // Every higher tier survived whole, byte for byte.
+      expect(entry.title).toBe(`${entry.ideaId} title`)
+      expect(entry.core).toBe('c'.repeat(2_000))
+      expect(entry.currentConclusion).toBe('x'.repeat(1_000))
+      expect(entry.useWhen).toEqual(['u'.repeat(600)])
+      expect(entry.openQuestions).toEqual(['q'.repeat(270)])
+    }
+    for (const input of corpus) {
+      expect(input.motivation).toHaveLength(30_000)
+      expect(input.possibleValue).toHaveLength(30_000)
+      expect(input.core).toHaveLength(2_000)
+    }
+  })
+
+  it('Case C: clips core only after every lower tier is already at zero', () => {
+    const corpus = Array.from({ length: 12 }, (_, index) => maximalCandidate(index))
+    const projection = projectCandidates(corpus)
+    const serialized = JSON.stringify(projection)
+    expect(serialized.length).toBeLessThanOrEqual(RELATED_PAYLOAD_LIMIT)
+    for (const entry of projection) {
+      // Identity and title always survive.
+      expect(entry.ideaId).toMatch(/^idea_\d{2}$/)
+      expect(entry.title).toHaveLength(IDEA_LIMITS.titleMax)
+      // Core took the first cut of its tier; nothing lower remains.
+      expect(Object.keys(entry).sort()).toEqual(['core', 'ideaId', 'title'])
+      expect(entry.core).toBeDefined()
+      expect(entry.core!.length).toBeGreaterThan(0)
+      expect(entry.core!.length).toBeLessThanOrEqual(4_000)
+    }
+  })
+
+  it('Case D: the same corpus projects to byte-identical output on repeated calls', () => {
+    const corpus = Array.from({ length: 12 }, (_, index) =>
+      tiered(`idea_${String(index).padStart(2, '0')}`, {
+        motivation: 'm'.repeat(20_000),
+        possibleValue: 'v'.repeat(20_000),
+      }))
+    const first = JSON.stringify(projectCandidates(corpus))
+    const second = JSON.stringify(projectCandidates(corpus))
+    expect(second).toBe(first)
+    expect(first.length).toBeLessThanOrEqual(RELATED_PAYLOAD_LIMIT)
+  })
+})
+
 describe('judgment prompt framing', () => {
   const messages = [
     { role: 'user' as const, text: 'How should ideas resurface?' },

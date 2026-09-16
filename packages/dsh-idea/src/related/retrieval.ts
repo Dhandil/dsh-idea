@@ -122,12 +122,28 @@ export interface RelatedCandidateProjection {
 }
 
 /**
- * Descending per-field content budgets. The first rung leaves stored content
- * whole; each later rung bounds every content field tighter, until the last
- * rung keeps identity and title alone. Identity and title always survive.
+ * Descending per-field content budgets one degradable tier walks through:
+ * a tier starts whole and, once degradation reaches it, is capped down this
+ * ladder rung by rung until it is dropped entirely.
  */
-const CONTENT_BUDGET_LADDER: readonly number[] =
-  [Number.POSITIVE_INFINITY, 4_000, 2_000, 1_000, 500, 250, 120, 60, 0]
+const FIELD_BUDGET_LADDER: readonly number[] = [4_000, 2_000, 1_000, 500, 250, 120, 60, 0]
+
+/**
+ * Degradable content fields from lowest preservation priority to highest
+ * (identity and title sit above every tier and never drop). Payload pressure
+ * must exhaust a lower tier completely — every rung down to zero — before
+ * the next higher tier gives up anything.
+ */
+const DEGRADATION_ORDER = [
+  'possibleValue',
+  'motivation',
+  'openQuestions',
+  'useWhen',
+  'currentConclusion',
+  'core',
+] as const
+
+type DegradableField = (typeof DEGRADATION_ORDER)[number]
 
 /** Below this field budget a list field is dropped instead of clipped. */
 const LIST_DROP_BUDGET = 40
@@ -144,37 +160,60 @@ function boundedList(items: readonly string[], budget: number): readonly string[
   return bounded.length > 0 ? bounded : []
 }
 
-function projectOne(candidate: RelatedIdeaCandidate, budget: number): RelatedCandidateProjection {
+function projectOne(
+  candidate: RelatedIdeaCandidate,
+  budgetOf: (field: DegradableField) => number,
+): RelatedCandidateProjection {
   const projection: RelatedCandidateProjection = { ideaId: candidate.ideaId, title: candidate.title }
-  if (budget <= 0) return projection
-  const core = boundedText(candidate.core, budget)
+  const core = boundedText(candidate.core, budgetOf('core'))
   if (core.length > 0) projection.core = core
-  const currentConclusion = boundedText(candidate.currentConclusion, budget)
+  const currentConclusion = boundedText(candidate.currentConclusion, budgetOf('currentConclusion'))
   if (currentConclusion.length > 0) projection.currentConclusion = currentConclusion
-  const useWhen = boundedList(candidate.useWhen, budget)
+  const useWhen = boundedList(candidate.useWhen, budgetOf('useWhen'))
   if (useWhen.length > 0) projection.useWhen = useWhen
-  const openQuestions = boundedList(candidate.openQuestions, budget)
+  const openQuestions = boundedList(candidate.openQuestions, budgetOf('openQuestions'))
   if (openQuestions.length > 0) projection.openQuestions = openQuestions
-  const motivation = boundedText(candidate.motivation, budget)
+  const motivation = boundedText(candidate.motivation, budgetOf('motivation'))
   if (motivation.length > 0) projection.motivation = motivation
-  const possibleValue = boundedText(candidate.possibleValue, budget)
+  const possibleValue = boundedText(candidate.possibleValue, budgetOf('possibleValue'))
   if (possibleValue.length > 0) projection.possibleValue = possibleValue
   return projection
 }
 
 /**
- * Project the judge pool onto the bounded prompt payload: identity and title
- * always survive; content is clipped along the frozen priority (core →
- * currentConclusion → useWhen → openQuestions → motivation → possibleValue)
- * until the serialized payload fits the frozen character budget. Stored
- * Ideas are only read, never written.
+ * Step the lowest-priority tier that is not yet fully degraded one rung down
+ * its ladder. @returns false when every tier is already at zero.
+ */
+function stepDegradation(budgets: Map<DegradableField, number>): boolean {
+  for (const field of DEGRADATION_ORDER) {
+    const current = budgets.get(field)!
+    if (current === 0) continue
+    const rung = FIELD_BUDGET_LADDER.indexOf(current)
+    budgets.set(field, rung >= 0 ? (FIELD_BUDGET_LADDER[rung + 1] ?? 0) : FIELD_BUDGET_LADDER[0]!)
+    return true
+  }
+  return false
+}
+
+/**
+ * Project the judge pool onto the bounded prompt payload along the frozen
+ * preservation priority: identity and title always survive; from lowest to
+ * highest (possibleValue → motivation → openQuestions → useWhen →
+ * currentConclusion → core) each tier walks its own budget ladder to zero
+ * before a higher tier is reduced at all, with the serialized size checked
+ * after every step. The first projection within the frozen budget wins, so
+ * the output is deterministic. Stored Ideas are only read, never written.
  */
 export function projectCandidates(
   candidates: readonly RelatedIdeaCandidate[],
 ): readonly RelatedCandidateProjection[] {
-  for (const budget of CONTENT_BUDGET_LADDER) {
-    const projection = candidates.map(candidate => projectOne(candidate, budget))
+  const budgets = new Map<DegradableField, number>(
+    DEGRADATION_ORDER.map(field => [field, Number.POSITIVE_INFINITY]),
+  )
+  for (;;) {
+    const budgetOf = (field: DegradableField) => budgets.get(field)!
+    const projection = candidates.map(candidate => projectOne(candidate, budgetOf))
     if (JSON.stringify(projection).length <= RELATED_PAYLOAD_LIMIT) return projection
+    if (!stepDegradation(budgets)) return projection
   }
-  return candidates.map(candidate => projectOne(candidate, 0))
 }
