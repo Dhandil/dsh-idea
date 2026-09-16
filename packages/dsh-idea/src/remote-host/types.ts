@@ -175,3 +175,35 @@ export interface IdeaCommitEvolutionResult {
   title: string
   status: 'active'
 }
+
+/** `idea.relatedFromMessage` request: the finalized assistant message to judge from. */
+export interface IdeaRelatedRequest {
+  /** The Session the discussion lives in. */
+  sessionId: string
+  /** The assistant message the user explicitly chose. */
+  messageId: string
+}
+
+/**
+ * One row of the `idea.relatedFromMessage` result: the Host-resolved
+ * canonical Idea identity and current-version content plus the model's
+ * reason. Canonical fields never come from the model.
+ */
+export interface IdeaRelatedMatch {
+  idea: {
+    id: string
+    currentVersionId: string
+    title: string
+    core: string
+    updatedAt: number
+  }
+  whyUsefulNow: string
+}
+
+/**
+ * `idea.relatedFromMessage` result: zero to three matches, in model order.
+ * An empty candidate corpus and a zero-match judgment are both successes.
+ */
+export interface IdeaRelatedResult {
+  items: readonly IdeaRelatedMatch[]
+}

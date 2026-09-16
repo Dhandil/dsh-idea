@@ -156,22 +156,35 @@ describe('client plugin mount', () => {
       '@dsh-external/dsh-idea#idea/list',
       '@dsh-external/dsh-idea#idea/prepareEvolution',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
+      '@dsh-external/dsh-idea#idea/relatedFromMessage',
     ])
     expect(localeRegisters).toEqual(['idea'])
     expect(slotInjectNames).toEqual([
       'conversation.chat.assistant-actions',
+      'conversation.chat.assistant-actions',
+      'conversation.input.overlay',
       'conversation.input.overlay',
       'settings.section',
     ])
 
     const action = slotRegistrations.find(entry => entry.id === 'idea')
     expect(action).toMatchObject({ name: 'conversation.chat.assistant-actions', order: 20, locale: 'idea' })
+    const relatedAction = slotRegistrations.find(entry => entry.id === 'idea-related' && entry.name === 'conversation.chat.assistant-actions')
+    expect(relatedAction).toMatchObject({ name: 'conversation.chat.assistant-actions', order: 21, locale: 'idea' })
     const dialog = slotRegistrations.find(entry => entry.id === 'idea-dialog')
     expect(dialog).toMatchObject({ name: 'conversation.input.overlay', order: 3, locale: 'idea' })
+    const relatedOverlay = slotRegistrations.find(entry => entry.id === 'idea-related' && entry.name === 'conversation.input.overlay')
+    expect(relatedOverlay).toMatchObject({ name: 'conversation.input.overlay', order: 4, locale: 'idea' })
     const section = slotRegistrations.find(entry => entry.id === 'ideas')
     expect(section).toMatchObject({ name: 'settings.section', order: 25, locale: 'idea' })
     expect(typeof (section as unknown as { label?: unknown } | undefined)?.label).toBe('function')
-    expect(slotComponents).toHaveLength(3)
+    expect(slotComponents).toHaveLength(5)
+
+    const relatedInjected = relatedAction !== undefined
+      ? (relatedAction as unknown as { inject: (sessionId: string) => unknown }).inject('session-1') as { hooks: { related: unknown }, findRelated: (messageId: string) => void }
+      : undefined
+    expect(typeof relatedInjected?.findRelated).toBe('function')
+    expect(relatedInjected?.hooks.related).toBeDefined()
 
     const injected = action !== undefined
       ? (action as unknown as { inject: (sessionId: string) => unknown }).inject('session-1') as { hooks: { idea: unknown }, prepare: (messageId: string) => void }

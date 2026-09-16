@@ -9,3 +9,5 @@
       name: '@dsh-external/dsh-idea/evolution'
     - id: dsh-idea-continuation
       name: '@dsh-external/dsh-idea/continuation'
+    - id: dsh-idea-related
+      name: '@dsh-external/dsh-idea/related'

@@ -33,13 +33,12 @@ function parseJsonObject(text: string): Record<string, unknown> {
 }
 
 /**
- * Parse and validate one model response into an {@link IdeaDraft}.
- * @param text - The joined text output of the extraction stream.
- * @returns the validated, normalized draft.
- * @throws `IdeaPreparationError` with code `invalid-model-output` on any
- * framing, JSON, or schema failure.
+ * Extract the one JSON object a strict model response carries: the entire
+ * text must be exactly one JSON object — raw, or wrapped in exactly one
+ * fenced `json` block with nothing outside it. Prose, multiple objects,
+ * arrays, primitives, and malformed JSON are `invalid-model-output`.
  */
-export function parseIdeaDraftOutput(text: string): IdeaDraft {
+export function parseStrictJsonObject(text: string): Record<string, unknown> {
   const trimmed = text.trim()
   if (trimmed.length === 0) {
     throw invalid('model output is empty')
@@ -61,7 +60,18 @@ export function parseIdeaDraftOutput(text: string): IdeaDraft {
     candidate = trimmed
   }
 
-  const parsed = parseJsonObject(candidate)
+  return parseJsonObject(candidate)
+}
+
+/**
+ * Parse and validate one model response into an {@link IdeaDraft}.
+ * @param text - The joined text output of the extraction stream.
+ * @returns the validated, normalized draft.
+ * @throws `IdeaPreparationError` with code `invalid-model-output` on any
+ * framing, JSON, or schema failure.
+ */
+export function parseIdeaDraftOutput(text: string): IdeaDraft {
+  const parsed = parseStrictJsonObject(text)
   const result = ideaDraftSchema.safeParse(parsed)
   if (!result.success) {
     throw invalid('model output does not match the IdeaDraft schema', result.error)

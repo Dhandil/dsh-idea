@@ -25,6 +25,9 @@ async function readHarness() {
     prepare: () => { throw new Error('reads never prepare evolution') },
     commit: () => { throw new Error('reads never commit evolution') },
   } as never)
+  env.ctx.provide('ideaRelated', {
+    relatedFromMessage: () => { throw new Error('reads never judge related ideas') },
+  } as never)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, idea: env.ctx.idea }
 }

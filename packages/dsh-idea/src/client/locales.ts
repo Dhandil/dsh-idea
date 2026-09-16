@@ -65,6 +65,13 @@ export const zh = {
   'read.evolve.committing': '正在保存…',
   'read.evolve.commitError': '保存新版本失败，请稍后重试',
   'read.evolve.readonlyHint': '当前版本「{title}」保持不变；确认后将追加为新版本。',
+  'related.action': '关联 Idea',
+  'related.title': '关联 Idea',
+  'related.loading': '正在查找关联 Idea…',
+  'related.close': '关闭',
+  'related.empty': '暂时没有值得关联的 Idea',
+  'related.error': '查找关联 Idea 失败，请重试',
+  'related.why': '为什么现在有用',
 } satisfies Record<string, string>
 
 /** The idea namespace key union. */
@@ -137,4 +144,11 @@ export const en = {
   'read.evolve.committing': 'Saving…',
   'read.evolve.commitError': 'Could not save the new version. Try again later.',
   'read.evolve.readonlyHint': 'The current version "{title}" stays unchanged; approving appends a new version.',
+  'related.action': 'Related Ideas',
+  'related.title': 'Related Ideas',
+  'related.loading': 'Finding related Ideas…',
+  'related.close': 'Close',
+  'related.empty': 'No saved Idea appears useful to this discussion right now.',
+  'related.error': 'Could not find related Ideas. Try again.',
+  'related.why': 'Why this is useful now',
 } satisfies Record<IdeaLocaleKey, string>

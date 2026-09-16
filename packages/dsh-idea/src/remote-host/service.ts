@@ -14,8 +14,9 @@
  * domain service owns idempotency, and `prepareEvolution`/`commitEvolution`
  * carry the evolution proposal pipeline — prepare is a read-only proposal,
  * commit is the only durable write and stays subject to the domain's
- * optimistic version check. The browser may only ever submit a draft plus a
- * Host-owned reference.
+ * optimistic version check — and `relatedFromMessage` carries the read-only
+ * Related Ideas usefulness judgment. The browser may only ever submit a
+ * draft plus a Host-owned reference.
  * @module @dsh-external/dsh-idea/src/remote-host/service
  */
 
@@ -40,6 +41,8 @@ import type {
   IdeaEvolutionProposalPreview,
   IdeaPrepareEvolutionRequest,
   IdeaPrepareRequest,
+  IdeaRelatedRequest,
+  IdeaRelatedResult,
   IdeaSummary,
   IdeaVersionDetail,
   IdeaVersionGetRequest,
@@ -59,7 +62,7 @@ type CommitEntry =
   | { kind: 'committed'; result: IdeaCreateResult }
 
 export class IdeaRemoteService extends TypertRemoteService {
-  static inject = ['ideaService', 'ideaPreparations', 'ideaEvolutions']
+  static inject = ['ideaService', 'ideaPreparations', 'ideaEvolutions', 'ideaRelated']
 
   /** Commit state per preparationId; entries live for the process lifetime. */
   private readonly commits = new Map<IdeaPreparationId, CommitEntry>()
@@ -302,6 +305,33 @@ export class IdeaRemoteService extends TypertRemoteService {
       }
     } catch (error) {
       throw remoteEvolutionError(error) ?? remoteDomainError(error) ?? error
+    }
+  }
+
+  /**
+   * Judge which saved Ideas would genuinely help the discussion behind one
+   * finalized assistant message right now. Delegates entirely to the Related
+   * service; zero durable writes. An empty candidate corpus and a zero-match
+   * judgment are both successes with no items.
+   */
+  @Remote
+  async relatedFromMessage(request: IdeaRelatedRequest, signal?: AbortSignal): Promise<IdeaRelatedResult> {
+    try {
+      const result = await this.ctx.ideaRelated.relatedFromMessage(request.sessionId, request.messageId, signal)
+      return {
+        items: result.items.map(match => ({
+          idea: {
+            id: match.idea.id,
+            currentVersionId: match.idea.currentVersionId,
+            title: match.idea.title,
+            core: match.idea.core,
+            updatedAt: match.idea.updatedAt,
+          },
+          whyUsefulNow: match.whyUsefulNow,
+        })),
+      }
+    } catch (error) {
+      throw remotePreparationError(error) ?? error
     }
   }
 

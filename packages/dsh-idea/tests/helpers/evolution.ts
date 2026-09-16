@@ -52,13 +52,14 @@ export interface EvolutionEnv {
 /**
  * Boot the evolution service over the real storage stack with scripted
  * seams. Callers still create the idea and discussion via the returned
- * domain service, then register the conversation surface events.
+ * domain service, then register the conversation surface events. An explicit
+ * `root` reopens the same durable root instead of a fresh temp dir.
  */
-export async function evolutionHarness(): Promise<EvolutionEnv> {
+export async function evolutionHarness(root?: string): Promise<EvolutionEnv> {
   const sessionQuery = new FakeSessionQuery()
   const agentDefaultModel = new FakeAgentDefaultModel()
   const llm = new FakeLlm()
-  const base = await harness()
+  const base = await harness(root)
   base.ctx.provide('sessionQuery', sessionQuery as unknown as SessionQueryFace)
   base.ctx.provide('agentDefaultModel', agentDefaultModel as unknown as AgentDefaultModelFace)
   base.ctx.provide('llm', llm as unknown as LlmFace)

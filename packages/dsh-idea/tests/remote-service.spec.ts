@@ -26,6 +26,7 @@ import { IdeaPreparationError, type IdeaPreparationErrorCode } from '../src/prep
 import type { IdeaPreparationId, IdeaPreparationPreview, PreparedIdeaSource } from '../src/preparation/types.ts'
 import IdeaEvolutionService from '../src/evolution/index.ts'
 import IdeaRemoteService from '../src/remote-host/index.ts'
+import IdeaRelatedService from '../src/related/index.ts'
 import type { IdeaPrepareRequest } from '../src/remote-host/types.ts'
 import { EvolutionEventId, IdeaId, IdeaVersionId } from '../src/types.ts'
 import type { IdeaAggregate, SourceDiscussionDraft } from '../src/types.ts'
@@ -91,6 +92,7 @@ async function fullHarness() {
   const llm = new FakeLlm()
   const env = await preparationHarness({ sessionQuery, agentDefaultModel: new FakeAgentDefaultModel(), llm })
   await env.ctx.plugin(IdeaEvolutionService)
+  await env.ctx.plugin(IdeaRelatedService)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, llm }
 }
@@ -136,6 +138,9 @@ function stubHarness(overrides: {
     ctx.provide('ideaEvolutions', {
       prepare: vi.fn(async () => { throw new Error('this suite never prepares evolution') }),
       commit: vi.fn(async () => { throw new Error('this suite never commits evolution') }),
+    } as never)
+    ctx.provide('ideaRelated', {
+      relatedFromMessage: vi.fn(async () => { throw new Error('this suite never judges related ideas') }),
     } as never)
     await ctx.plugin(IdeaRemoteService)
     return { ctx, idea: ctx.idea, create, resolve, prepareFromMessage }
@@ -336,6 +341,7 @@ describe('generated contributions', () => {
       '@dsh-external/dsh-idea#idea/list',
       '@dsh-external/dsh-idea#idea/prepareEvolution',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
+      '@dsh-external/dsh-idea#idea/relatedFromMessage',
     ])
     for (const descriptor of descriptors) {
       expect(descriptor.result?.mode).toBe('strict')
@@ -344,6 +350,7 @@ describe('generated contributions', () => {
       const cancellable = descriptor.id.endsWith('#idea/create')
         || descriptor.id.endsWith('#idea/prepareFromMessage')
         || descriptor.id.endsWith('#idea/prepareEvolution')
+        || descriptor.id.endsWith('#idea/relatedFromMessage')
       expect(descriptor.cancellation, descriptor.id).toEqual(cancellable ? { parameter: 'signal' } : undefined)
     }
   })

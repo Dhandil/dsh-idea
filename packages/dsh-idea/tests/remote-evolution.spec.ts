@@ -14,6 +14,7 @@ import { textStream } from './helpers/preparation.ts'
 import { evolutionDraft, evolutionHarness, seedDiscussion } from './helpers/evolution.ts'
 import { cleanup, storedBytes } from './helpers/harness.ts'
 import IdeaRemoteService from '../src/remote-host/index.ts'
+import IdeaRelatedService from '../src/related/index.ts'
 import { IdeaId, IdeaVersionId } from '../src/types.ts'
 
 afterEach(cleanup)
@@ -26,6 +27,7 @@ async function remoteHarness() {
   env.ctx.provide('ideaPreparations', {
     preparations: { resolve: () => { throw new Error('evolution never resolves preparations') } },
   } as never)
+  await env.ctx.plugin(IdeaRelatedService)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, idea: env.ctx.idea }
 }

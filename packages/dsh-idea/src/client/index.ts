@@ -21,14 +21,24 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { IdeaReadFace } from './read-state.ts'
 import type { IdeaRemoteFace } from './state.ts'
+import type { IdeaRelatedFace } from './related-state.ts'
 
 import ideaRemote from '@dsh-external/dsh-idea/remote'
 import { IdeaSaveDialog } from './IdeaSaveDialog.tsx'
 import { IdeaMessageActions } from './IdeaMessageActions.tsx'
+import { IdeaRelatedActions } from './IdeaRelatedActions.tsx'
+import { IdeaRelatedOverlay } from './IdeaRelatedOverlay.tsx'
 import { IdeaSection } from './IdeaSection.tsx'
 import { en, zh } from './locales.ts'
 import { IdeaReadSurface } from './read-state.ts'
-import type { IdeaActionInjected, IdeaDialogInjected, IdeaSectionInjected } from './slots.ts'
+import { RelatedIdeasSurface } from './related-state.ts'
+import type {
+  IdeaActionInjected,
+  IdeaDialogInjected,
+  IdeaSectionInjected,
+  RelatedActionInjected,
+  RelatedOverlayInjected,
+} from './slots.ts'
 import { IdeaSaveSurface } from './state.ts'
 import './styles.ts'
 
@@ -60,6 +70,20 @@ function registerUi(ctx: ClientContext): void {
     surfaces.clear()
   }, 'dsh-idea: per-session surfaces')
 
+  const relatedSurfaces = new Map<SessionId, RelatedIdeasSurface>()
+  const relatedFor = (sessionId: SessionId): RelatedIdeasSurface => {
+    let surface = relatedSurfaces.get(sessionId)
+    if (surface === undefined) {
+      surface = new RelatedIdeasSurface(ctx.remote.idea as IdeaRelatedFace, sessionId)
+      relatedSurfaces.set(sessionId, surface)
+    }
+    return surface
+  }
+  ctx.effect(() => () => {
+    for (const surface of relatedSurfaces.values()) surface.dispose()
+    relatedSurfaces.clear()
+  }, 'dsh-idea: per-session related surfaces')
+
   ctx.slots.inject('conversation.chat.assistant-actions', () => ctx.slots.register({
     name: 'conversation.chat.assistant-actions',
     id: 'idea',
@@ -70,6 +94,17 @@ function registerUi(ctx: ClientContext): void {
       prepare: (messageId) => { surfaceFor(sessionId).prepare(messageId) },
     }),
   }, IdeaMessageActions))
+
+  ctx.slots.inject('conversation.chat.assistant-actions', () => ctx.slots.register({
+    name: 'conversation.chat.assistant-actions',
+    id: 'idea-related',
+    order: 21,
+    locale: NS,
+    inject: (sessionId): RelatedActionInjected => ({
+      hooks: { related: relatedFor(sessionId).state },
+      findRelated: (messageId) => { relatedFor(sessionId).findRelated(messageId) },
+    }),
+  }, IdeaRelatedActions))
 
   ctx.slots.inject('conversation.input.overlay', () => ctx.slots.register({
     name: 'conversation.input.overlay',
@@ -88,6 +123,20 @@ function registerUi(ctx: ClientContext): void {
       }
     },
   }, IdeaSaveDialog))
+
+  ctx.slots.inject('conversation.input.overlay', () => ctx.slots.register({
+    name: 'conversation.input.overlay',
+    id: 'idea-related',
+    order: 4,
+    locale: NS,
+    inject: (sessionId): RelatedOverlayInjected => {
+      const surface = relatedFor(sessionId)
+      return {
+        hooks: { related: surface.state },
+        close: () => { surface.close() },
+      }
+    },
+  }, IdeaRelatedOverlay))
 
   // The read-only library plus its one write path: one root-scoped surface
   // behind the settings section; the list loads when the user first opens

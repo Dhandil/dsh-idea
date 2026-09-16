@@ -23,6 +23,10 @@
       "types": "./lib/continuation/index.d.ts",
       "default": "./lib/continuation/index.js"
     },
+    "./related": {
+      "types": "./lib/related/index.d.ts",
+      "default": "./lib/related/index.js"
+    },
     "./remote-host": {
       "types": "./lib/remote-host/index.d.ts",
       "default": "./lib/remote-host/index.js"

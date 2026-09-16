@@ -34,6 +34,28 @@ const CSS = `
   cursor: default;
   opacity: 0.4;
 }
+.dsh-idea-action-text {
+  width: auto;
+  padding: 0 10px;
+  font-size: calc(13px + var(--dsh-content-font-delta, 0px));
+}
+.dsh-idea-related {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dsh-idea-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-primary, rgba(127, 127, 127, 0.35));
+  border-radius: 10px;
+}
+.dsh-idea-card .dsh-idea-detail-text {
+  margin: 0;
+}
 .dsh-idea-form {
   display: flex;
   flex-direction: column;

@@ -33,6 +33,9 @@ async function continueHarness(create?: () => Promise<{ sessionId: string }>) {
     prepare: () => { throw new Error('continuation never prepares evolution') },
     commit: () => { throw new Error('continuation never commits evolution') },
   } as never)
+  env.ctx.provide('ideaRelated', {
+    relatedFromMessage: () => { throw new Error('continuation never judges related ideas') },
+  } as never)
   env.ctx.provide('sessionController', sessionController as never)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, sessionController, idea: env.ctx.idea }
@@ -47,6 +50,9 @@ async function controllerlessHarness() {
   env.ctx.provide('ideaEvolutions', {
     prepare: () => { throw new Error('continuation never prepares evolution') },
     commit: () => { throw new Error('continuation never commits evolution') },
+  } as never)
+  env.ctx.provide('ideaRelated', {
+    relatedFromMessage: () => { throw new Error('continuation never judges related ideas') },
   } as never)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, idea: env.ctx.idea }

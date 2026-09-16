@@ -8,6 +8,7 @@
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { IdeaReadState } from './read-state.ts'
+import type { RelatedIdeasUiState } from './related-state.ts'
 import type { EditableIdeaDraft, IdeaSaveState } from './state.ts'
 
 /** Injected business face of one assistant-message Idea action. */
@@ -24,6 +25,37 @@ export interface IdeaActionInjected {
 export type IdeaActionProps =
   PropsRuntime<'conversation.chat.assistant-actions'>
   & InjectFace<IdeaActionInjected>
+  & PropsLocale<'idea'>
+
+/** Injected business face of one assistant-message Related Ideas action. */
+export interface RelatedActionInjected {
+  hooks: {
+    /** The owning Session's Related Ideas interaction state. */
+    related: HostObservable<RelatedIdeasUiState>
+  }
+  /** Start the (at most one) related-Ideas query for this message. */
+  findRelated: (messageId: MessageId) => void
+}
+
+/** Full props of one assistant-message Related Ideas action entry. */
+export type RelatedActionProps =
+  PropsRuntime<'conversation.chat.assistant-actions'>
+  & InjectFace<RelatedActionInjected>
+  & PropsLocale<'idea'>
+
+/** Injected business face of the Session's Related Ideas overlay. */
+export interface RelatedOverlayInjected {
+  hooks: {
+    /** The owning Session's Related Ideas interaction state. */
+    related: HostObservable<RelatedIdeasUiState>
+  }
+  /** Close the overlay and reset its state. */
+  close: () => void
+}
+
+/** Full props of the Related Ideas overlay entry. */
+export type RelatedOverlayProps =
+  InjectFace<RelatedOverlayInjected>
   & PropsLocale<'idea'>
 
 /** Injected business face of the Session's Idea preview modal. */
