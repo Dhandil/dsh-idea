@@ -119,6 +119,35 @@ describe('idea.continueDiscussion', () => {
       .toBe('gateway/internal')
   })
 
+  it('adopts a client-prepared conversation without touching the session controller', async () => {
+    const env = await continueHarness()
+    const created = await env.service.create(draft(), sourceDraft())
+
+    const result = await env.idea.continueDiscussion({
+      id: created.idea.ideaId,
+      conversationId: 'session-prepared',
+    })
+
+    expect(env.sessionController.create).not.toHaveBeenCalled()
+    expect(result.conversationId).toBe('session-prepared')
+    expect(result.discussionId).toEqual(expect.any(String))
+  })
+
+  it('falls back to Host creation when the prepared conversation already carries another discussion', async () => {
+    const env = await continueHarness()
+    const first = await env.service.create(draft(), sourceDraft())
+    await env.idea.continueDiscussion({ id: first.idea.ideaId, conversationId: 'session-prepared' })
+    const second = await env.service.create(draft(), sourceDraft())
+
+    const result = await env.idea.continueDiscussion({
+      id: second.idea.ideaId,
+      conversationId: 'session-prepared',
+    })
+
+    expect(env.sessionController.create).toHaveBeenCalledTimes(1)
+    expect(result.conversationId).toBe('session-new')
+  })
+
   it('never writes the idea: the stored idea document stays byte-identical', async () => {
     const env = await continueHarness()
     const created = await env.service.create(draft(), sourceDraft())

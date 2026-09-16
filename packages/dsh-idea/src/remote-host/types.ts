@@ -120,6 +120,13 @@ export interface IdeaVersionDetail extends IdeaVersionSummary {
 export interface IdeaContinueDiscussionRequest {
   /** The Idea whose current version seeds the new discussion. */
   id: string
+  /**
+   * A client-prepared conversation to carry the discussion — bound to a
+   * workspace by the client's shared workspace navigation, so its composer
+   * is immediately usable. The Host adopts it only while no discussion is
+   * bound to it; anything else falls back to the Host-created default.
+   */
+  conversationId?: string
 }
 
 /**

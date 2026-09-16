@@ -243,7 +243,10 @@ export class IdeaRemoteService extends TypertRemoteService {
   @Remote
   async continueDiscussion(request: IdeaContinueDiscussionRequest): Promise<IdeaContinueDiscussionResult> {
     try {
-      const discussion = await this.ctx.ideaService.continueDiscussion(IdeaId(request.id), () => this.createConversation())
+      const discussion = await this.ctx.ideaService.continueDiscussion(
+        IdeaId(request.id),
+        () => this.adoptOrCreateConversation(request.conversationId),
+      )
       return {
         discussionId: discussion.discussionId,
         conversationId: discussion.conversationId,
@@ -336,9 +339,26 @@ export class IdeaRemoteService extends TypertRemoteService {
   }
 
   /**
-   * The one conversation the continuation opens, through the Host Session
-   * Controller with its default workspace — the same deployment default the
-   * client's New Session affordance uses. Lazy resolution keeps the Idea
+   * The conversation the continuation opens. A client with workspace
+   * navigation prepares one through the shared New-Session seam — a blank
+   * session already bound to a workspace, so the conversation's composer is
+   * immediately usable — and it is adopted only while no other discussion
+   * is bound to it; a reused or unknown id falls back to the Host-created
+   * conversation below, so one discussion's seed can never be hijacked by
+   * another.
+   */
+  private async adoptOrCreateConversation(conversationId?: string): Promise<string> {
+    if (conversationId !== undefined
+      && this.ctx.ideaService.findDiscussionByConversationId(conversationId) === undefined) {
+      return conversationId
+    }
+    return this.createConversation()
+  }
+
+  /**
+   * The Host's own default conversation: created through the Session
+   * Controller with no workspace binding — the deployment fallback for
+   * clients without workspace navigation. Lazy resolution keeps the Idea
    * remote mountable where session APIs are not (and matches the Harness
    * convention for optional host services).
    */

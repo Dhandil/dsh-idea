@@ -198,4 +198,40 @@ describe('Ideas section: continue discussion', () => {
     expect(surface.state.getSnapshot().continueStatus).toBe('idle')
     await act(async () => { release?.() })
   })
+
+  it('hands a prepared conversation to the Host call and opens the Host answer', async () => {
+    const face = faceWith()
+    const openConversation = vi.fn(async () => {})
+    const prepareConversation = vi.fn(async () => 'session-prepared')
+    const surface = new IdeaReadSurface(face, openConversation, prepareConversation)
+    pendings.push(() => surface.dispose())
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await flush()
+
+    expect(prepareConversation).toHaveBeenCalledTimes(1)
+    expect(face.continueDiscussion).toHaveBeenCalledWith({ id: 'idea_1', conversationId: 'session-prepared' })
+    expect(openConversation).toHaveBeenCalledWith('session-new')
+  })
+
+  it('lands in the error state when the conversation preparation itself fails', async () => {
+    const face = faceWith()
+    const openConversation = vi.fn(async () => {})
+    const prepareConversation = vi.fn(async () => { throw new Error('workspace refused') })
+    const surface = new IdeaReadSurface(face, openConversation, prepareConversation)
+    pendings.push(() => surface.dispose())
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await flush()
+
+    expect(face.continueDiscussion).not.toHaveBeenCalled()
+    expect(openConversation).not.toHaveBeenCalled()
+    expect(screen.getByText('继续讨论失败，请稍后重试')).toBeTruthy()
+  })
 })

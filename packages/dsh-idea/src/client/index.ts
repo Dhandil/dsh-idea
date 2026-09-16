@@ -147,10 +147,41 @@ function registerUi(ctx: ClientContext): void {
   // augment `ctx.sessions` with conflicting types, so the ambient property
   // type is unusable and the installed service is the session-controller's.
   const sessions = ctx.sessions as unknown as ISessions
+  // Faces of the shared Workspace navigation, resolved lazily per click: a
+  // deployment without the workspace domain keeps Continue Discussion on the
+  // Host-created default conversation.
+  type WorkspaceListFace = {
+    list: {
+      getSnapshot(): {
+        phase: string
+        items: readonly { workspaceId: string; sessionIds: readonly string[]; updatedAt: string }[]
+      }
+    }
+  }
+  type WorkspaceConnectorFace = { connectWorkspace: (workspaceId: string) => Promise<SessionId> }
+  const prepareConversation = async (): Promise<string | undefined> => {
+    const workspaces = ctx.get('workspaces') as WorkspaceListFace | undefined
+    const connector = ctx.get('uiWorkspace') as WorkspaceConnectorFace | undefined
+    if (workspaces === undefined || connector === undefined) return undefined
+    const snapshot = workspaces.list.getSnapshot()
+    if (snapshot.phase !== 'ready') return undefined
+    const current = sessions.list.getSnapshot().current
+    // The New-Session policy: the current session's workspace, else the most
+    // recently updated one (workspace record order breaks nothing further —
+    // the update instant is what recency means here).
+    const currentWorkspace = current === undefined
+      ? undefined
+      : snapshot.items.find(item => item.sessionIds.includes(current))?.workspaceId
+    const target = currentWorkspace ?? [...snapshot.items].sort(
+      (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+    )[0]?.workspaceId
+    if (target === undefined) return undefined
+    return connector.connectWorkspace(target)
+  }
   const readSurface = new IdeaReadSurface(ctx.remote.idea as IdeaReadFace, async (conversationId) => {
     await sessions.refresh()
     sessions.open(SessionId(conversationId))
-  })
+  }, prepareConversation)
   ctx.effect(() => () => { readSurface.dispose() }, 'dsh-idea: library read surface')
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
