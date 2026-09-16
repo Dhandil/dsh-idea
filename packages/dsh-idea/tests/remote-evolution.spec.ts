@@ -65,8 +65,26 @@ describe('idea.prepareEvolution', () => {
     expect(env.llm.calls).toHaveLength(0)
   })
 
-  it('maps an unreadable conversation onto idea/source-unavailable', async () => {
+  it('maps a discussion whose base version is superseded onto idea/version-conflict', async () => {
     const env = await remoteHarness()
+    const { ideaId, discussion } = await seedDiscussion(env)
+    await env.ideaService.evolve(
+      ideaId,
+      evolutionDraft(),
+      { sessionId: 'conversation-1', capturedContext: [{ role: 'user' as const, text: 'superseding edit' }] },
+      discussion.baseVersionId,
+      'manual-edit',
+    )
+    const before = await storedBytes(env.root, ideaId)
+
+    expect(await remoteCodeOf(() => env.idea.prepareEvolution({ discussionId: discussion.discussionId })))
+      .toBe('idea/version-conflict')
+    expect(env.llm.calls).toHaveLength(0)
+    expect(await storedBytes(env.root, ideaId)).toEqual(before)
+    expect(env.ideaService.get(ideaId).versions).toHaveLength(2)
+  })
+
+  it('maps an unreadable conversation onto idea/source-unavailable', async () => {    const env = await remoteHarness()
     const { discussion } = await seedDiscussion(env, [])
     // A surface whose only event is a system message carries no usable text.
     env.sessionQuery.add(discussion.conversationId, [{

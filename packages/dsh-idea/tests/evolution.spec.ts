@@ -8,10 +8,10 @@
  * @module tests/evolution.spec
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textStream } from './helpers/preparation.ts'
 import { evolutionDraft, evolutionHarness, seedDiscussion } from './helpers/evolution.ts'
-import { cleanup, storedBytes } from './helpers/harness.ts'
+import { cleanup, sourceDraft, storedBytes } from './helpers/harness.ts'
 
 afterEach(cleanup)
 
@@ -114,6 +114,47 @@ describe('prepare', () => {
     await expect(env.service.prepare('idea_disc_absent'))
       .rejects.toMatchObject({ code: 'discussion-not-found' })
     expect(env.llm.calls).toHaveLength(0)
+  })
+})
+
+describe('prepare base-version binding', () => {
+  it('rejects a stale discussion with version-conflict, zero model calls, and zero writes', async () => {
+    const env = await evolutionHarness()
+    const { ideaId, discussion } = await seedDiscussion(env)
+    await env.ideaService.evolve(
+      ideaId,
+      evolutionDraft(),
+      sourceDraft({ capturedContext: [{ role: 'user', text: 'superseding manual edit.' }] }),
+      discussion.baseVersionId,
+      'manual-edit',
+    )
+    const before = await storedBytes(env.root, ideaId)
+    const register = vi.spyOn(env.service.proposals, 'register')
+
+    await expect(env.service.prepare(discussion.discussionId))
+      .rejects.toMatchObject({ code: 'version-conflict' })
+
+    expect(env.llm.calls).toHaveLength(0)
+    expect(await storedBytes(env.root, ideaId)).toEqual(before)
+    expect(register).not.toHaveBeenCalled()
+  })
+
+  it('binds the proposal to the discussion base and seeds the prompt from the frozen context', async () => {
+    const env = await evolutionHarness()
+    const { ideaId, discussion } = await seedDiscussion(env)
+    env.llm.enqueueChunks(textStream(draftText))
+
+    const preview = await env.service.prepare(discussion.discussionId)
+
+    expect(preview.baseVersionId).toBe(discussion.baseVersionId)
+    expect(env.service.proposals.resolve(preview.proposalId).proposal.baseVersionId)
+      .toBe(discussion.baseVersionId)
+    expect(preview.baseVersionId).toBe(env.ideaService.get(ideaId).idea.currentVersionId)
+    const framed = (env.llm.calls[0]!.messages[0]!.content[0] as { type: 'text'; text: string }).text
+    expect(framed).toContain('"currentDraft"')
+    expect(framed).toContain('Session-attached idea notes')
+    expect(framed).toContain('"historySummary":[{"ordinal":1,"reason":"initial-save"')
+    expect(framed).toContain('"openQuestions":["How should ideas resurface?"]')
   })
 })
 

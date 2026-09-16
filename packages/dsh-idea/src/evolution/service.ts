@@ -60,28 +60,43 @@ export class IdeaEvolutionService extends Service {
 
   /**
    * Prepare one evolution proposal from a continued discussion. Reads only:
-   * no durable Idea write happens on this path.
+   * no durable Idea write happens on this path. The preparation is bound to
+   * the discussion's frozen base: when the Idea has moved past
+   * `discussion.baseVersionId` the call rejects with `version-conflict`
+   * before any model call, never silently rebasing onto the latest version,
+   * and the proposal seed is exactly the discussion's durable continuation
+   * context.
    * @param discussionId - The continued-discussion workspace to evolve from.
    * @param signal - Optional caller cancellation; checked at every stage.
    * @returns the preview carrying the opaque proposal id and proposed draft.
-   * @throws `IdeaError` with `idea-not-found` / `discussion-not-found` and
-   * `IdeaPreparationError` with a stable {@link IdeaPreparationErrorCode}.
+   * @throws `IdeaError` with `idea-not-found` / `discussion-not-found`,
+   * `version-conflict` when the discussion's base version is superseded,
+   * `invalid-input` on corrupt durable state, and `IdeaPreparationError` with
+   * a stable {@link IdeaPreparationErrorCode}.
    */
   async prepare(discussionId: string, signal?: AbortSignal): Promise<IdeaEvolutionPreview> {
     checkCancelled(signal)
 
     const discussion = this.ctx.ideaService.getDiscussion(IdeaDiscussionId(discussionId))
     const aggregate = this.ctx.ideaService.get(discussion.ideaId)
-    const currentVersion = aggregate.versions.find(version => version.versionId === aggregate.idea.currentVersionId)
-    if (currentVersion === undefined) {
-      throw new IdeaError('idea-not-found', `idea '${discussion.ideaId}' has no current version`)
+    if (aggregate.idea.currentVersionId !== discussion.baseVersionId) {
+      throw new IdeaError(
+        'version-conflict',
+        `discussion '${discussionId}' is based on '${discussion.baseVersionId}' but the idea is at `
+        + `'${aggregate.idea.currentVersionId}'; start a new discussion from the latest version`,
+      )
     }
-    const historySummary: IdeaHistorySummaryEntry[] = aggregate.versions.map(version => ({
-      ordinal: version.ordinal,
-      reason: version.reason,
-      title: version.draft.title,
-      createdAt: version.createdAt,
-    }))
+    const baseVersion = this.ctx.ideaService.getVersion(discussion.ideaId, discussion.baseVersionId)
+    const context = discussion.context
+    if (context.type !== 'idea-continuation'
+      || context.idea.id !== discussion.ideaId
+      || context.idea.currentVersion !== discussion.baseVersionId) {
+      throw new IdeaError(
+        'invalid-input',
+        `discussion '${discussionId}' carries a continuation context inconsistent with its base version `
+        + `'${baseVersion.versionId}'`,
+      )
+    }
 
     checkCancelled(signal)
     const surface = await readSessionSurface(this.ctx.sessionQuery, discussion.conversationId)
@@ -98,8 +113,8 @@ export class IdeaEvolutionService extends Service {
     checkCancelled(signal)
 
     const draft = await this.extractProposal(
-      currentVersion.draft,
-      historySummary,
+      context.idea.draft,
+      context.idea.historySummary,
       captured.messages,
       discussion.conversationId,
       route,
@@ -110,7 +125,7 @@ export class IdeaEvolutionService extends Service {
     const prepared: PreparedEvolution = {
       proposal: {
         ideaId: discussion.ideaId,
-        baseVersionId: currentVersion.versionId,
+        baseVersionId: discussion.baseVersionId,
         draft,
         reason: 'continued-discussion' satisfies IdeaEvolutionReason,
         createdAt: Date.now(),
@@ -126,7 +141,7 @@ export class IdeaEvolutionService extends Service {
     return {
       proposalId,
       ideaId: discussion.ideaId,
-      baseVersionId: currentVersion.versionId,
+      baseVersionId: discussion.baseVersionId,
       reason: prepared.proposal.reason,
       draft,
     }

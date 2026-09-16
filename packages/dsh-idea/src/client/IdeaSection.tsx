@@ -198,6 +198,9 @@ function IdeaDetailView(
           >
             {evolutionStatus === 'preparing' ? t('read.evolve.loading') : t('read.evolve')}
           </Button>
+          {evolutionStatus === 'error' && evolutionFailure === 'stale' && (
+            <p className="dsh-idea-state">{t('read.evolve.staleError')}</p>
+          )}
           {evolutionStatus === 'error' && evolutionFailure === 'prepare' && (
             <p className="dsh-idea-state">{t('read.evolve.prepareError')}</p>
           )}

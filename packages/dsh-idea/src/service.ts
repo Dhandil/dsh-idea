@@ -376,6 +376,24 @@ export class IdeaService extends Service {
   }
 
   /**
+   * Find the discussion workspace bound to one conversation, synchronously
+   * from memory. Read-only: detached return, zero writes, no aggregate
+   * mutation. A table scan is deliberate at V1 scale — no secondary index is
+   * maintained for this lookup.
+   * @param conversationId - The conversation to look up.
+   * @returns a detached snapshot of the first matching discussion, or
+   * undefined when no discussion is bound to the conversation.
+   */
+  findDiscussionByConversationId(conversationId: string): IdeaDiscussion | undefined {
+    for (const [, discussion] of this.workspaces.entries()) {
+      if (discussion.conversationId === conversationId) {
+        return structuredClone(discussion)
+      }
+    }
+    return undefined
+  }
+
+  /**
    * One optimistic single-record update on the domain's write chain. The
    * expectation is compared inside the update transform, which runs before
    * any backend write: a mismatch throws out of the transform, so neither

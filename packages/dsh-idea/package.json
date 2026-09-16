@@ -19,6 +19,10 @@
       "types": "./lib/evolution/index.d.ts",
       "default": "./lib/evolution/index.js"
     },
+    "./continuation": {
+      "types": "./lib/continuation/index.d.ts",
+      "default": "./lib/continuation/index.js"
+    },
     "./remote-host": {
       "types": "./lib/remote-host/index.d.ts",
       "default": "./lib/remote-host/index.js"
@@ -72,6 +76,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.0 <5",
     "@deepseek-ai/cosmokit": ">=1.0.0 <2",
+    "@deepseek-ai/dsh-agent": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-agent-default-model": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-invariants": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",

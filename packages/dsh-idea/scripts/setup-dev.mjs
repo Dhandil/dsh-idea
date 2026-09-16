@@ -24,6 +24,7 @@ const LINKS = [
   ['@deepseek-ai/dsh-session', 'packages/core/session'],
   ['@deepseek-ai/dsh-session-query', 'packages/session-query/session-query'],
   ['@deepseek-ai/dsh-llm', 'packages/llm/llm'],
+  ['@deepseek-ai/dsh-agent', 'packages/core/agent'],
   ['@deepseek-ai/dsh-agent-default-model', 'packages/core/agent-default-model'],
   ['@deepseek-ai/dsh-api-session-controller', 'packages/api/session-controller'],
   ['@deepseek-ai/dsh-typert-protocol', 'packages/typert/protocol'],

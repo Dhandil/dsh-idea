@@ -7,3 +7,5 @@
       name: '@dsh-external/dsh-idea/remote-host'
     - id: dsh-idea-evolution
       name: '@dsh-external/dsh-idea/evolution'
+    - id: dsh-idea-continuation
+      name: '@dsh-external/dsh-idea/continuation'

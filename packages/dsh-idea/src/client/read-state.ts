@@ -80,8 +80,8 @@ export interface IdeaReadState {
   discussionId: string | null
   /** The evolution proposal flow's lifecycle. */
   evolutionStatus: IdeaEvolutionStatus
-  /** Which half failed last, when `evolutionStatus` is `error`. */
-  evolutionFailure: 'prepare' | 'commit' | null
+  /** Which half failed last, when `evolutionStatus` is `error`; `stale` marks a superseded discussion base. */
+  evolutionFailure: 'prepare' | 'stale' | 'commit' | null
   /** The proposal under review, present only while reviewing. */
   proposal: IdeaProposalState | null
 }
@@ -308,11 +308,13 @@ export class IdeaReadSurface {
 
   private async runPrepareEvolution(discussionId: string, controller: AbortController): Promise<void> {
     let preview: IdeaEvolutionProposalPreview | undefined
+    let failureCode: string | undefined
     let cancelled = false
     try {
       const result = await this.remote.prepareEvolution({ discussionId }, controller.signal)
       if (controller.signal.aborted) cancelled = true
       else if (result.ok) preview = result.value
+      else failureCode = result.error.code
     } catch {
       // A thrown carrier failure renders as the prepare error state.
     } finally {
@@ -330,7 +332,7 @@ export class IdeaReadSurface {
         }
       } else {
         draft.evolutionStatus = 'error'
-        draft.evolutionFailure = 'prepare'
+        draft.evolutionFailure = failureCode === 'idea/version-conflict' ? 'stale' : 'prepare'
       }
     })
   }
