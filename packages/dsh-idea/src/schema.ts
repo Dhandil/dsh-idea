@@ -129,7 +129,7 @@ export const ideaVersionSchema = z.object({
   ordinal: z.number().int().positive(),
   draft: durableDraftSchema,
   reason: ideaVersionReasonSchema,
-  sourceDiscussionId: sourceDiscussionIdSchema.optional(),
+  sourceDiscussionIds: z.array(sourceDiscussionIdSchema),
   createdAt: z.number().int().nonnegative(),
 }) satisfies z.ZodType<IdeaVersion>
 
@@ -165,34 +165,65 @@ interface LegacyAggregateShape {
 }
 
 /**
- * Migrate a domain-version-1 aggregate document onto the current shape: the
- * flat version content becomes the nested `draft`, the citation array
- * collapses to its single entry, ordinal 1 gains the `initial-save` reason
- * (a legacy history beyond v1 — never produced by a shipped build — reads as
- * `continued-discussion`, matching what the old evolve did: saved from a
- * continued discussion), and one evolution event per version is synthesized
- * with a deterministic bounded id so the causal chain is complete.
- * Current-shape documents pass through untouched.
+ * Migrate one stored version element onto the canonical version-3 shape.
+ * Identity, draft, reason, and timestamps pass through untouched; only the
+ * provenance field is normalized:
+ *
+ * - domain version 1 (no `draft`): the flat content is wrapped in a draft
+ *   and the full `sourceDiscussionIds` citation array is preserved in order;
+ * - domain version 2 (`sourceDiscussionId`): the singular citation becomes a
+ *   one-element array, absent becomes `[]`;
+ * - domain version 3 (plural already present): passes through untouched.
+ */
+function migrateVersionElement(version: Record<string, unknown>, index: number): Record<string, unknown> {
+  if ('draft' in version) {
+    if ('sourceDiscussionIds' in version) return version
+    const { sourceDiscussionId, ...rest } = version
+    return {
+      ...rest,
+      sourceDiscussionIds: sourceDiscussionId !== undefined ? [sourceDiscussionId] : [],
+    }
+  }
+  const { title, core, motivation, currentConclusion, possibleValue, useWhen, openQuestions, sourceDiscussionIds, ...identity } = version
+  const citations = Array.isArray(sourceDiscussionIds) ? sourceDiscussionIds : []
+  const reason = index === 0 ? 'initial-save' : 'continued-discussion'
+  return {
+    ...identity,
+    draft: { title, core, motivation, currentConclusion, possibleValue, useWhen, openQuestions },
+    reason,
+    sourceDiscussionIds: citations,
+  }
+}
+
+/** The per-version v1 flat-content detector: a version without a `draft`. */
+function isLegacyFlatVersion(version: unknown): version is Record<string, unknown> {
+  return typeof version === 'object' && version !== null && !('draft' in version)
+}
+
+/**
+ * Migrate a stored aggregate document onto the canonical version-3 shape.
+ * A domain-version-1 document (any flat version) is migrated in full: flat
+ * content becomes the nested `draft`, the citation array is preserved in
+ * full and in order (never folded to one element), ordinal 1 gains the
+ * `initial-save` reason (a legacy history beyond v1 — never produced by a
+ * shipped build — reads as `continued-discussion`, matching what the old
+ * evolve did: saved from a continued discussion), and one evolution event
+ * per version is synthesized with a deterministic bounded id so the causal
+ * chain is complete. A domain-version-2 document has only its singular —
+ * or absent — provenance normalized to the plural array (`[id]` / `[]`).
+ * Current-shape documents pass through untouched, so migration is
+ * idempotent.
  */
 function migrateLegacyAggregate(value: unknown): unknown {
   if (typeof value !== 'object' || value === null) return value
   const document = value as LegacyAggregateShape
   if (!Array.isArray(document.versions)) return value
   const versions = document.versions as Array<Record<string, unknown>>
-  if (!versions.some(version => typeof version === 'object' && version !== null && !('draft' in version))) {
-    return value
+  const migrated = versions.map((version, index) => migrateVersionElement(version, index))
+  if (!versions.some(isLegacyFlatVersion)) {
+    const changed = migrated.some((version, index) => version !== versions[index])
+    return changed ? { ...value, versions: migrated } : value
   }
-  const migrated: Array<Record<string, unknown>> = versions.map((version, index) => {
-    const { title, core, motivation, currentConclusion, possibleValue, useWhen, openQuestions, sourceDiscussionIds, ...identity } = version
-    const citations = Array.isArray(sourceDiscussionIds) ? sourceDiscussionIds : []
-    const reason = index === 0 ? 'initial-save' : 'continued-discussion'
-    return {
-      ...identity,
-      draft: { title, core, motivation, currentConclusion, possibleValue, useWhen, openQuestions },
-      reason,
-      ...(citations.length > 0 ? { sourceDiscussionId: citations[0] } : {}),
-    }
-  })
   return {
     ...value,
     versions: migrated,
@@ -209,13 +240,15 @@ function migrateLegacyAggregate(value: unknown): unknown {
 
 /**
  * The canonical per-Idea record, read at the durable boundary. Domain
- * version 1 records are accepted and migrated onto the current shape (see
- * {@link migrateLegacyAggregate}). Beyond field shapes, the parser enforces
- * the aggregate invariants: at least one version, ordinals exactly `1..N` in
- * order, every version and snapshot owned by this Idea, unique version and
- * snapshot ids, `currentVersionId` pointing at the latest committed version,
- * no version citing a snapshot the aggregate does not carry, and exactly one
- * evolution event per version with resolvable version references.
+ * version 1 and 2 records are accepted and migrated onto the current
+ * version-3 shape (see {@link migrateLegacyAggregate}); the migration never
+ * discards a valid provenance citation. Beyond field shapes, the parser
+ * enforces the aggregate invariants: at least one version, ordinals exactly
+ * `1..N` in order, every version and snapshot owned by this Idea, unique
+ * version and snapshot ids, `currentVersionId` pointing at the latest
+ * committed version, no version citing a snapshot the aggregate does not
+ * carry, and exactly one evolution event per version with resolvable
+ * version references.
  */
 export const ideaAggregateSchema = z.preprocess(
   migrateLegacyAggregate,
@@ -282,13 +315,15 @@ export const ideaAggregateSchema = z.preprocess(
     })
 
     versions.forEach((version, index) => {
-      if (version.sourceDiscussionId !== undefined && !seenDiscussionIds.has(version.sourceDiscussionId)) {
-        refine.addIssue({
-          code: 'custom',
-          path: ['versions', index, 'sourceDiscussionId'],
-          message: `version '${version.versionId}' cites absent source discussion '${version.sourceDiscussionId}'`,
-        })
-      }
+      version.sourceDiscussionIds.forEach((discussionId, citationIndex) => {
+        if (!seenDiscussionIds.has(discussionId)) {
+          refine.addIssue({
+            code: 'custom',
+            path: ['versions', index, 'sourceDiscussionIds', citationIndex],
+            message: `version '${version.versionId}' cites absent source discussion '${discussionId}'`,
+          })
+        }
+      })
     })
 
     const seenEventIds = new Set<string>()

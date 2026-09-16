@@ -1,8 +1,11 @@
 /**
  * Strict parser of the Related Ideas judgment output: the entire response
  * must be exactly one JSON object — raw, or in exactly one fenced `json`
- * block (the shared Save/Evolution convention) — carrying a `matches` array
- * of at most three entries. Every entry must reference a known candidate id
+ * block (the shared Save/Evolution convention) — whose root carries exactly
+ * the `matches` key: an array of at most three entries, each carrying
+ * exactly `ideaId` and `whyUsefulNow` (extra model keys like score or
+ * confidence reject the output). Every entry must reference a known
+ * candidate id
  * exactly once with a trimmed, non-empty `whyUsefulNow` within the frozen
  * limit. Nothing is partially accepted; a malformed judgment produces no
  * writes and no retry.
@@ -29,6 +32,11 @@ function invalid(message: string, cause?: unknown): IdeaPreparationError {
  */
 export function parseRelatedMatches(text: string, candidateIds: ReadonlySet<string>): RelatedJudgment[] {
   const parsed = parseStrictJsonObject(text)
+  for (const key of Object.keys(parsed)) {
+    if (key !== 'matches') {
+      throw invalid(`model output carries unknown root key '${key}'`)
+    }
+  }
   const rawMatches = parsed.matches
   if (!Array.isArray(rawMatches)) {
     throw invalid('model output has no matches array')
@@ -43,7 +51,14 @@ export function parseRelatedMatches(text: string, candidateIds: ReadonlySet<stri
     if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
       throw invalid('model output has a non-object match entry')
     }
-    const { ideaId, whyUsefulNow } = entry as { ideaId?: unknown; whyUsefulNow?: unknown }
+    const match = entry as Record<string, unknown>
+    for (const key of Object.keys(match)) {
+      if (key !== 'ideaId' && key !== 'whyUsefulNow') {
+        throw invalid(`model output match carries unknown key '${key}'`)
+      }
+    }
+    const ideaId = match.ideaId
+    const whyUsefulNow = match.whyUsefulNow
     if (typeof ideaId !== 'string') {
       throw invalid('model output has a match without an ideaId')
     }

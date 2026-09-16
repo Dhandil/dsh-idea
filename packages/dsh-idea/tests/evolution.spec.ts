@@ -109,6 +109,16 @@ describe('prepare', () => {
     expect(env.llm.calls).toHaveLength(1)
   })
 
+  it('rejects a proposal output carrying unknown model keys', async () => {
+    const env = await evolutionHarness()
+    const { discussion } = await seedDiscussion(env)
+    env.llm.enqueueChunks(textStream(JSON.stringify({ ...evolutionDraft(), score: 0.9 })))
+
+    await expect(env.service.prepare(discussion.discussionId))
+      .rejects.toMatchObject({ code: 'invalid-model-output' })
+    expect(() => env.service.proposals.resolve('evo_none' as never)).toThrow()
+  })
+
   it('maps an unknown discussion to discussion-not-found without any model call', async () => {
     const env = await evolutionHarness()
     await expect(env.service.prepare('idea_disc_absent'))
@@ -173,9 +183,9 @@ describe('commit', () => {
     expect(next.ordinal).toBe(2)
     expect(next.reason).toBe('continued-discussion')
     expect(next.draft).toEqual(evolutionDraft())
-    expect(next.sourceDiscussionId).toBeDefined()
+    expect(next.sourceDiscussionIds).toHaveLength(1)
     const source = aggregate.sourceDiscussions.find(
-      entry => entry.sourceDiscussionId === next.sourceDiscussionId,
+      entry => entry.sourceDiscussionId === next.sourceDiscussionIds[0],
     )
     expect(source?.sessionId).toBe('conversation-1')
     expect(source?.capturedContext.length).toBe(4)

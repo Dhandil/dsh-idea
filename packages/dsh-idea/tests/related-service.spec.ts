@@ -236,12 +236,12 @@ describe('judgment outcomes', () => {
     expect(env.llm.calls).toHaveLength(1)
   })
 
-  it('re-projects matches onto canonical data in model order, ignoring model-supplied fields', async () => {
+  it('re-projects matches onto canonical data in model order', async () => {
     const { env, related } = await boot()
     const alpha = await addIdea(env, 'Alpha idea')
     const beta = await addIdea(env, 'Beta idea')
     env.llm.enqueueChunks(textStream(matchesText(
-      { ideaId: beta, whyUsefulNow: 'bridges the open question now', title: 'HACKED', core: 'HACKED' },
+      { ideaId: beta, whyUsefulNow: 'bridges the open question now' },
       { ideaId: alpha, whyUsefulNow: 'answers the discussion directly' },
     )))
 
@@ -255,7 +255,17 @@ describe('judgment outcomes', () => {
       .toBe(env.ideaService.get(IdeaId(beta)).idea.currentVersionId)
     expect(result.items[1]!.idea.id).toBe(alpha)
     expect(result.items[1]!.idea.title).toBe('Alpha idea')
-    expect(JSON.stringify(result)).not.toContain('HACKED')
+  })
+
+  it('rejects a judgment whose matches carry model-supplied extra fields', async () => {
+    const { env, related } = await boot()
+    await addIdea(env, 'Alpha idea')
+    env.llm.enqueueChunks(textStream(matchesText(
+      { ideaId: env.ideaService.list()[0]!.idea.ideaId, whyUsefulNow: 'x', title: 'HACKED', core: 'HACKED' },
+    )))
+
+    expect(await errorCodeOf(() => related.relatedFromMessage('conversation-1', 'd-a2')))
+      .toBe('invalid-model-output')
   })
 
   it('accepts a full three-match judgment in model order', async () => {

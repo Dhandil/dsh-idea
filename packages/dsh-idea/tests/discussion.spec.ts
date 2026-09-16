@@ -11,6 +11,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ideaDomainSpec } from '../src/spec.ts'
 import { IdeaId } from '../src/types.ts'
 import { cleanup, draft, harness, sourceDraft, storedAggregate, storedBytes } from './helpers/harness.ts'
 
@@ -67,7 +68,7 @@ describe('creating a discussion', () => {
     const document = JSON.parse(
       await readFile(`${root}/idea/discussions/${discussion.discussionId}.json`, 'utf8'),
     ) as { version: number; record: { conversationId: string; context: { type: string } } }
-    expect(document.version).toBe(2)
+    expect(document.version).toBe(ideaDomainSpec.version)
     expect(document.record.conversationId).toBe('session-continued-1')
     expect(document.record.context.type).toBe('idea-continuation')
     expect(await storedAggregate(root, created.idea.ideaId)).toBeDefined()

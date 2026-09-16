@@ -365,9 +365,13 @@ export class IdeaRemoteService extends TypertRemoteService {
   }
 }
 
-/** The source snapshot the version cites, absent when it cites none. */
+/**
+ * The primary source snapshot the version cites, absent when it cites none.
+ * The durable provenance array may hold further citations; V1 renders only
+ * the primary one while the full array stays on the record.
+ */
 function citedSourceOf(aggregate: IdeaAggregate, version: IdeaVersion): IdeaSummary['source'] {
-  const discussionId = version.sourceDiscussionId
+  const discussionId = version.sourceDiscussionIds[0]
   if (discussionId === undefined) return undefined
   const discussion = aggregate.sourceDiscussions.find(entry => entry.sourceDiscussionId === discussionId)
   if (discussion === undefined) return undefined

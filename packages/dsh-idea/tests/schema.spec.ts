@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
@@ -44,7 +44,7 @@ const validAggregate = (): IdeaAggregate => ({
       openQuestions: [],
     },
     reason: 'initial-save',
-    sourceDiscussionId: SourceDiscussionId('idea-src-1'),
+    sourceDiscussionIds: [SourceDiscussionId('idea-src-1')],
     createdAt: 100,
   }],
   sourceDiscussions: [{
@@ -161,7 +161,7 @@ describe('idea aggregate validation', () => {
 
   it('rejects dangling source discussion references', () => {
     const aggregate = validAggregate()
-    aggregate.versions[0]!.sourceDiscussionId = SourceDiscussionId('idea-src-absent')
+    aggregate.versions[0]!.sourceDiscussionIds = [SourceDiscussionId('idea-src-absent')]
     expect(ideaAggregateSchema.safeParse(aggregate).success).toBe(false)
   })
 
@@ -295,16 +295,25 @@ describe('domain version 1 migration', () => {
       possibleValue: '',
       useWhen: ['when'],
       openQuestions: [],
-      sourceDiscussionIds: ['idea-src-1'],
+      sourceDiscussionIds: ['idea-src-1', 'idea-src-2'],
       createdAt: 100,
     }],
-    sourceDiscussions: [{
-      sourceDiscussionId: 'idea-src-1',
-      ideaId: 'idea-legacy',
-      sessionId: 'session-legacy',
-      capturedContext: [{ role: 'user', text: 'hello' }],
-      capturedAt: 100,
-    }],
+    sourceDiscussions: [
+      {
+        sourceDiscussionId: 'idea-src-1',
+        ideaId: 'idea-legacy',
+        sessionId: 'session-legacy',
+        capturedContext: [{ role: 'user', text: 'hello' }],
+        capturedAt: 100,
+      },
+      {
+        sourceDiscussionId: 'idea-src-2',
+        ideaId: 'idea-legacy',
+        sessionId: 'session-legacy-2',
+        capturedContext: [{ role: 'assistant', text: 'second snapshot' }],
+        capturedAt: 100,
+      },
+    ],
   })
 
   it('migrates a legacy flat aggregate onto the current shape', () => {
@@ -314,12 +323,18 @@ describe('domain version 1 migration', () => {
     expect(v1.draft.core).toBe('Legacy core')
     expect(v1.draft.useWhen).toEqual(['when'])
     expect(v1.reason).toBe('initial-save')
-    expect(v1.sourceDiscussionId).toBe('idea-src-1')
     expect(parsed.evolutionEvents).toHaveLength(1)
     const event = parsed.evolutionEvents[0]!
     expect(event.toVersionId).toBe('idea-ver-1')
     expect(event.fromVersionId).toBeUndefined()
     expect(event.reason).toBe('initial-save')
+  })
+
+  it('preserves the full multi-source provenance array and every snapshot', () => {
+    const parsed = ideaAggregateSchema.parse(legacyAggregate())
+    expect(parsed.versions[0]!.sourceDiscussionIds).toEqual(['idea-src-1', 'idea-src-2'])
+    expect(parsed.sourceDiscussions.map(entry => entry.sourceDiscussionId)).toEqual(['idea-src-1', 'idea-src-2'])
+    expect(parsed.sourceDiscussions[1]!.sessionId).toBe('session-legacy-2')
   })
 
   it('migrates a legacy multi-version history with reasons and a linked event chain', () => {
@@ -342,23 +357,57 @@ describe('domain version 1 migration', () => {
     const parsed = ideaAggregateSchema.parse(legacy)
     expect(parsed.versions[0]!.reason).toBe('initial-save')
     expect(parsed.versions[1]!.reason).toBe('continued-discussion')
-    expect(parsed.versions[1]!.sourceDiscussionId).toBeUndefined()
+    expect(parsed.versions[0]!.sourceDiscussionIds).toEqual(['idea-src-1', 'idea-src-2'])
+    expect(parsed.versions[1]!.sourceDiscussionIds).toEqual([])
     expect(parsed.evolutionEvents).toHaveLength(2)
     expect(parsed.evolutionEvents[1]!.fromVersionId).toBe('idea-ver-1')
     expect(parsed.evolutionEvents[1]!.toVersionId).toBe('idea-ver-2')
   })
 
-  it('reads version-1-stamped records at the durable boundary', async () => {
+  it('reads version-1-stamped records at the durable boundary without writing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-idea-migrate-'))
     const path = join(root, ideaDomainSpec.name, 'ideas', 'idea-legacy.json')
     await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, JSON.stringify({ version: 1, record: legacyAggregate() }))
+    const document = JSON.stringify({ version: 1, record: legacyAggregate() })
+    await writeFile(path, document)
 
     const { service } = await harness(root)
     const aggregate = service.get(IdeaId('idea-legacy'))
     expect(aggregate.versions[0]!.draft.title).toBe('Legacy title')
     expect(aggregate.versions[0]!.reason).toBe('initial-save')
+    expect(aggregate.versions[0]!.sourceDiscussionIds).toEqual(['idea-src-1', 'idea-src-2'])
     expect(aggregate.evolutionEvents).toHaveLength(1)
+    // Pure reads leave the stored bytes untouched.
+    expect(await readFile(path, 'utf8')).toBe(document)
+  })
+
+  it('persists the canonical v3 form on the next write and keeps historical provenance', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-idea-migrate-v3-'))
+    const path = join(root, ideaDomainSpec.name, 'ideas', 'idea-legacy.json')
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, JSON.stringify({ version: 1, record: legacyAggregate() }))
+
+    const { ctx, root: sameRoot, service } = await harness(root)
+    const evolved = await service.evolve(
+      IdeaId('idea-legacy'),
+      draft({ title: 'Evolved title' }),
+      sourceDraft({ sessionId: 'session-new' }),
+      IdeaVersionId('idea-ver-1'),
+      'manual-edit',
+    )
+    expect(evolved.versions).toHaveLength(2)
+    await ctx.fiber.dispose()
+
+    const raw = JSON.parse(await readFile(path, 'utf8')) as { version: number, record: { versions: Array<{ sourceDiscussionIds: string[] }> } }
+    expect(raw.version).toBe(3)
+    expect(raw.record.versions[0]!.sourceDiscussionIds).toEqual(['idea-src-1', 'idea-src-2'])
+    expect(raw.record.versions[1]!.sourceDiscussionIds).toHaveLength(1)
+
+    const reopened = await harness(sameRoot)
+    const aggregate = reopened.service.get(IdeaId('idea-legacy'))
+    expect(aggregate.versions[0]!.sourceDiscussionIds).toEqual(['idea-src-1', 'idea-src-2'])
+    expect(aggregate.versions[1]!.sourceDiscussionIds).toEqual(
+      [aggregate.sourceDiscussions.at(-1)!.sourceDiscussionId])
   })
 
   it('still rejects a legacy document that violates the model invariants', () => {
@@ -368,13 +417,111 @@ describe('domain version 1 migration', () => {
   })
 })
 
+describe('domain version 2 migration', () => {
+  /** A v2-era aggregate: nested draft, singular optional provenance. */
+  const v2Aggregate = (withSource: boolean): Record<string, unknown> => ({
+    idea: {
+      ideaId: 'idea-v2',
+      currentVersionId: 'idea-ver-1',
+      status: 'active',
+      createdAt: 100,
+      updatedAt: 100,
+    },
+    versions: [{
+      versionId: 'idea-ver-1',
+      ideaId: 'idea-v2',
+      ordinal: 1,
+      draft: {
+        title: 'V2 title',
+        core: 'V2 core',
+        motivation: 'V2 motivation',
+        currentConclusion: '',
+        possibleValue: '',
+        useWhen: [],
+        openQuestions: [],
+      },
+      reason: 'initial-save',
+      ...(withSource ? { sourceDiscussionId: 'idea-src-1' } : {}),
+      createdAt: 100,
+    }],
+    sourceDiscussions: [{
+      sourceDiscussionId: 'idea-src-1',
+      ideaId: 'idea-v2',
+      sessionId: 'session-v2',
+      capturedContext: [{ role: 'user', text: 'hello' }],
+      capturedAt: 100,
+    }],
+    evolutionEvents: [{
+      evolutionEventId: 'idea-evo-1',
+      ideaId: 'idea-v2',
+      toVersionId: 'idea-ver-1',
+      reason: 'initial-save',
+      createdAt: 100,
+    }],
+  })
+
+  it('wraps a singular v2 citation into a one-element array', () => {
+    const parsed = ideaAggregateSchema.parse(v2Aggregate(true))
+    expect(parsed.versions[0]!.sourceDiscussionIds).toEqual(['idea-src-1'])
+  })
+
+  it('maps an absent v2 citation to an empty array', () => {
+    const parsed = ideaAggregateSchema.parse(v2Aggregate(false))
+    expect(parsed.versions[0]!.sourceDiscussionIds).toEqual([])
+  })
+
+  it('keeps v2 draft, reason, and events intact through the migration', () => {
+    const parsed = ideaAggregateSchema.parse(v2Aggregate(true))
+    expect(parsed.versions[0]!.draft.title).toBe('V2 title')
+    expect(parsed.versions[0]!.reason).toBe('initial-save')
+    expect(parsed.evolutionEvents).toHaveLength(1)
+  })
+
+  it('reads version-2-stamped records durably and persists v3 on the next write', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-idea-v2-migrate-'))
+    const path = join(root, ideaDomainSpec.name, 'ideas', 'idea-v2.json')
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, JSON.stringify({ version: 2, record: v2Aggregate(true) }))
+
+    const { ctx, root: sameRoot, service } = await harness(root)
+    const aggregate = service.get(IdeaId('idea-v2'))
+    expect(aggregate.versions[0]!.sourceDiscussionIds).toEqual(['idea-src-1'])
+    const evolved = await service.evolve(
+      IdeaId('idea-v2'),
+      draft({ title: 'V2 evolved' }),
+      sourceDraft({ sessionId: 'session-v2-new' }),
+      IdeaVersionId('idea-ver-1'),
+      'manual-edit',
+    )
+    expect(evolved.versions).toHaveLength(2)
+    await ctx.fiber.dispose()
+
+    const raw = JSON.parse(await readFile(path, 'utf8')) as { version: number, record: { versions: Array<{ sourceDiscussionIds: string[] }> } }
+    expect(raw.version).toBe(3)
+    expect(raw.record.versions[0]!.sourceDiscussionIds).toEqual(['idea-src-1'])
+
+    const reopened = await harness(sameRoot)
+    expect(reopened.service.get(IdeaId('idea-v2')).versions[0]!.sourceDiscussionIds).toEqual(['idea-src-1'])
+  })
+
+  it('fails the domain open loudly when a v2 citation dangles', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-idea-v2-dangling-'))
+    const path = join(root, ideaDomainSpec.name, 'ideas', 'idea-v2.json')
+    await mkdir(dirname(path), { recursive: true })
+    const record = v2Aggregate(true) as { versions: Array<Record<string, unknown>> }
+    record.versions[0]!.sourceDiscussionId = 'idea-src-absent'
+    await writeFile(path, JSON.stringify({ version: 2, record }))
+    await expect(harness(root)).rejects.toMatchObject({ code: 'invalid-record' })
+  })
+})
+
 describe('durable boundary', () => {
   it('fails the domain open when a stored aggregate is malformed', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-idea-corrupt-'))
     const path = join(root, ideaDomainSpec.name, 'ideas', 'idea-corrupt.json')
     await mkdir(dirname(path), { recursive: true })
     const aggregate = validAggregate()
-    aggregate.versions[0]!.sourceDiscussionId = SourceDiscussionId('idea-src-dangling')
+    aggregate.versions[0]!.sourceDiscussionIds = [SourceDiscussionId('idea-src-dangling')]
     await writeFile(path, JSON.stringify({
       version: ideaDomainSpec.version,
       record: aggregate,

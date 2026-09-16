@@ -113,7 +113,7 @@ export class IdeaService extends Service {
         ordinal: 1,
         draft: validatedDraft,
         reason: 'initial-save',
-        sourceDiscussionId,
+        sourceDiscussionIds: [sourceDiscussionId],
         createdAt: now,
       }],
       sourceDiscussions: [{
@@ -241,7 +241,7 @@ export class IdeaService extends Service {
         ordinal: (current.versions.at(-1)?.ordinal ?? 0) + 1,
         draft: validatedDraft,
         reason,
-        sourceDiscussionId,
+        sourceDiscussionIds: [sourceDiscussionId],
         createdAt: now,
       }
       const event: IdeaEvolutionEvent = {

@@ -37,9 +37,9 @@ describe('create', () => {
     expect(v1.ordinal).toBe(1)
     expect(aggregate.idea.currentVersionId).toBe(v1.versionId)
     expect(aggregate.idea.createdAt).toBeLessThanOrEqual(aggregate.idea.updatedAt)
-    expect(v1.sourceDiscussionId).toBeDefined()
+    expect(v1.sourceDiscussionIds).toHaveLength(1)
     const discussion = aggregate.sourceDiscussions[0]!
-    expect(discussion.sourceDiscussionId).toBe(v1.sourceDiscussionId)
+    expect(discussion.sourceDiscussionId).toBe(v1.sourceDiscussionIds[0])
     expect(discussion.ideaId).toBe(aggregate.idea.ideaId)
     expect(discussion.sessionId).toBe('session-1')
     expect(aggregate.evolutionEvents).toHaveLength(1)
@@ -118,7 +118,7 @@ describe('evolve', () => {
     expect(evolved.idea.currentVersionId).toBe(v2.versionId)
     expect(evolved.idea.ideaId).toBe(created.idea.ideaId)
     expect(evolved.sourceDiscussions).toHaveLength(2)
-    expect(v2.sourceDiscussionId).toBe(evolved.sourceDiscussions[1]!.sourceDiscussionId)
+    expect(v2.sourceDiscussionIds).toEqual([evolved.sourceDiscussions[1]!.sourceDiscussionId])
     expect(evolved.evolutionEvents).toHaveLength(2)
     // One aggregate record, updated in place on the medium.
     expect(evolved).toEqual(await storedAggregate(root, created.idea.ideaId))

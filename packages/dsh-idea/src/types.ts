@@ -84,8 +84,12 @@ export interface IdeaVersion {
   draft: IdeaDraft
   /** Why this version exists. */
   reason: IdeaVersionReason
-  /** The source snapshot this version was saved from, absent when none was captured. */
-  sourceDiscussionId?: SourceDiscussionId
+  /**
+   * The source snapshots this version was saved from, in citation order,
+   * empty when none was captured. Canonical domain version 3 keeps the full
+   * array so provenance is never lost; new writes cite exactly one snapshot.
+   */
+  sourceDiscussionIds: readonly SourceDiscussionId[]
   createdAt: number
 }
 

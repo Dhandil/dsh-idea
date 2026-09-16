@@ -213,6 +213,12 @@ describe('output classification', () => {
     expect(await errorCodeOf(() => env.service.prepareFromMessage('session-1', 'a1'))).toBe('invalid-model-output')
   })
 
+  it('rejects output carrying unknown model keys with invalid-model-output', async () => {
+    const env = await boot()
+    env.llm.enqueueChunks(textStream(JSON.stringify({ ...modelDraft, confidence: 0.9 })))
+    expect(await errorCodeOf(() => env.service.prepareFromMessage('session-1', 'a1'))).toBe('invalid-model-output')
+  })
+
   it('rejects empty output with invalid-model-output', async () => {
     const env = await boot()
     env.llm.enqueueChunks(textStream(''))

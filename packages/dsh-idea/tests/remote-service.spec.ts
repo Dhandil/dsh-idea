@@ -54,6 +54,7 @@ const aggregateOf = (ideaId: string, versionId: string, createdAt = 1): IdeaAggr
       openQuestions: [],
     },
     reason: 'initial-save',
+    sourceDiscussionIds: [],
     createdAt,
   }],
   sourceDiscussions: [],

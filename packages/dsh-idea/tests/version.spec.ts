@@ -24,7 +24,7 @@ describe('v1 creation', () => {
     expect(v1.ordinal).toBe(1)
     expect(v1.reason).toBe('initial-save')
     expect(v1.draft).toEqual(draft())
-    expect(v1.sourceDiscussionId).toBe(aggregate.sourceDiscussions[0]!.sourceDiscussionId)
+    expect(v1.sourceDiscussionIds).toEqual([aggregate.sourceDiscussions[0]!.sourceDiscussionId])
     expect(aggregate.idea.currentVersionId).toBe(v1.versionId)
     expect(aggregate.evolutionEvents).toHaveLength(1)
     const event = aggregate.evolutionEvents[0]!

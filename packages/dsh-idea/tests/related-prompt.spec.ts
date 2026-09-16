@@ -244,6 +244,19 @@ describe('judgment parser', () => {
     expect(parseRelatedMatches('{"matches":[]}', ids)).toEqual([])
   })
 
+  it('rejects an unknown root key', () => {
+    expect(() => parseRelatedMatches('{"matches":[],"confidence":0.9}', ids)).toThrow(/unknown root key/)
+  })
+
+  it('rejects a match carrying unknown keys such as score, confidence, title, or core', () => {
+    const scored = JSON.stringify({ matches: [{ ideaId: 'idea_a', whyUsefulNow: 'x', score: 0.9 }] })
+    expect(() => parseRelatedMatches(scored, ids)).toThrow(/unknown key 'score'/)
+    const titled = JSON.stringify({
+      matches: [{ ideaId: 'idea_a', title: 'invented', core: 'invented', confidence: 1, whyUsefulNow: 'x' }],
+    })
+    expect(() => parseRelatedMatches(titled, ids)).toThrow(/unknown key 'title'/)
+  })
+
   it('accepts one to three known unique matches, trimming the reason', () => {
     expect(parseRelatedMatches(judgment('idea_b', '  helps now  '), ids))
       .toEqual([{ ideaId: 'idea_b', whyUsefulNow: 'helps now' }])

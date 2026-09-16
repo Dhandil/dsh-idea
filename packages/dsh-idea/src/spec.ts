@@ -10,11 +10,13 @@
  * discussion, so a save rewrites only that record's document. Ideas are
  * authoritative user data: an open rejects (never skips) a stored record
  * that fails its schema. Version 2 reshaped versions onto nested drafts
- * with reasons and added evolution events; domain version 1 records remain
- * readable and are migrated by the record schema — the next write of a
- * migrated idea persists the version-2 form. The `discussions` table is
- * version-2-additive: it holds no version-1-era data and changes no
- * existing record shape.
+ * with reasons and added evolution events. Version 3 restored the plural
+ * `sourceDiscussionIds` citation array (version 2 had folded it to one
+ * singular field, silently dropping valid provenance): version 1 and 2
+ * records remain readable and are migrated non-lossily by the record
+ * schema — the next write of a migrated idea persists the version-3 form.
+ * The `discussions` table is version-2-additive: it holds no version-1-era
+ * data and changes no existing record shape.
  * @module @dsh-external/dsh-idea/src/spec
  */
 
@@ -25,8 +27,8 @@ import type { IdeaDiscussionId } from './types.ts'
 
 export const ideaDomainSpec = defineDomain({
   name: 'idea',
-  version: 2,
-  compatibleVersions: [1],
+  version: 3,
+  compatibleVersions: [1, 2],
   layout: 'per-record',
   tables: {
     ideas: domainTable<IdeaId, IdeaAggregate>(ideaAggregateSchema),

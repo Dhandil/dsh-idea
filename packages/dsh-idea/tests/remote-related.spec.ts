@@ -63,7 +63,7 @@ describe('idea.relatedFromMessage', () => {
     const alpha = await addIdea(env, 'Alpha idea')
     const before = await storedBytes(env.root, ideaId)
     env.llm.enqueueChunks(textStream(matchesText(
-      { ideaId: alpha, whyUsefulNow: 'answers the open question now', title: 'HACKED' },
+      { ideaId: alpha, whyUsefulNow: 'answers the open question now' },
     )))
 
     const result = await env.idea.relatedFromMessage({ sessionId: 'conversation-1', messageId: 'd-a2' })
@@ -75,18 +75,29 @@ describe('idea.relatedFromMessage', () => {
     expect(Object.keys(result.items[0]!.idea).sort())
       .toEqual(['core', 'currentVersionId', 'id', 'title', 'updatedAt'])
     expect(typeof result.items[0]!.idea.updatedAt).toBe('number')
-    // Canonical re-projection: the model's extra fields never leak.
+    // Canonical re-projection: the wire carries the stored canonical fields.
     expect(result.items[0]!.idea.title).toBe('Alpha idea')
     expect(result.items[0]!.idea.core).toBe('Core of Alpha idea')
     expect(result.items[0]!.whyUsefulNow).toBe('answers the open question now')
     // No aggregate internals leak onto the wire.
     const wire = JSON.stringify(result)
-    expect(wire).not.toContain('HACKED')
     expect(wire).not.toContain(ideaId)
     expect(wire).not.toContain('versions')
     expect(wire).not.toContain('sourceDiscussions')
     expect(wire).not.toContain('evolutionEvents')
     expect(await storedBytes(env.root, ideaId)).toEqual(before)
+  })
+
+  it('rejects a judgment carrying model-supplied extra fields as invalid-model-output', async () => {
+    const env = await remoteHarness()
+    await seedDiscussion(env)
+    const alpha = await addIdea(env, 'Alpha idea')
+    env.llm.enqueueChunks(textStream(matchesText(
+      { ideaId: alpha, whyUsefulNow: 'x', title: 'HACKED', confidence: 0.9 },
+    )))
+
+    expect(await remoteCodeOf(() => env.idea.relatedFromMessage({ sessionId: 'conversation-1', messageId: 'd-a2' })))
+      .toBe('idea/invalid-model-output')
   })
 
   it('maps an absent session onto idea/source-not-found without any model call', async () => {
