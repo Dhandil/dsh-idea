@@ -18,8 +18,13 @@
  * success on a partial run. Archived ideas stay readable but reject every
  * mutation except restore and delete. Continue Discussion creates the
  * workspace and its context seed without touching the Idea aggregate. All
- * operations are user-triggered — no automatic detection or background
- * writes exist here.
+ * lifecycle mutations (manual edit, archive, restore, evolve, continue,
+ * delete) are serialized per Idea through a service-level queue tail: one
+ * mutation's whole turn — authoritative reads, checks, awaits, writes —
+ * completes before the next mutation for the same idea begins, so a delete
+ * admitted while an earlier mutation is in flight observes that mutation's
+ * settled result instead of racing past it. All operations are
+ * user-triggered — no automatic detection or background writes exist here.
  * @module @dsh-external/dsh-idea/src/service
  */
 
@@ -97,7 +102,11 @@ export class IdeaService extends Service {
 
   private table?: KvTable<IdeaId, IdeaAggregate>
   private discussions?: KvTable<IdeaDiscussionId, IdeaDiscussion>
-  /** Process-local permanent-delete guard: ideas with a delete in flight. */
+  /** Per-Idea mutation tails: each lifecycle mutation's whole turn (reads,
+   * checks, awaits, writes) is serialized behind the previous one for the
+   * same idea, so two mutations can never interleave mid-operation. */
+  private readonly mutationTails = new Map<IdeaId, Promise<void>>()
+  /** Process-local permanent-delete guard: ideas with a delete admitted. */
   private readonly deleting = new Set<IdeaId>()
 
   constructor(ctx: Context) {
@@ -235,49 +244,50 @@ export class IdeaService extends Service {
     expectedCurrentVersionId: IdeaVersionId,
   ): Promise<IdeaAggregate> {
     const validatedDraft = parseDraft(ideaDraftSchema, draft)
-    this.rejectWhileDeleting(ideaId)
-    const snapshot = this.get(ideaId)
-    if (snapshot.idea.status === 'archived') {
-      throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before editing`)
-    }
-    if (snapshot.idea.currentVersionId === expectedCurrentVersionId) {
-      const currentVersion = snapshot.versions.find(version => version.versionId === expectedCurrentVersionId)
-      if (currentVersion !== undefined && sameIdeaDraft(currentVersion.draft, validatedDraft)) {
-        return snapshot
-      }
-    }
-    return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => {
-      if (current.idea.status === 'archived') {
+    return await this.enqueueIdeaMutation(ideaId, async () => {
+      const snapshot = this.get(ideaId)
+      if (snapshot.idea.status === 'archived') {
         throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before editing`)
       }
-      const currentVersion = current.versions.find(version => version.versionId === current.idea.currentVersionId)
-      if (currentVersion !== undefined && sameIdeaDraft(currentVersion.draft, validatedDraft)) {
-        return current
+      if (snapshot.idea.currentVersionId === expectedCurrentVersionId) {
+        const currentVersion = snapshot.versions.find(version => version.versionId === expectedCurrentVersionId)
+        if (currentVersion !== undefined && sameIdeaDraft(currentVersion.draft, validatedDraft)) {
+          return snapshot
+        }
       }
-      const versionId = IdeaVersionId(createId('idea_ver'))
-      const version: IdeaVersion = {
-        versionId,
-        ideaId: current.idea.ideaId,
-        ordinal: (current.versions.at(-1)?.ordinal ?? 0) + 1,
-        draft: validatedDraft,
-        reason: 'manual-edit',
-        sourceDiscussionIds: [],
-        createdAt: now,
-      }
-      const event: IdeaEvolutionEvent = {
-        evolutionEventId: EvolutionEventId(createId('idea_evo')),
-        ideaId: current.idea.ideaId,
-        fromVersionId: current.idea.currentVersionId,
-        toVersionId: versionId,
-        reason: 'manual-edit',
-        createdAt: now,
-      }
-      return {
-        idea: { ...current.idea, currentVersionId: versionId, updatedAt: now },
-        versions: [...current.versions, version],
-        sourceDiscussions: current.sourceDiscussions,
-        evolutionEvents: [...current.evolutionEvents, event],
-      }
+      return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => {
+        if (current.idea.status === 'archived') {
+          throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before editing`)
+        }
+        const currentVersion = current.versions.find(version => version.versionId === current.idea.currentVersionId)
+        if (currentVersion !== undefined && sameIdeaDraft(currentVersion.draft, validatedDraft)) {
+          return current
+        }
+        const versionId = IdeaVersionId(createId('idea_ver'))
+        const version: IdeaVersion = {
+          versionId,
+          ideaId: current.idea.ideaId,
+          ordinal: (current.versions.at(-1)?.ordinal ?? 0) + 1,
+          draft: validatedDraft,
+          reason: 'manual-edit',
+          sourceDiscussionIds: [],
+          createdAt: now,
+        }
+        const event: IdeaEvolutionEvent = {
+          evolutionEventId: EvolutionEventId(createId('idea_evo')),
+          ideaId: current.idea.ideaId,
+          fromVersionId: current.idea.currentVersionId,
+          toVersionId: versionId,
+          reason: 'manual-edit',
+          createdAt: now,
+        }
+        return {
+          idea: { ...current.idea, currentVersionId: versionId, updatedAt: now },
+          versions: [...current.versions, version],
+          sourceDiscussions: current.sourceDiscussions,
+          evolutionEvents: [...current.evolutionEvents, event],
+        }
+      })
     })
   }
 
@@ -294,15 +304,16 @@ export class IdeaService extends Service {
    * @returns the stored aggregate after the archive.
    */
   async archive(ideaId: IdeaId, expectedCurrentVersionId: IdeaVersionId): Promise<IdeaAggregate> {
-    this.rejectWhileDeleting(ideaId)
-    const snapshot = this.get(ideaId)
-    if (snapshot.idea.status === 'archived' && snapshot.idea.currentVersionId === expectedCurrentVersionId) {
-      return snapshot
-    }
-    return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => ({
-      ...current,
-      idea: { ...current.idea, status: 'archived', updatedAt: now },
-    }))
+    return await this.enqueueIdeaMutation(ideaId, async () => {
+      const snapshot = this.get(ideaId)
+      if (snapshot.idea.status === 'archived' && snapshot.idea.currentVersionId === expectedCurrentVersionId) {
+        return snapshot
+      }
+      return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => ({
+        ...current,
+        idea: { ...current.idea, status: 'archived', updatedAt: now },
+      }))
+    })
   }
 
   /**
@@ -318,15 +329,16 @@ export class IdeaService extends Service {
    * @returns the stored aggregate after the restore.
    */
   async restore(ideaId: IdeaId, expectedCurrentVersionId: IdeaVersionId): Promise<IdeaAggregate> {
-    this.rejectWhileDeleting(ideaId)
-    const snapshot = this.get(ideaId)
-    if (snapshot.idea.status !== 'archived' && snapshot.idea.currentVersionId === expectedCurrentVersionId) {
-      return snapshot
-    }
-    return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => ({
-      ...current,
-      idea: { ...current.idea, status: 'active', updatedAt: now },
-    }))
+    return await this.enqueueIdeaMutation(ideaId, async () => {
+      const snapshot = this.get(ideaId)
+      if (snapshot.idea.status !== 'archived' && snapshot.idea.currentVersionId === expectedCurrentVersionId) {
+        return snapshot
+      }
+      return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => ({
+        ...current,
+        idea: { ...current.idea, status: 'active', updatedAt: now },
+      }))
+    })
   }
 
   /**
@@ -338,10 +350,13 @@ export class IdeaService extends Service {
    * (source, continuation, ordinary) are never touched: they are not
    * dsh-idea-owned data. The request carries `expectedCurrentVersionId`, so
    * a stale caller fails with `version-conflict` before any destructive
-   * work starts. While the deletion runs, a process-local guard rejects
-   * competing mutations (manual edit, archive, restore, evolve, continue
-   * discussion) for the same idea with `deleting`; the guard is released in
-   * a finally, so a failed run stays retryable and never reports success.
+   * work starts. Deletion is serialized per Idea behind mutations already
+   * admitted for it (each fully settled, so delete re-evaluates canonical
+   * state at its own turn), and the admission marks a process-local
+   * `deleting` guard: every later mutation for the same idea rejects
+   * immediately with `deleting` instead of being queued behind the delete.
+   * The guard is released in a finally, so a failed run stays retryable and
+   * never reports success.
    * Order is deliberate under the non-transactional storage: discussion
    * bindings are removed first, the aggregate last — a successful delete
    * never leaves an orphan binding able to resurface deleted context.
@@ -351,11 +366,7 @@ export class IdeaService extends Service {
    * `deleting`.
    */
   async deleteIdea(ideaId: IdeaId, expectedCurrentVersionId: IdeaVersionId): Promise<void> {
-    if (this.deleting.has(ideaId)) {
-      throw new IdeaError('deleting', `idea '${ideaId}' is already being deleted`)
-    }
-    this.deleting.add(ideaId)
-    try {
+    return await this.enqueueDelete(ideaId, async () => {
       const aggregate = this.get(ideaId)
       if (aggregate.idea.currentVersionId !== expectedCurrentVersionId) {
         throw new IdeaError(
@@ -372,9 +383,7 @@ export class IdeaService extends Service {
         await this.workspaces.delete(discussionId)
       }
       await this.records.delete(ideaId)
-    } finally {
-      this.deleting.delete(ideaId)
-    }
+    })
   }
 
   /** Reject mutations competing with an in-flight permanent delete. */
@@ -382,6 +391,59 @@ export class IdeaService extends Service {
     if (this.deleting.has(ideaId)) {
       throw new IdeaError('deleting', `idea '${ideaId}' is being deleted`)
     }
+  }
+
+  /**
+   * Append one operation to the idea's per-Idea mutation tail. The whole
+   * lifecycle turn of a mutation — its authoritative reads, checks, awaits
+   * and writes — runs inside this slot, so two mutations for the same idea
+   * can never interleave: each observes the settled state the previous one
+   * left. The tail itself always settles, so one rejected mutation never
+   * poisons later operations; an idle tail is removed once it is the
+   * settled entry, keeping the map bounded.
+   */
+  private enqueueTail<T>(ideaId: IdeaId, operation: () => Promise<T>): Promise<T> {
+    const tail = this.mutationTails.get(ideaId) ?? Promise.resolve()
+    const started = tail.then(operation, operation)
+    const settled = started.then(() => undefined, () => undefined)
+    this.mutationTails.set(ideaId, settled)
+    void settled.then(() => {
+      if (this.mutationTails.get(ideaId) === settled) this.mutationTails.delete(ideaId)
+    })
+    return started
+  }
+
+  /**
+   * Admit one ordinary idea mutation. The `deleting` check is an admission
+   * check only: a mutation admitted before a delete is allowed to finish
+   * its slot, while a mutation arriving after delete admission is rejected
+   * immediately instead of being queued behind the delete.
+   */
+  private enqueueIdeaMutation<T>(ideaId: IdeaId, operation: () => Promise<T>): Promise<T> {
+    this.rejectWhileDeleting(ideaId)
+    return this.enqueueTail(ideaId, operation)
+  }
+
+  /**
+   * Admit a permanent delete. A second delete of an idea already being
+   * deleted is rejected synchronously; otherwise `deleting` is marked
+   * synchronously at admission and the delete runs behind whatever was
+   * already admitted for the idea, re-evaluating canonical state at its own
+   * turn. The guard is released in a finally, so a failed delete stays
+   * retryable and never reports success.
+   */
+  private enqueueDelete<T>(ideaId: IdeaId, operation: () => Promise<T>): Promise<T> {
+    if (this.deleting.has(ideaId)) {
+      throw new IdeaError('deleting', `idea '${ideaId}' is already being deleted`)
+    }
+    this.deleting.add(ideaId)
+    return this.enqueueTail(ideaId, async () => {
+      try {
+        return await operation()
+      } finally {
+        this.deleting.delete(ideaId)
+      }
+    })
   }
 
   /**
@@ -408,8 +470,7 @@ export class IdeaService extends Service {
   ): Promise<IdeaAggregate> {
     const validatedDraft = parseDraft(ideaDraftSchema, draft)
     const validatedSource = parseDraft(sourceDiscussionDraftSchema, source)
-    this.rejectWhileDeleting(ideaId)
-    return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => {
+    return await this.enqueueIdeaMutation(ideaId, async () => await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => {
       if (current.idea.status === 'archived') {
         throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before evolving`)
       }
@@ -448,7 +509,7 @@ export class IdeaService extends Service {
         sourceDiscussions: [...current.sourceDiscussions, discussion],
         evolutionEvents: [...current.evolutionEvents, event],
       }
-    })
+    }))
   }
 
   /**
@@ -483,29 +544,34 @@ export class IdeaService extends Service {
     ideaId: IdeaId,
     createConversation: () => Promise<string>,
   ): Promise<IdeaDiscussion> {
-    const current = this.get(ideaId)
-    if (current.idea.status === 'archived') {
-      throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before continuing the discussion`)
-    }
-    this.rejectWhileDeleting(ideaId)
-    const baseVersionId = current.idea.currentVersionId
-    for (const [, existing] of this.workspaces.entries()) {
-      if (existing.ideaId === ideaId && existing.baseVersionId === baseVersionId && existing.status === 'active') {
-        return structuredClone(existing)
+    // The per-Idea queue slot is deliberately held across the Host
+    // createConversation await: the binding write is part of the same
+    // lifecycle transaction, so a delete admitted mid-flight waits for it
+    // instead of racing past it.
+    return await this.enqueueIdeaMutation(ideaId, async () => {
+      const current = this.get(ideaId)
+      if (current.idea.status === 'archived') {
+        throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before continuing the discussion`)
       }
-    }
-    const conversationId = await createConversation()
-    const discussion = ideaDiscussionSchema.parse({
-      discussionId: IdeaDiscussionId(createId('idea_dis')),
-      ideaId,
-      conversationId,
-      baseVersionId,
-      status: 'active',
-      createdAt: this.now(),
-      context: this.continuationContextOf(current),
+      const baseVersionId = current.idea.currentVersionId
+      for (const [, existing] of this.workspaces.entries()) {
+        if (existing.ideaId === ideaId && existing.baseVersionId === baseVersionId && existing.status === 'active') {
+          return structuredClone(existing)
+        }
+      }
+      const conversationId = await createConversation()
+      const discussion = ideaDiscussionSchema.parse({
+        discussionId: IdeaDiscussionId(createId('idea_dis')),
+        ideaId,
+        conversationId,
+        baseVersionId,
+        status: 'active',
+        createdAt: this.now(),
+        context: this.continuationContextOf(current),
+      })
+      await this.workspaces.put(discussion.discussionId, discussion)
+      return structuredClone(discussion)
     })
-    await this.workspaces.put(discussion.discussionId, discussion)
-    return structuredClone(discussion)
   }
 
   /**

@@ -324,3 +324,133 @@ describe('deleteIdea', () => {
     expect(() => service.get(created.idea.ideaId)).toThrow(IdeaError)
   })
 })
+
+describe('per-idea mutation serialization', () => {
+  it('a continue admitted before a delete settles first: delete removes the new binding, no orphan (R1)', async () => {
+    const { service } = await harness()
+    const created = await service.create(draft(), sourceDraft())
+
+    let reachedConversation!: () => void
+    const atConversation = new Promise<void>(resolve => { reachedConversation = resolve })
+    let releaseConversation!: () => void
+    const conversationGate = new Promise<void>(resolve => { releaseConversation = resolve })
+
+    // Continue is admitted first and parks at the Host createConversation
+    // seam while holding its queue slot.
+    const started = service.continueDiscussion(created.idea.ideaId, async () => {
+      reachedConversation()
+      await conversationGate
+      return 'conversation-race'
+    })
+    await atConversation
+
+    const deletion = service.deleteIdea(created.idea.ideaId, created.idea.currentVersionId)
+    let deleteSettled = false
+    void deletion.then(() => { deleteSettled = true }, () => { deleteSettled = true })
+    for (let tick = 0; tick < 5; tick++) await Promise.resolve()
+    expect(deleteSettled).toBe(false)
+
+    // A third mutation arriving after delete admission is rejected, not queued.
+    await expect(errorCode(() => service.manualEdit(
+      created.idea.ideaId,
+      draft({ title: 'Too late' }),
+      created.idea.currentVersionId,
+    ))).resolves.toBe('deleting')
+
+    releaseConversation()
+    const discussion = await started
+    expect(discussion.conversationId).toBe('conversation-race')
+    await deletion
+
+    // Both succeeded, and the delete accounted for the binding created in
+    // the continue's turn: no orphan IdeaDiscussion can resurface context.
+    expect(() => service.get(created.idea.ideaId)).toThrow(IdeaError)
+    expect(service.list({ includeArchived: true })).toHaveLength(0)
+    expect(service.findDiscussionByConversationId('conversation-race')).toBeUndefined()
+  })
+
+  it('a stale delete after an admitted manual edit conflicts instead of erasing v2 (R2)', async () => {
+    const { service } = await harness()
+    const created = await service.create(draft(), sourceDraft())
+
+    // Gate the record update so the un-serialized implementation would let
+    // the delete read the pre-edit version and pass its expectation.
+    const tables = service as unknown as {
+      records: { update: (id: IdeaId, transform: (current: unknown) => unknown) => Promise<unknown> }
+    }
+    const originalUpdate = tables.records.update.bind(tables.records)
+    let releaseEdit!: () => void
+    const editGate = new Promise<void>(resolve => { releaseEdit = resolve })
+    const spy = vi.spyOn(tables.records, 'update')
+      .mockImplementation(async (id, transform) => {
+        await editGate
+        return originalUpdate(id, transform)
+      })
+
+    const edit = service.manualEdit(
+      created.idea.ideaId,
+      draft({ title: 'Committed v2' }),
+      created.idea.currentVersionId,
+    )
+    const deletion = service.deleteIdea(created.idea.ideaId, created.idea.currentVersionId)
+
+    releaseEdit()
+    await edit
+    await expect(errorCode(() => deletion)).resolves.toBe('version-conflict')
+
+    // The v2 edit survives: zero discussion cleanup, zero aggregate delete.
+    expect(service.get(created.idea.ideaId).idea.currentVersionId).not.toBe(created.idea.currentVersionId)
+    expect(service.listVersions(created.idea.ideaId)).toHaveLength(2)
+    spy.mockRestore()
+  })
+
+  it('one rejected mutation does not poison the idea queue (R4)', async () => {
+    const { service } = await harness()
+    const created = await service.create(draft(), sourceDraft())
+
+    await expect(errorCode(() => service.manualEdit(
+      created.idea.ideaId,
+      draft({ title: 'Too late' }),
+      IdeaVersionId('idea_ver_stale'),
+    ))).resolves.toBe('version-conflict')
+
+    const edited = await service.manualEdit(
+      created.idea.ideaId,
+      draft({ title: 'After failure' }),
+      created.idea.currentVersionId,
+    )
+    expect(edited.versions).toHaveLength(2)
+    expect(edited.versions.at(-1)!.draft.title).toBe('After failure')
+  })
+
+  it('a slow mutation on one idea never blocks another idea (R6)', async () => {
+    const { service } = await harness()
+    const first = await service.create(draft(), sourceDraft())
+    const second = await service.create(draft({ title: 'Independent' }), sourceDraft({ sessionId: 'session-2' }))
+
+    let reachedA!: () => void
+    const atA = new Promise<void>(resolve => { reachedA = resolve })
+    let releaseA!: () => void
+    const gateA = new Promise<void>(resolve => { releaseA = resolve })
+
+    const slowA = service.continueDiscussion(first.idea.ideaId, async () => {
+      reachedA()
+      await gateA
+      return 'conversation-slow'
+    })
+    await atA
+
+    // While idea A's queue slot is parked at the Host seam, idea B's
+    // mutation completes immediately.
+    const edited = await service.manualEdit(
+      second.idea.ideaId,
+      draft({ title: 'B edited' }),
+      second.idea.currentVersionId,
+    )
+    expect(edited.versions).toHaveLength(2)
+
+    releaseA()
+    const discussion = await slowA
+    expect(discussion.conversationId).toBe('conversation-slow')
+  })
+})
