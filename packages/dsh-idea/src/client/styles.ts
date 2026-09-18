@@ -161,6 +161,23 @@ const CSS = `
   max-width: 320px;
   padding: 2px;
 }
+/* The feature-owned hover card rides above the settings modal layer (its
+   full-viewport mask, z-index 1000, blocked the primitive's z-100 card from
+   receiving clicks). Surface #2C2C2E in both themes, as in the primitive. */
+.dsh-idea-hover-root {
+  position: relative;
+  display: block;
+}
+.dsh-idea-hover-card {
+  position: fixed;
+  z-index: 1001;
+  box-sizing: border-box;
+  width: 244px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #2C2C2E;
+  box-shadow: var(--dsw-shadow-lv3);
+}
 .dsh-idea-preview-title {
   color: var(--dsw-alias-label-primary, inherit);
   font-size: 14px;

@@ -19,6 +19,7 @@ import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { IdeaReadSurface } from '../src/client/read-state.ts'
 import type { IdeaReadFace, IdeaReadState } from '../src/client/read-state.ts'
 import { IdeaPreviewCard, IdeaSection } from '../src/client/IdeaSection.tsx'
+import { IdeaHoverCard } from '../src/client/hover-card.tsx'
 import type { IdeaSectionProps } from '../src/client/slots.ts'
 import type { EditableIdeaDraft } from '../src/client/state.ts'
 import { zh } from '../src/client/locales.ts'
@@ -244,6 +245,51 @@ describe('Ideas section: hover preview card', () => {
     expect(container.textContent).not.toContain('当前结论')
     expect(container.textContent).toContain('待解决问题 0 条')
     expect(screen.queryByRole('button', { name: '编辑' })).toBeNull()
+  })
+})
+
+describe('Ideas section: anchored hover card', () => {
+  it('opens after the pointer dwell and its quick action is clickable through the portal', async () => {
+    const openEditor = vi.fn()
+    const { container } = render(
+      <IdeaHoverCard
+        openDelayMs={0}
+        anchor={<button type="button">Row anchor</button>}
+        content={<button type="button" onClick={() => openEditor('idea_1')}>编辑</button>}
+      />,
+    )
+    expect(document.querySelector('.dsh-idea-hover-card')).toBeNull()
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: 'Row anchor' }))
+    await flush()
+    // The card portals to the document body, outside the section's tree.
+    const card = document.querySelector('.dsh-idea-hover-card')
+    expect(card).not.toBeNull()
+    expect(container.contains(card)).toBe(false)
+
+    // The regression that forced the feature-owned card: the primitive's
+    // portaled card sat under the settings modal's mask, so its quick action
+    // could never receive the press.
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+    expect(openEditor).toHaveBeenCalledWith('idea_1')
+  })
+
+  it('closes after the pointer leaves the card past the grace window', async () => {
+    render(
+      <IdeaHoverCard
+        openDelayMs={0}
+        graceMs={0}
+        anchor={<button type="button">Row anchor</button>}
+        content={<span>Card content</span>}
+      />,
+    )
+    fireEvent.pointerEnter(screen.getByRole('button', { name: 'Row anchor' }))
+    await flush()
+    expect(document.querySelector('.dsh-idea-hover-card')).not.toBeNull()
+
+    fireEvent.pointerLeave(document.querySelector('.dsh-idea-hover-card')!)
+    await flush()
+    expect(document.querySelector('.dsh-idea-hover-card')).toBeNull()
   })
 })
 

@@ -16,7 +16,8 @@
 
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button, HoverCard, Pill, RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Pill, RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IdeaHoverCard } from './hover-card.tsx'
 import type { IdeaDetail, IdeaListRow, IdeaVersionSummary } from '../remote-host/types.ts'
 import type { IdeaVersionReason } from '../types.ts'
 import { durableFrom, requiredPresent, sameIdeaDraft } from './state.ts'
@@ -185,7 +186,7 @@ function IdeaRow(
 ): ReactNode {
   return (
     <li>
-      <HoverCard
+      <IdeaHoverCard
         anchor={(
           <button
             type="button"
@@ -200,8 +201,6 @@ function IdeaRow(
           </button>
         )}
         content={<IdeaPreviewCard idea={idea} openEditor={openEditor} t={t} />}
-        copyLabel={t('read.hover.copy')}
-        copiedLabel={t('read.hover.copied')}
       />
     </li>
   )
