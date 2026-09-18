@@ -1,23 +1,27 @@
 /**
- * The `idea` Remote service (`ctx.idea`): the Save Idea path, the read-only
- * library path, and the evolution path exposed to the web client.
- * `prepareFromMessage` delegates to the T2 preparation service and maps its
- * failures onto the wire vocabulary; `create` resolves canonical source
- * provenance from the Host-only registry, validates the user-edited draft,
- * and runs the idempotent commit state machine
+ * The `idea` Remote service (`ctx.idea`): the Save Idea path, the library
+ * path, the lifecycle path, and the evolution path exposed to the web
+ * client. `prepareFromMessage` delegates to the T2 preparation service and
+ * maps its failures onto the wire vocabulary; `create` resolves canonical
+ * source provenance from the Host-only registry, validates the user-edited
+ * draft, and runs the idempotent commit state machine
  * (`prepared → committing → committed`) so one preparationId produces at
  * most one durable Idea even under duplicate or concurrent requests.
- * `list`/`get` project stored aggregates onto read-only wire summaries/
- * details and never write, `getVersions`/`getVersion` expose the immutable
- * version history the same way, `continueDiscussion` opens the Idea's
- * continuation conversation through the Host Session Controller — the
- * browser may name a Workspace, never the Session — while the
- * domain service owns idempotency, and `prepareEvolution`/`commitEvolution`
- * carry the evolution proposal pipeline — prepare is a read-only proposal,
- * commit is the only durable write and stays subject to the domain's
- * optimistic version check — and `relatedFromMessage` carries the read-only
- * Related Ideas usefulness judgment. The browser may only ever submit a
- * draft plus a Host-owned reference.
+ * `list`/`get` project stored aggregates onto read-only wire rows/details
+ * and never write — `list` takes the library view (`current` = non-archived,
+ * `archived` = archived only), `getVersions`/`getVersion` expose the
+ * immutable version history the same way. `continueDiscussion` opens the
+ * Idea's continuation conversation through the Host Session Controller —
+ * the browser may name a Workspace, never the Session — while the domain
+ * service owns idempotency. `manualEdit`/`archive`/`restore`/`deleteIdea`
+ * carry the lifecycle mutations onto the domain's optimistic, guarded
+ * implementations (the archive/archived/delete semantics live entirely on
+ * the domain service), and `prepareEvolution`/`commitEvolution` carry the
+ * evolution proposal pipeline — prepare is a read-only proposal, commit is
+ * the only durable write and stays subject to the domain's optimistic
+ * version check — and `relatedFromMessage` carries the read-only Related
+ * Ideas usefulness judgment. The browser may only ever submit a draft plus
+ * a Host-owned reference; storage aggregates never cross the wire.
  * @module @dsh-external/dsh-idea/src/remote-host/service
  */
 
@@ -28,22 +32,37 @@ import { ideaDraftSchema } from '../schema.ts'
 import { IdeaPreparationError } from '../preparation/errors.ts'
 import type { IdeaPreparationId, PreparedIdeaSource } from '../preparation/types.ts'
 import { IdeaId, IdeaVersionId } from '../types.ts'
-import type { IdeaAggregate, IdeaDraft, IdeaVersion, SourceDiscussionDraft } from '../types.ts'
+import type {
+  Idea,
+  IdeaAggregate,
+  IdeaDraft,
+  IdeaVersion,
+  SourceDiscussionDraft,
+} from '../types.ts'
 import { remoteDomainError, remoteEvolutionError, remotePreparationError } from './errors.ts'
 import type {
+  IdeaArchiveRequest,
   IdeaCommitEvolutionRequest,
   IdeaCommitEvolutionResult,
   IdeaContinueDiscussionRequest,
   IdeaContinueDiscussionResult,
   IdeaCreateRequest,
   IdeaCreateResult,
+  IdeaDeleteRequest,
+  IdeaDeleteResult,
   IdeaDetail,
   IdeaGetRequest,
   IdeaEvolutionProposalPreview,
+  IdeaLifecycleResult,
+  IdeaListRequest,
+  IdeaListRow,
+  IdeaManualEditRequest,
+  IdeaManualEditResult,
   IdeaPrepareEvolutionRequest,
   IdeaPrepareRequest,
   IdeaRelatedRequest,
   IdeaRelatedResult,
+  IdeaRestoreRequest,
   IdeaSummary,
   IdeaVersionDetail,
   IdeaVersionGetRequest,
@@ -181,15 +200,19 @@ export class IdeaRemoteService extends TypertRemoteService {
   }
 
   /**
-   * List the saved Ideas as read-only summaries, most recently updated first.
-   * Archived ideas are retrieval-filtered out; nothing is ever written.
+   * List one library view as lightweight read-only rows, most recently
+   * updated first. `current` projects every non-archived Idea (active +
+   * dormant); `archived` projects archived Ideas only — no deleted view
+   * exists. Nothing is ever written, and no history, remaining draft field,
+   * or captured source body crosses the wire.
    */
   @Remote
-  async list(): Promise<IdeaSummary[]> {
-    return this.ctx.ideaService.list().map(view => ideaSummaryOf(
-      this.ctx.ideaService.get(view.idea.ideaId),
-      view.currentVersion,
-    ))
+  async list(request: IdeaListRequest): Promise<IdeaListRow[]> {
+    const archived = request.view === 'archived'
+    const views = this.ctx.ideaService.list(archived ? { includeArchived: true } : {})
+    return views
+      .filter(view => (view.idea.status === 'archived') === archived)
+      .map(view => ideaListRowOf(view.idea, view.currentVersion))
   }
 
   /**
@@ -316,6 +339,99 @@ export class IdeaRemoteService extends TypertRemoteService {
   }
 
   /**
+   * Commit a user-authored edit as the next immutable version. The draft is
+   * validated on the wire boundary, then everything else — optimistic
+   * version check, archived rejection, normalized no-op defense — lives on
+   * the domain service. The result exposes the canonical new current
+   * version and whether a semantic change was actually committed (a
+   * no-op edit returns the untouched current version with `committed:
+   * false` and zero durable writes).
+   */
+  @Remote
+  async manualEdit(request: IdeaManualEditRequest): Promise<IdeaManualEditResult> {
+    const parsed = ideaDraftSchema.safeParse(request.draft)
+    if (!parsed.success) {
+      throw new RemoteError('idea/invalid-draft', 'the edited idea draft is invalid', {
+        issues: parsed.error.issues,
+      })
+    }
+    try {
+      const aggregate = await this.ctx.ideaService.manualEdit(
+        IdeaId(request.id),
+        parsed.data,
+        IdeaVersionId(request.expectedCurrentVersionId),
+      )
+      const version = aggregate.versions.find(entry => entry.versionId === aggregate.idea.currentVersionId)
+      if (version === undefined) {
+        throw new Error('idea manual edit returned an unexpected aggregate')
+      }
+      return {
+        ideaId: aggregate.idea.ideaId,
+        currentVersionId: version.versionId,
+        ordinal: version.ordinal,
+        title: version.draft.title,
+        status: aggregate.idea.status,
+        committed: version.versionId !== request.expectedCurrentVersionId,
+      }
+    } catch (error) {
+      throw remoteDomainError(error) ?? error
+    }
+  }
+
+  /**
+   * Archive one Idea at the caller's current version. Semantics (preserve
+   * everything, flip only status/updatedAt, idempotency at the expected
+   * version) live on the domain service; this layer maps failures onto the
+   * wire vocabulary.
+   */
+  @Remote
+  async archive(request: IdeaArchiveRequest): Promise<IdeaLifecycleResult> {
+    try {
+      const aggregate = await this.ctx.ideaService.archive(
+        IdeaId(request.id),
+        IdeaVersionId(request.expectedCurrentVersionId),
+      )
+      return lifecycleResultOf(aggregate)
+    } catch (error) {
+      throw remoteDomainError(error) ?? error
+    }
+  }
+
+  /**
+   * Restore one archived Idea at the caller's current version. Same shape
+   * and error mapping as {@link IdeaRemoteService.archive}.
+   */
+  @Remote
+  async restore(request: IdeaRestoreRequest): Promise<IdeaLifecycleResult> {
+    try {
+      const aggregate = await this.ctx.ideaService.restore(
+        IdeaId(request.id),
+        IdeaVersionId(request.expectedCurrentVersionId),
+      )
+      return lifecycleResultOf(aggregate)
+    } catch (error) {
+      throw remoteDomainError(error) ?? error
+    }
+  }
+
+  /**
+   * Permanently delete one Idea and everything it owns (versions, source
+   * snapshots, events, discussion bindings). Harness conversations are
+   * never touched. The optimistic version check runs before any destructive
+   * work, a stale request fails with zero delete work, and a repeated
+   * delete maps onto `idea/not-found`.
+   */
+  @Remote
+  async deleteIdea(request: IdeaDeleteRequest): Promise<IdeaDeleteResult> {
+    try {
+      await this.ctx.ideaService.deleteIdea(IdeaId(request.id), IdeaVersionId(request.expectedCurrentVersionId))
+      return { ideaId: request.id }
+    } catch (error) {
+      throw remoteDomainError(error) ?? error
+    }
+  }
+
+  /**
    * Judge which saved Ideas would genuinely help the discussion behind one
    * finalized assistant message right now. Delegates entirely to the Related
    * service; zero durable writes. An empty candidate corpus and a zero-match
@@ -402,12 +518,38 @@ function ideaSummaryOf(aggregate: IdeaAggregate, version: IdeaVersion): IdeaSumm
   const source = citedSourceOf(aggregate, version)
   return {
     id: aggregate.idea.ideaId,
+    status: aggregate.idea.status,
     title: version.draft.title,
     core: version.draft.core,
     motivation: version.draft.motivation,
     createdAt: aggregate.idea.createdAt,
     updatedAt: aggregate.idea.updatedAt,
     ...(source !== undefined ? { source } : {}),
+  }
+}
+
+/** The lightweight library row of one view entry, over its current version. */
+function ideaListRowOf(idea: Idea, version: IdeaVersion): IdeaListRow {
+  return {
+    id: idea.ideaId,
+    status: idea.status,
+    currentVersionId: idea.currentVersionId,
+    title: version.draft.title,
+    core: version.draft.core,
+    currentConclusion: version.draft.currentConclusion,
+    useWhen: [...version.draft.useWhen],
+    openQuestionsCount: version.draft.openQuestions.length,
+    updatedAt: idea.updatedAt,
+  }
+}
+
+/** The canonical lifecycle state one archive/restore produced. */
+function lifecycleResultOf(aggregate: IdeaAggregate): IdeaLifecycleResult {
+  return {
+    ideaId: aggregate.idea.ideaId,
+    currentVersionId: aggregate.idea.currentVersionId,
+    status: aggregate.idea.status,
+    updatedAt: aggregate.idea.updatedAt,
   }
 }
 

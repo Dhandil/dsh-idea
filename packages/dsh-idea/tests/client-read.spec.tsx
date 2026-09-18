@@ -19,7 +19,7 @@ import { IdeaSection } from '../src/client/IdeaSection.tsx'
 import type { IdeaSectionProps } from '../src/client/slots.ts'
 import type { EditableIdeaDraft } from '../src/client/state.ts'
 import { zh } from '../src/client/locales.ts'
-import type { IdeaDetail, IdeaSummary, IdeaVersionSummary } from '../src/remote-host/types.ts'
+import type { IdeaDetail, IdeaListRow, IdeaSummary, IdeaVersionSummary } from '../src/remote-host/types.ts'
 import type { IdeaVersionId } from '../src/types.ts'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -38,8 +38,23 @@ const flush = () => act(async () => { await new Promise(resolve => setTimeout(re
 const t = ((key: string, params?: Record<string, unknown>): string =>
   (zh as Record<string, string>)[key]!.replace(/\{(\w+)\}/g, (_, k: string) => String(params?.[k] ?? ''))) as never
 
+/** One lightweight library row, exactly what `idea.list` projects. */
+const row = (overrides: Partial<IdeaListRow> = {}): IdeaListRow => ({
+  id: 'idea_1',
+  status: 'active',
+  currentVersionId: 'idea_ver_1',
+  title: 'Saved idea',
+  core: 'Core text',
+  currentConclusion: 'Conclusion text',
+  useWhen: ['use one', 'use two'],
+  openQuestionsCount: 1,
+  updatedAt: 1_700_000_000_000,
+  ...overrides,
+})
+
 const summary = (overrides: Partial<IdeaSummary> = {}): IdeaSummary => ({
   id: 'idea_1',
+  status: 'active',
   title: 'Saved idea',
   core: 'Core text',
   motivation: 'Why kept',
@@ -70,7 +85,7 @@ const versionSummary = (overrides: Partial<IdeaVersionSummary> = {}): IdeaVersio
 
 /** A scripted read face plus the spies. */
 function faceWith(
-  list: () => Promise<unknown> = async () => ({ ok: true as const, value: [summary()] }),
+  list: () => Promise<unknown> = async () => ({ ok: true as const, value: [row()] }),
   get: () => Promise<unknown> = async () => ({ ok: true as const, value: detailOf(summary()) }),
   getVersions: () => Promise<unknown> = async () => ({ ok: true as const, value: [versionSummary()] }),
 ): IdeaReadFace {
@@ -108,26 +123,41 @@ function sectionProps(surface: IdeaReadSurface): IdeaSectionProps {
 }
 
 describe('Ideas section: list', () => {
-  it('loads the list once when mounted', async () => {
+  it('loads the current view once when mounted', async () => {
     const face = faceWith()
     const surface = newSurface(face)
     render(<IdeaSection {...sectionProps(surface)} />)
     await flush()
     expect(face.list).toHaveBeenCalledTimes(1)
-    expect(surface.state.getSnapshot().status).toBe('ready')
+    expect(face.list).toHaveBeenCalledWith({ view: 'current' })
+    expect(surface.state.getSnapshot().lists.current.status).toBe('ready')
   })
 
-  it('renders title, core, created time, and the source indicator per row', async () => {
+  it('renders the two lifecycle tabs with no deleted view', () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    render(<IdeaSection {...sectionProps(surface)} />)
+    expect(screen.getByRole('tablist')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '当前' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '已归档' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '已删除' })).toBeNull()
+  })
+
+  it('renders title, one-line core, and the updated time per row — nothing more', async () => {
     const face = faceWith()
     const surface = newSurface(face)
     render(<IdeaSection {...sectionProps(surface)} />)
     await flush()
 
-    const row = screen.getByRole('button', { name: /Saved idea/ })
-    expect(row.textContent).toContain('Core text')
-    expect(row.textContent).toContain('创建于')
-    expect(row.textContent).toContain('来源：会话 session-9')
-    expect(screen.getAllByRole('button')).toHaveLength(1)
+    const rows = document.querySelectorAll('.dsh-idea-row')
+    expect(rows).toHaveLength(1)
+    const text = rows[0]!.textContent ?? ''
+    expect(text).toContain('Saved idea')
+    expect(text).toContain('Core text')
+    expect(text).toContain('更新于')
+    expect(text).not.toContain('创建于')
+    expect(text).not.toContain('来源')
+    expect(text).not.toContain('Conclusion text')
   })
 
   it('shows the empty state when nothing is saved', async () => {
@@ -142,7 +172,7 @@ describe('Ideas section: list', () => {
     let failing = true
     const face = faceWith(async () => {
       if (failing) return { ok: false as const, error: { code: 'idea/storage-failed' } }
-      return { ok: true as const, value: [summary()] }
+      return { ok: true as const, value: [row()] }
     })
     const surface = newSurface(face)
     render(<IdeaSection {...sectionProps(surface)} />)
@@ -154,13 +184,13 @@ describe('Ideas section: list', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '重试' })) })
     await flush()
     expect(face.list).toHaveBeenCalledTimes(2)
-    expect(screen.getByRole('button', { name: /Saved idea/ })).toBeTruthy()
+    expect(document.querySelectorAll('.dsh-idea-row')).toHaveLength(1)
   })
 
   it('shows a loading state while the list is in flight and swallows re-loads', async () => {
     let release: (() => void) | undefined
     const gate = new Promise<void>((resolveGate) => { release = resolveGate })
-    const face = faceWith(() => gate.then(() => ({ ok: true as const, value: [summary()] })))
+    const face = faceWith(() => gate.then(() => ({ ok: true as const, value: [row()] })))
     const surface = newSurface(face)
     render(<IdeaSection {...sectionProps(surface)} />)
 
@@ -170,7 +200,7 @@ describe('Ideas section: list', () => {
 
     await act(async () => { release?.() })
     await flush()
-    expect(screen.getByRole('button', { name: /Saved idea/ })).toBeTruthy()
+    expect(document.querySelectorAll('.dsh-idea-row')).toHaveLength(1)
   })
 })
 

@@ -93,6 +93,21 @@ export const durableFrom = (draft: EditableIdeaDraft): IdeaDraft => ({
 export const requiredPresent = (draft: EditableIdeaDraft): boolean =>
   [draft.title, draft.core, draft.motivation].every(field => field.trim().length > 0)
 
+/**
+ * Whether two durable drafts carry identical normalized semantic content,
+ * field by field — the no-change check that disables the manual-edit Save.
+ */
+export const sameIdeaDraft = (a: IdeaDraft, b: IdeaDraft): boolean =>
+  a.title === b.title
+  && a.core === b.core
+  && a.motivation === b.motivation
+  && a.currentConclusion === b.currentConclusion
+  && a.possibleValue === b.possibleValue
+  && a.useWhen.length === b.useWhen.length
+  && a.useWhen.every((item, index) => item === b.useWhen[index])
+  && a.openQuestions.length === b.openQuestions.length
+  && a.openQuestions.every((item, index) => item === b.openQuestions[index])
+
 /** Minimal structural face of the Host the surface talks to. */
 export interface IdeaRemoteFace {
   prepareFromMessage(

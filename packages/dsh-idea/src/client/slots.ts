@@ -84,15 +84,19 @@ export type IdeaDialogProps =
 /** Injected business face of the Ideas settings section. */
 export interface IdeaSectionInjected {
   hooks: {
-    /** The read-only Idea library state. */
+    /** The Idea library state: both views, the detail, and the lifecycles. */
     ideaRead: HostObservable<IdeaReadState>
   }
-  /** Load the list; called once when the section first renders. */
+  /** Load the selected view's list; called once when the section first renders. */
   load: () => void
+  /** Switch the library tab (current/archived); a read-only operation. */
+  selectView: (view: 'current' | 'archived') => void
   /** Open one Idea's detail. */
   open: (id: string) => void
   /** Return from the detail to the list. */
   closeDetail: () => void
+  /** Open the manual-edit editor for one Idea (from detail or hover card). */
+  openEditor: (id: string) => void
   /** Continue one Idea as a new discussion and open its conversation. */
   continueIdea: (id: string) => void
   /** Ask the Host to propose the next version from the detail's discussion. */
@@ -103,6 +107,22 @@ export interface IdeaSectionInjected {
   cancelProposal: () => void
   /** Commit the approved proposal as the next immutable version. */
   commitProposal: () => void
+  /** Apply one field edit to the manual-edit form. */
+  editDraft: (patch: Partial<EditableIdeaDraft>) => void
+  /** Discard the manual-edit form; zero durable writes. */
+  cancelEdit: () => void
+  /** Save the edited draft as the next version at the opened-at version. */
+  saveEdit: () => void
+  /** Archive the open idea. */
+  archiveIdea: () => void
+  /** Restore the open archived idea. */
+  restoreIdea: () => void
+  /** Open the permanent-delete confirmation (detail-only). */
+  requestDelete: () => void
+  /** Close the delete confirmation; zero durable writes. */
+  cancelDelete: () => void
+  /** Confirm the permanent delete at the opened-at version. */
+  confirmDelete: () => void
 }
 
 /** Full props of the Ideas settings section entry. */

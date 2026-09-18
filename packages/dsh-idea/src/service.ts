@@ -1,16 +1,25 @@
 /**
  * The Idea domain service (`ctx.ideaService`): durable create/get/list/
- * archive/evolve, the read-only version queries (listVersions/getVersion),
- * and continued-discussion workspaces over the `idea` storage domain. Every
- * read is synchronous from the domain's authoritative in-memory state; every
- * write is one serialized single-record operation on the domain's write
- * chain — durability first, then memory. Evolve and archive are optimistic:
- * they compare `expectedCurrentVersionId` inside the atomic record update,
- * so a stale expectation rejects with `version-conflict` and writes
- * nothing. History is an immutable linear append; nothing ever rewrites a
- * committed version. Continue Discussion creates the workspace and its
- * context seed without touching the Idea aggregate. All operations are
- * user-triggered — no automatic detection or background writes exist here.
+ * manual-edit/archive/restore/delete/evolve, the read-only version queries
+ * (listVersions/getVersion), and continued-discussion workspaces over the
+ * `idea` storage domain. Every read is synchronous from the domain's
+ * authoritative in-memory state; every write is one serialized
+ * single-record operation on the domain's write chain — durability first,
+ * then memory. Optimistic mutations (manual edit, evolve, archive, restore)
+ * compare `expectedCurrentVersionId` inside the atomic record update, so a
+ * stale expectation rejects with `version-conflict` and writes nothing.
+ * History is an immutable linear append; nothing ever rewrites a committed
+ * version. Manual edit appends a `manual-edit` version with no fabricated
+ * source snapshot, and a normalized no-op returns the current aggregate
+ * with zero writes. Archive/restore flip the status only (no version, no
+ * event) and are idempotent at the expected version. Permanent delete is
+ * the one destructive path: under a process-local guard it removes the
+ * Idea's discussion bindings first and the aggregate last, never reporting
+ * success on a partial run. Archived ideas stay readable but reject every
+ * mutation except restore and delete. Continue Discussion creates the
+ * workspace and its context seed without touching the Idea aggregate. All
+ * operations are user-triggered — no automatic detection or background
+ * writes exist here.
  * @module @dsh-external/dsh-idea/src/service
  */
 
@@ -61,6 +70,24 @@ function parseDraft<T>(schema: z.ZodType<T>, value: unknown): T {
 }
 
 /**
+ * Whether two normalized drafts carry identical semantic content, field by
+ * field. Both inputs are schema-normalized (trimmed strings, trimmed
+ * non-empty list items in order), so a strict structural compare is the
+ * no-op-edit defense.
+ */
+function sameIdeaDraft(a: IdeaDraft, b: IdeaDraft): boolean {
+  return a.title === b.title
+    && a.core === b.core
+    && a.motivation === b.motivation
+    && a.currentConclusion === b.currentConclusion
+    && a.possibleValue === b.possibleValue
+    && a.useWhen.length === b.useWhen.length
+    && a.useWhen.every((item, index) => item === b.useWhen[index])
+    && a.openQuestions.length === b.openQuestions.length
+    && a.openQuestions.every((item, index) => item === b.openQuestions[index])
+}
+
+/**
  * The Idea domain service. Opens the `idea` domain at init and keeps the
  * aggregate table as its single durable surface; the caller of `open` owns
  * the domain handle, released through the service's own effect disposer.
@@ -70,6 +97,8 @@ export class IdeaService extends Service {
 
   private table?: KvTable<IdeaId, IdeaAggregate>
   private discussions?: KvTable<IdeaDiscussionId, IdeaDiscussion>
+  /** Process-local permanent-delete guard: ideas with a delete in flight. */
+  private readonly deleting = new Set<IdeaId>()
 
   constructor(ctx: Context) {
     super(ctx, 'ideaService')
@@ -183,19 +212,176 @@ export class IdeaService extends Service {
   }
 
   /**
-   * Archive an Idea atomically: flip the status, keep every version and
-   * source snapshot untouched. Archived means retrieval filtering, never
-   * deletion.
+   * Append the next immutable version from a direct user-authored edit:
+   * ordinal = previous + 1, reason `manual-edit`, no source snapshot (the
+   * empty `sourceDiscussionIds` citation), and one evolution event linking
+   * from the superseded version. No LLM runs and no SourceDiscussion is
+   * fabricated; prior versions keep their own provenance. A draft whose
+   * normalized content equals the current version's is a no-op: the
+   * aggregate is returned unchanged with zero durable writes — the same
+   * defense also runs inside the atomic update, so a crafted client cannot
+   * create no-op versions. Archived ideas reject manual edit.
+   * @param ideaId - The idea to edit.
+   * @param draft - The user-authored semantic content of the new version.
+   * @param expectedCurrentVersionId - The version the caller last saw; a
+   * mismatch rejects with `version-conflict` and writes nothing.
+   * @returns the stored aggregate after the edit (unchanged on a no-op).
+   * @throws `IdeaError` with `idea-not-found`, `invalid-input`,
+   * `version-conflict`, `archived`, or `deleting`.
+   */
+  async manualEdit(
+    ideaId: IdeaId,
+    draft: IdeaDraft,
+    expectedCurrentVersionId: IdeaVersionId,
+  ): Promise<IdeaAggregate> {
+    const validatedDraft = parseDraft(ideaDraftSchema, draft)
+    this.rejectWhileDeleting(ideaId)
+    const snapshot = this.get(ideaId)
+    if (snapshot.idea.status === 'archived') {
+      throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before editing`)
+    }
+    if (snapshot.idea.currentVersionId === expectedCurrentVersionId) {
+      const currentVersion = snapshot.versions.find(version => version.versionId === expectedCurrentVersionId)
+      if (currentVersion !== undefined && sameIdeaDraft(currentVersion.draft, validatedDraft)) {
+        return snapshot
+      }
+    }
+    return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => {
+      if (current.idea.status === 'archived') {
+        throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before editing`)
+      }
+      const currentVersion = current.versions.find(version => version.versionId === current.idea.currentVersionId)
+      if (currentVersion !== undefined && sameIdeaDraft(currentVersion.draft, validatedDraft)) {
+        return current
+      }
+      const versionId = IdeaVersionId(createId('idea_ver'))
+      const version: IdeaVersion = {
+        versionId,
+        ideaId: current.idea.ideaId,
+        ordinal: (current.versions.at(-1)?.ordinal ?? 0) + 1,
+        draft: validatedDraft,
+        reason: 'manual-edit',
+        sourceDiscussionIds: [],
+        createdAt: now,
+      }
+      const event: IdeaEvolutionEvent = {
+        evolutionEventId: EvolutionEventId(createId('idea_evo')),
+        ideaId: current.idea.ideaId,
+        fromVersionId: current.idea.currentVersionId,
+        toVersionId: versionId,
+        reason: 'manual-edit',
+        createdAt: now,
+      }
+      return {
+        idea: { ...current.idea, currentVersionId: versionId, updatedAt: now },
+        versions: [...current.versions, version],
+        sourceDiscussions: current.sourceDiscussions,
+        evolutionEvents: [...current.evolutionEvents, event],
+      }
+    })
+  }
+
+  /**
+   * Archive an Idea atomically: flip the status, keep every version, source
+   * snapshot, event and discussion binding untouched — no version, no event,
+   * only status and `updatedAt` change. Archived means retrieval filtering,
+   * never deletion. Idempotent at the expected version: an already-archived
+   * idea whose current version still matches returns unchanged with zero
+   * writes.
    * @param ideaId - The idea to archive.
    * @param expectedCurrentVersionId - The version the caller last saw; a
    * mismatch rejects with `version-conflict` and writes nothing.
    * @returns the stored aggregate after the archive.
    */
   async archive(ideaId: IdeaId, expectedCurrentVersionId: IdeaVersionId): Promise<IdeaAggregate> {
+    this.rejectWhileDeleting(ideaId)
+    const snapshot = this.get(ideaId)
+    if (snapshot.idea.status === 'archived' && snapshot.idea.currentVersionId === expectedCurrentVersionId) {
+      return snapshot
+    }
     return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => ({
       ...current,
       idea: { ...current.idea, status: 'archived', updatedAt: now },
     }))
+  }
+
+  /**
+   * Restore an archived Idea: flip the status back to `active`. No version,
+   * no event — only status and `updatedAt` change, and Related Ideas
+   * eligibility returns with the status. Idempotent at the expected version:
+   * an already non-archived idea (active or dormant) whose current version
+   * still matches returns unchanged with zero writes — dormant is never
+   * redesigned here.
+   * @param ideaId - The idea to restore.
+   * @param expectedCurrentVersionId - The version the caller last saw; a
+   * mismatch rejects with `version-conflict` and writes nothing.
+   * @returns the stored aggregate after the restore.
+   */
+  async restore(ideaId: IdeaId, expectedCurrentVersionId: IdeaVersionId): Promise<IdeaAggregate> {
+    this.rejectWhileDeleting(ideaId)
+    const snapshot = this.get(ideaId)
+    if (snapshot.idea.status !== 'archived' && snapshot.idea.currentVersionId === expectedCurrentVersionId) {
+      return snapshot
+    }
+    return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => ({
+      ...current,
+      idea: { ...current.idea, status: 'active', updatedAt: now },
+    }))
+  }
+
+  /**
+   * Permanently delete one Idea and everything it owns: the aggregate with
+   * all immutable versions, all source snapshots and all evolution events,
+   * plus every IdeaDiscussion binding for it. No `deleted` state, tombstone
+   * or recycle bin exists — after success the idea is simply absent (a
+   * repeated delete reports `idea-not-found`). Harness conversations
+   * (source, continuation, ordinary) are never touched: they are not
+   * dsh-idea-owned data. The request carries `expectedCurrentVersionId`, so
+   * a stale caller fails with `version-conflict` before any destructive
+   * work starts. While the deletion runs, a process-local guard rejects
+   * competing mutations (manual edit, archive, restore, evolve, continue
+   * discussion) for the same idea with `deleting`; the guard is released in
+   * a finally, so a failed run stays retryable and never reports success.
+   * Order is deliberate under the non-transactional storage: discussion
+   * bindings are removed first, the aggregate last — a successful delete
+   * never leaves an orphan binding able to resurface deleted context.
+   * @param ideaId - The idea to delete permanently.
+   * @param expectedCurrentVersionId - The version the caller last saw.
+   * @throws `IdeaError` with `idea-not-found`, `version-conflict`, or
+   * `deleting`.
+   */
+  async deleteIdea(ideaId: IdeaId, expectedCurrentVersionId: IdeaVersionId): Promise<void> {
+    if (this.deleting.has(ideaId)) {
+      throw new IdeaError('deleting', `idea '${ideaId}' is already being deleted`)
+    }
+    this.deleting.add(ideaId)
+    try {
+      const aggregate = this.get(ideaId)
+      if (aggregate.idea.currentVersionId !== expectedCurrentVersionId) {
+        throw new IdeaError(
+          'version-conflict',
+          `idea '${ideaId}' is at version '${aggregate.idea.currentVersionId}', `
+          + `not the expected '${expectedCurrentVersionId}'; nothing was deleted`,
+        )
+      }
+      const bindings: IdeaDiscussionId[] = []
+      for (const [discussionId, discussion] of this.workspaces.entries()) {
+        if (discussion.ideaId === ideaId) bindings.push(discussionId)
+      }
+      for (const discussionId of bindings) {
+        await this.workspaces.delete(discussionId)
+      }
+      await this.records.delete(ideaId)
+    } finally {
+      this.deleting.delete(ideaId)
+    }
+  }
+
+  /** Reject mutations competing with an in-flight permanent delete. */
+  private rejectWhileDeleting(ideaId: IdeaId): void {
+    if (this.deleting.has(ideaId)) {
+      throw new IdeaError('deleting', `idea '${ideaId}' is being deleted`)
+    }
   }
 
   /**
@@ -222,7 +408,11 @@ export class IdeaService extends Service {
   ): Promise<IdeaAggregate> {
     const validatedDraft = parseDraft(ideaDraftSchema, draft)
     const validatedSource = parseDraft(sourceDiscussionDraftSchema, source)
+    this.rejectWhileDeleting(ideaId)
     return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => {
+      if (current.idea.status === 'archived') {
+        throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before evolving`)
+      }
       const versionId = IdeaVersionId(createId('idea_ver'))
       const sourceDiscussionId = SourceDiscussionId(createId('idea_src'))
       const discussion: SourceDiscussion = {
@@ -285,13 +475,19 @@ export class IdeaService extends Service {
    * @param createConversation - Creates one new conversation, resolving to
    * its conversation id; invoked only when no reusable discussion exists.
    * @returns the reused or newly created discussion.
-   * @throws `IdeaError` with code `idea-not-found` when the idea is absent.
+   * @throws `IdeaError` with code `idea-not-found` when the idea is absent,
+   * `archived` when the idea is archived, or `deleting` while a permanent
+   * delete of the idea is in flight.
    */
   async continueDiscussion(
     ideaId: IdeaId,
     createConversation: () => Promise<string>,
   ): Promise<IdeaDiscussion> {
     const current = this.get(ideaId)
+    if (current.idea.status === 'archived') {
+      throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before continuing the discussion`)
+    }
+    this.rejectWhileDeleting(ideaId)
     const baseVersionId = current.idea.currentVersionId
     for (const [, existing] of this.workspaces.entries()) {
       if (existing.ideaId === ideaId && existing.baseVersionId === baseVersionId && existing.status === 'active') {

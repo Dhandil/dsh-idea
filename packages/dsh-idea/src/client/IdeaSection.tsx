@@ -1,23 +1,28 @@
 /**
- * The Ideas settings section: the saved-Idea list (title, core, created
- * time, source indicator), the read-only detail view over one Idea's
- * current version, its source-conversation linkage, the Continue Discussion
- * entry, and the evolution proposal flow the discussion unlocks: prepare a
- * proposed next version, review its editable draft, then cancel with zero
- * writes or approve it as the next immutable version. The list and detail
- * renders are strictly read-only; the section's only writes are the
- * explicit 继续讨论 and 保存为新版本 buttons.
+ * The Ideas settings section: the two-view library (当前 / 已归档 tabs, no
+ * deleted view), one lightweight index row per Idea (title, one-line core,
+ * updated time) with an optional hover preview card whose Edit quick action
+ * is independently clickable, the read-only detail view over one Idea's
+ * current version, and the lifecycle flows: manual edit (the shared
+ * seven-field draft form, Save as New Version, cancel with zero writes,
+ * no-change Save disabled), Continue Discussion, the evolution proposal
+ * flow, Archive, Restore, and the detail-only permanent delete behind an
+ * acknowledged RiskConfirmation. Hover is a convenience — every action is
+ * reachable without it. Nothing renders optimistically: the lists refetch
+ * after confirmed Host mutations, and archived details expose only
+ * Restore/Delete.
  * @module @dsh-external/dsh-idea/client/IdeaSection
  */
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { IdeaDetail, IdeaVersionSummary } from '../remote-host/types.ts'
+import { Button, HoverCard, Pill, RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { IdeaDetail, IdeaListRow, IdeaVersionSummary } from '../remote-host/types.ts'
 import type { IdeaVersionReason } from '../types.ts'
-import { requiredPresent } from './state.ts'
+import { durableFrom, requiredPresent, sameIdeaDraft } from './state.ts'
 import type { EditableIdeaDraft } from './state.ts'
-import type { IdeaReadState, IdeaProposalState } from './read-state.ts'
+import { detailDraftOf } from './read-state.ts'
+import type { IdeaDeletionState, IdeaEditState, IdeaReadState, IdeaProposalState } from './read-state.ts'
 import type { IdeaSectionProps } from './slots.ts'
 import type { IdeaLocaleKey } from './locales.ts'
 
@@ -39,8 +44,9 @@ const REASON_LABELS: Readonly<Record<IdeaVersionReason, IdeaLocaleKey>> = {
   'continued-discussion': 'read.reason.continued-discussion',
 }
 
-/** The editable proposal fields, mirroring the save dialog's order. */
-const EVOLUTION_FIELDS: ReadonlyArray<{
+/** The seven editable draft fields, mirroring the save dialog's order; shared
+ * by the evolution proposal preview and the manual-edit editor. */
+const DRAFT_FIELDS: ReadonlyArray<{
   key: keyof EditableIdeaDraft
   label: IdeaLocaleKey
   multiline: boolean
@@ -60,12 +66,17 @@ const EVOLUTION_FIELDS: ReadonlyArray<{
  * @returns the section element tree.
  */
 export function IdeaSection({
-  open, closeDetail, continueIdea, prepareEvolution, editProposalDraft, cancelProposal, commitProposal, load, useIdeaRead, t,
+  open, closeDetail, selectView, openEditor, continueIdea, prepareEvolution,
+  editProposalDraft, cancelProposal, commitProposal,
+  editDraft, cancelEdit, saveEdit,
+  archiveIdea, restoreIdea, requestDelete, cancelDelete, confirmDelete,
+  load, useIdeaRead, t,
 }: IdeaSectionProps): ReactNode {
   const state = useIdeaRead(view => view)
   useEffect(() => { load() }, [load])
 
   if (state.detailId !== null) {
+    const editing = state.edit.status !== 'idle' && state.edit.ideaId === state.detailId
     return (
       <div className="dsh-idea-library">
         <Button variant="outline" onClick={closeDetail}>{t('read.back')}</Button>
@@ -76,68 +87,82 @@ export function IdeaSection({
           </p>
         )}
         {state.detailStatus === 'ready' && state.detail !== null && (
-          state.proposal !== null
+          editing && state.edit.draft !== null
             ? (
-                <IdeaEvolutionPreviewView
+                <IdeaManualEditView
                   detail={state.detail}
-                  versions={state.detailVersions}
-                  proposal={state.proposal}
-                  evolutionStatus={state.evolutionStatus}
-                  evolutionFailure={state.evolutionFailure}
-                  editProposalDraft={editProposalDraft}
-                  cancelProposal={cancelProposal}
-                  commitProposal={commitProposal}
+                  edit={state.edit}
+                  onEditDraft={editDraft}
+                  onCancel={cancelEdit}
+                  onSave={saveEdit}
                   t={t}
                 />
               )
-            : (
-                <IdeaDetailView
-                  detail={state.detail}
-                  versions={state.detailVersions}
-                  versionsStatus={state.detailVersionsStatus}
-                  continueStatus={state.continueStatus}
-                  discussionId={state.discussionId}
-                  evolutionStatus={state.evolutionStatus}
-                  evolutionFailure={state.evolutionFailure}
-                  continueIdea={continueIdea}
-                  prepareEvolution={prepareEvolution}
-                  t={t}
-                />
-              )
+            : state.proposal !== null
+              ? (
+                  <IdeaEvolutionPreviewView
+                    detail={state.detail}
+                    versions={state.detailVersions}
+                    proposal={state.proposal}
+                    evolutionStatus={state.evolutionStatus}
+                    evolutionFailure={state.evolutionFailure}
+                    editProposalDraft={editProposalDraft}
+                    cancelProposal={cancelProposal}
+                    commitProposal={commitProposal}
+                    t={t}
+                  />
+                )
+              : (
+                  <IdeaDetailView
+                    detail={state.detail}
+                    versions={state.detailVersions}
+                    versionsStatus={state.detailVersionsStatus}
+                    continueStatus={state.continueStatus}
+                    discussionId={state.discussionId}
+                    evolutionStatus={state.evolutionStatus}
+                    evolutionFailure={state.evolutionFailure}
+                    archiveStatus={state.archiveStatus}
+                    restoreStatus={state.restoreStatus}
+                    continueIdea={continueIdea}
+                    prepareEvolution={prepareEvolution}
+                    openEditor={openEditor}
+                    archiveIdea={archiveIdea}
+                    restoreIdea={restoreIdea}
+                    requestDelete={requestDelete}
+                    t={t}
+                  />
+                )
+        )}
+        {state.deletion.status !== 'closed' && (
+          <IdeaDeleteDialog deletion={state.deletion} onCancel={cancelDelete} onConfirm={confirmDelete} t={t} />
         )}
       </div>
     )
   }
 
+  const view = state.lists[state.view]
   return (
     <div className="dsh-idea-library">
-      {state.status !== 'ready' && state.status !== 'error' && <p className="dsh-idea-state">{t('read.loading')}</p>}
-      {state.status === 'error' && (
+      <div className="dsh-idea-tabs" role="tablist">
+        <Pill active={state.view === 'current'} onClick={() => { selectView('current') }}>{t('read.tab.current')}</Pill>
+        <Pill active={state.view === 'archived'} onClick={() => { selectView('archived') }}>{t('read.tab.archived')}</Pill>
+      </div>
+      {view.status !== 'ready' && view.status !== 'error' && <p className="dsh-idea-state">{t('read.loading')}</p>}
+      {view.status === 'error' && (
         <>
           <p className="dsh-idea-state">{t('read.error')}</p>
           <Button variant="outline" onClick={() => { load() }}>{t('read.retry')}</Button>
         </>
       )}
-      {state.status === 'ready' && state.items.length === 0 && <p className="dsh-idea-state">{t('read.empty')}</p>}
-      {state.status === 'ready' && state.items.length > 0 && (
+      {view.status === 'ready' && view.items.length === 0 && (
+        <p className="dsh-idea-state">
+          {state.view === 'archived' ? t('read.emptyArchived') : t('read.empty')}
+        </p>
+      )}
+      {view.status === 'ready' && view.items.length > 0 && (
         <ul className="dsh-idea-list" role="list">
-          {state.items.map(idea => (
-            <li key={idea.id}>
-              <button
-                type="button"
-                className="dsh-idea-row"
-                onClick={() => { open(idea.id) }}
-              >
-                <span className="dsh-idea-row-title">{idea.title}</span>
-                <span className="dsh-idea-row-core">{idea.core}</span>
-                <span className="dsh-idea-row-meta">
-                  {t('read.created', { time: formatTime(idea.createdAt) })}
-                  {idea.source !== undefined
-                    ? ` · ${t('read.source.short', { sessionId: idea.source.sessionId })}`
-                    : ''}
-                </span>
-              </button>
-            </li>
+          {view.items.map(idea => (
+            <IdeaRow key={idea.id} idea={idea} open={open} openEditor={openEditor} t={t} />
           ))}
         </ul>
       )}
@@ -145,10 +170,96 @@ export function IdeaSection({
   )
 }
 
-/** The read-only detail over one Idea's current version, plus its history and the continuation entry. */
+/** One lightweight library row: title, one-line core, updated time — plus the
+ * optional hover preview card. The row stays the keyboard/touch entry: it
+ * opens the full detail where every action lives. */
+function IdeaRow(
+  {
+    idea, open, openEditor, t,
+  }: {
+    idea: IdeaListRow
+    open: (id: string) => void
+    openEditor: (id: string) => void
+    t: (key: IdeaLocaleKey, params?: Record<string, unknown>) => string
+  },
+): ReactNode {
+  return (
+    <li>
+      <HoverCard
+        anchor={(
+          <button
+            type="button"
+            className="dsh-idea-row"
+            onClick={() => { open(idea.id) }}
+          >
+            <span className="dsh-idea-row-title">{idea.title}</span>
+            <span className="dsh-idea-row-core">{idea.core}</span>
+            <span className="dsh-idea-row-meta">
+              {t('read.updated', { time: formatTime(idea.updatedAt) })}
+            </span>
+          </button>
+        )}
+        content={<IdeaPreviewCard idea={idea} openEditor={openEditor} t={t} />}
+        copyLabel={t('read.hover.copy')}
+        copiedLabel={t('read.hover.copied')}
+      />
+    </li>
+  )
+}
+
+/**
+ * The hover preview card: the bounded projection (title, core, current
+ * conclusion when non-empty, up to three use-when entries, the open-question
+ * count, updated time). The card is portaled, so its Edit quick action is
+ * genuinely clickable without triggering the row's navigation. Archived
+ * ideas get no Edit and never a Delete. Exported for focused tests.
+ */
+export function IdeaPreviewCard(
+  {
+    idea, openEditor, t,
+  }: {
+    idea: IdeaListRow
+    openEditor: (id: string) => void
+    t: (key: IdeaLocaleKey, params?: Record<string, unknown>) => string
+  },
+): ReactNode {
+  return (
+    <div className="dsh-idea-preview">
+      <span className="dsh-idea-preview-title">{idea.title}</span>
+      <span className="dsh-idea-preview-core">{idea.core}</span>
+      {idea.currentConclusion.trim().length > 0 && (
+        <span className="dsh-idea-preview-line">
+          <span className="dsh-idea-detail-label">{t('read.field.currentConclusion')}</span>
+          <span className="dsh-idea-preview-text">{idea.currentConclusion}</span>
+        </span>
+      )}
+      {idea.useWhen.length > 0 && (
+        <span className="dsh-idea-preview-line">
+          <span className="dsh-idea-detail-label">{t('read.field.useWhen')}</span>
+          <ul className="dsh-idea-detail-list" role="list">
+            {idea.useWhen.slice(0, 3).map(item => <li key={item}>{item}</li>)}
+          </ul>
+        </span>
+      )}
+      <span className="dsh-idea-preview-meta">
+        {t('read.preview.openQuestions', { count: idea.openQuestionsCount })}
+        {' · '}
+        {t('read.updated', { time: formatTime(idea.updatedAt) })}
+      </span>
+      {idea.status !== 'archived' && (
+        <Button variant="outline" onClick={() => { openEditor(idea.id) }}>{t('read.edit')}</Button>
+      )}
+    </div>
+  )
+}
+
+/** The read-only detail over one Idea's current version, its history, and the
+ * status-scoped lifecycle actions (non-archived: Edit/Continue/Archive;
+ * archived: Restore — plus the detail-only permanent delete for both). */
 function IdeaDetailView(
   {
-    detail, versions, versionsStatus, continueStatus, discussionId, evolutionStatus, evolutionFailure, continueIdea, prepareEvolution, t,
+    detail, versions, versionsStatus, continueStatus, discussionId, evolutionStatus, evolutionFailure,
+    archiveStatus, restoreStatus, continueIdea, prepareEvolution, openEditor, archiveIdea, restoreIdea, requestDelete, t,
   }: {
     detail: IdeaDetail
     versions: readonly IdeaVersionSummary[]
@@ -157,12 +268,19 @@ function IdeaDetailView(
     discussionId: IdeaReadState['discussionId']
     evolutionStatus: IdeaReadState['evolutionStatus']
     evolutionFailure: IdeaReadState['evolutionFailure']
+    archiveStatus: IdeaReadState['archiveStatus']
+    restoreStatus: IdeaReadState['restoreStatus']
     continueIdea: (id: string) => void
     prepareEvolution: () => void
+    openEditor: (id: string) => void
+    archiveIdea: () => void
+    restoreIdea: () => void
+    requestDelete: () => void
     t: (key: IdeaLocaleKey, params?: Record<string, unknown>) => string
   },
 ): ReactNode {
   const source = detail.source
+  const archived = detail.status === 'archived'
   const current = versions.find(version => version.id === detail.versionId)
   return (
     <div className="dsh-idea-detail">
@@ -171,6 +289,7 @@ function IdeaDetailView(
         {t('read.created', { time: formatTime(detail.createdAt) })}
         {' · '}
         {t('read.updated', { time: formatTime(detail.updatedAt) })}
+        {archived ? ` · ${t('read.status.archived')}` : ''}
       </p>
       {source !== undefined && (
         <p className="dsh-idea-source">
@@ -179,17 +298,33 @@ function IdeaDetailView(
             : t('read.source.detail.noAnchor', { sessionId: source.sessionId })}
         </p>
       )}
-      <div className="dsh-idea-continue">
-        <Button
-          variant="outline"
-          disabled={continueStatus === 'loading'}
-          onClick={() => { continueIdea(detail.id) }}
-        >
-          {continueStatus === 'loading' ? t('read.continue.loading') : t('read.continue')}
-        </Button>
-        {continueStatus === 'error' && <p className="dsh-idea-state">{t('read.continue.error')}</p>}
+      <div className="dsh-idea-actions">
+        {!archived && (
+          <>
+            <Button variant="outline" onClick={() => { openEditor(detail.id) }}>{t('read.edit')}</Button>
+            <Button
+              variant="outline"
+              disabled={continueStatus === 'loading'}
+              onClick={() => { continueIdea(detail.id) }}
+            >
+              {continueStatus === 'loading' ? t('read.continue.loading') : t('read.continue')}
+            </Button>
+            <Button variant="outline" disabled={archiveStatus === 'loading'} onClick={archiveIdea}>
+              {archiveStatus === 'loading' ? t('read.archive.loading') : t('read.archive')}
+            </Button>
+          </>
+        )}
+        {archived && (
+          <Button variant="outline" disabled={restoreStatus === 'loading'} onClick={restoreIdea}>
+            {restoreStatus === 'loading' ? t('read.restore.loading') : t('read.restore')}
+          </Button>
+        )}
+        <Button variant="outline" onClick={requestDelete}>{t('read.delete')}</Button>
       </div>
-      {discussionId !== null && (
+      {continueStatus === 'error' && <p className="dsh-idea-state">{t('read.continue.error')}</p>}
+      {archiveStatus === 'error' && <p className="dsh-idea-state">{t('read.archive.error')}</p>}
+      {restoreStatus === 'error' && <p className="dsh-idea-state">{t('read.restore.error')}</p>}
+      {!archived && discussionId !== null && (
         <div className="dsh-idea-evolution">
           <Button
             variant="outline"
@@ -250,6 +385,89 @@ function IdeaDetailList({ label, items }: { label: string, items: readonly strin
   )
 }
 
+/** The shared seven-field editable draft form (evolution preview + manual edit). */
+function IdeaDraftFields(
+  {
+    draft, disabled, onEdit, t,
+  }: {
+    draft: EditableIdeaDraft
+    disabled: boolean
+    onEdit: (patch: Partial<EditableIdeaDraft>) => void
+    t: (key: IdeaLocaleKey, params?: Record<string, unknown>) => string
+  },
+): ReactNode {
+  return (
+    <>
+      {DRAFT_FIELDS.map(field =>
+        field.multiline
+          ? (
+              <label key={field.key} className="dsh-idea-field">
+                {t(field.label)}
+                <textarea
+                  value={draft[field.key]}
+                  readOnly={disabled}
+                  onChange={event => { onEdit({ [field.key]: event.target.value }) }}
+                />
+              </label>
+            )
+          : (
+              <label key={field.key} className="dsh-idea-field">
+                {t(field.label)}
+                <input
+                  type="text"
+                  value={draft[field.key]}
+                  readOnly={disabled}
+                  onChange={event => { onEdit({ [field.key]: event.target.value }) }}
+                />
+              </label>
+            )
+      )}
+    </>
+  )
+}
+
+/**
+ * The manual-edit editor: the seven current-version fields over the loaded
+ * detail, Cancel (zero writes) and the one Save-as-new-version button.
+ * Normalized no-change disables Save (the domain independently defends the
+ * same invariant); a failed or conflicting commit keeps every edit visible.
+ */
+function IdeaManualEditView(
+  {
+    detail, edit, onEditDraft, onCancel, onSave, t,
+  }: {
+    detail: IdeaDetail
+    edit: IdeaEditState
+    onEditDraft: (patch: Partial<EditableIdeaDraft>) => void
+    onCancel: () => void
+    onSave: () => void
+    t: (key: IdeaLocaleKey, params?: Record<string, unknown>) => string
+  },
+): ReactNode {
+  const draft = edit.draft
+  if (draft === null) return null
+  const committing = edit.status === 'committing'
+  const unchanged = sameIdeaDraft(durableFrom(draft), detailDraftOf(detail))
+  const saveDisabled = committing || unchanged || !requiredPresent(draft)
+  return (
+    <div className="dsh-idea-detail">
+      <h3 className="dsh-idea-detail-title">{t('read.edit.title')}</h3>
+      <div className="dsh-idea-form" role="form" aria-label={t('read.edit.title')}>
+        <IdeaDraftFields draft={draft} disabled={committing} onEdit={onEditDraft} t={t} />
+      </div>
+      {edit.status === 'conflict' && <p className="dsh-idea-state">{t('read.edit.conflict')}</p>}
+      {edit.status === 'error' && <p className="dsh-idea-state">{t('read.edit.error')}</p>}
+      <div className="dsh-idea-evolution-actions">
+        <Button disabled={committing} onClick={onCancel}>{t('read.edit.cancel')}</Button>
+        <Button variant="primary" disabled={saveDisabled} onClick={onSave}>
+          {committing ? t('read.edit.saving') : t('read.edit.save')}
+        </Button>
+      </div>
+      <p className="dsh-idea-row-meta">{t('read.edit.hint')}</p>
+    </div>
+  )
+}
+
 /**
  * The evolution proposal preview: the proposed next version's editable
  * draft over the base-version line, with cancel (zero writes) and the one
@@ -283,30 +501,7 @@ function IdeaEvolutionPreviewView(
           : t('read.evolve.baseUnknown')}
       </p>
       <div className="dsh-idea-form" role="form" aria-label={t('read.evolve.title')}>
-        {EVOLUTION_FIELDS.map(field => (
-          field.multiline
-            ? (
-                <label key={field.key} className="dsh-idea-field">
-                  {t(field.label)}
-                  <textarea
-                    value={proposal.draft[field.key]}
-                    readOnly={committing}
-                    onChange={event => { editProposalDraft({ [field.key]: event.target.value }) }}
-                  />
-                </label>
-              )
-            : (
-                <label key={field.key} className="dsh-idea-field">
-                  {t(field.label)}
-                  <input
-                    type="text"
-                    value={proposal.draft[field.key]}
-                    readOnly={committing}
-                    onChange={event => { editProposalDraft({ [field.key]: event.target.value }) }}
-                  />
-                </label>
-              )
-        ))}
+        <IdeaDraftFields draft={proposal.draft} disabled={committing} onEdit={editProposalDraft} t={t} />
       </div>
       {evolutionFailure === 'commit' && <p className="dsh-idea-state">{t('read.evolve.commitError')}</p>}
       <div className="dsh-idea-evolution-actions">
@@ -317,5 +512,50 @@ function IdeaEvolutionPreviewView(
       </div>
       <p className="dsh-idea-row-meta">{t('read.evolve.readonlyHint', { title: detail.title })}</p>
     </div>
+  )
+}
+
+/**
+ * The detail-only permanent-delete confirmation: the acknowledgement gate
+ * keeps 永久删除 disabled until checked, cancel closes with zero durable
+ * writes, and a failed delete keeps the dialog open with error copy. The
+ * description states plainly that existing Harness conversations survive.
+ */
+function IdeaDeleteDialog(
+  {
+    deletion, onCancel, onConfirm, t,
+  }: {
+    deletion: IdeaDeletionState
+    onCancel: () => void
+    onConfirm: () => void
+    t: (key: IdeaLocaleKey, params?: Record<string, unknown>) => string
+  },
+): ReactNode {
+  const [acknowledged, setAcknowledged] = useState(false)
+  useEffect(() => {
+    if (deletion.status === 'closed') setAcknowledged(false)
+  }, [deletion.status])
+  const deleting = deletion.status === 'deleting'
+  // The exact §14 description stays verbatim; a failed delete appends the
+  // visible failure copy to it, since the dialog is the only readable
+  // surface while it is open.
+  const description = deletion.status === 'error'
+    ? `${t('read.delete.description')} ${t('read.delete.error')}`
+    : t('read.delete.description')
+  return (
+    <RiskConfirmation
+      open
+      title={t('read.delete.title')}
+      description={description}
+      acknowledgeLabel={t('read.delete.acknowledge')}
+      cancelLabel={t('read.delete.cancel')}
+      closeLabel={t('read.delete.cancel')}
+      confirmLabel={deleting ? t('read.delete.confirming') : t('read.delete.confirm')}
+      acknowledged={acknowledged}
+      disabled={deleting}
+      onAcknowledgedChange={setAcknowledged}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   )
 }

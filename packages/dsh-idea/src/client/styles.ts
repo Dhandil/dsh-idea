@@ -143,10 +143,66 @@ const CSS = `
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  /* The index row is deliberately lightweight: one core line only. */
+  -webkit-line-clamp: 1;
   color: var(--dsw-alias-label-secondary);
   font-size: 13px;
   line-height: 20px;
+}
+.dsh-idea-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dsh-idea-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 320px;
+  padding: 2px;
+}
+.dsh-idea-preview-title {
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.dsh-idea-preview-core {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-idea-preview-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dsh-idea-preview-text {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-idea-preview-meta {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-idea-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.dsh-idea-actions .dsh-idea-state {
+  flex-basis: 100%;
 }
 .dsh-idea-row-meta {
   margin: 0;

@@ -45,6 +45,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'idea/proposal-not-found': {}
     /** The Idea moved past the proposal's base version; zero writes happened. */
     'idea/version-conflict': {}
+    /** The Idea is archived: readable, but this mutation is not available. */
+    'idea/archived': {}
+    /** The Idea is being permanently deleted; competing mutations are rejected. */
+    'idea/deleting': {}
   }
 }
 
@@ -67,6 +71,8 @@ export const IDEA_REMOTE_ERROR_CODES = [
   'idea/discussion-not-found',
   'idea/proposal-not-found',
   'idea/version-conflict',
+  'idea/archived',
+  'idea/deleting',
 ] as const satisfies readonly (keyof RemoteErrorDetailsMap)[]
 
 export type IdeaRemoteErrorCode = (typeof IDEA_REMOTE_ERROR_CODES)[number]
@@ -130,6 +136,12 @@ export function remoteDomainError(error: unknown): RemoteError | undefined {
   }
   if (code === 'version-conflict') {
     return new RemoteError('idea/version-conflict', 'the idea changed while you were reviewing; nothing was saved', {}, { cause: error })
+  }
+  if (code === 'archived') {
+    return new RemoteError('idea/archived', 'this idea is archived; restore it to make changes', {}, { cause: error })
+  }
+  if (code === 'deleting') {
+    return new RemoteError('idea/deleting', 'this idea is being deleted', {}, { cause: error })
   }
   return new RemoteError('idea/storage-failed', 'the idea could not be saved', {}, { cause: error })
 }

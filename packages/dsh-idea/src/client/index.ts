@@ -140,11 +140,12 @@ function registerUi(ctx: ClientContext): void {
     },
   }, IdeaRelatedOverlay))
 
-  // The read-only library plus its one write path: one root-scoped surface
-  // behind the settings section; the list loads when the user first opens
-  // the page, and Continue Discussion re-pulls the session list before
-  // opening the created conversation (the Host's `session/created` stream
-  // and the RPC response race, so select must see a refreshed baseline).
+  // The library (both views), its detail, and the lifecycle flows: one
+  // root-scoped surface behind the settings section; the selected view
+  // loads when the user first opens the page, Continue Discussion re-pulls
+  // the session list before opening the created conversation (the Host's
+  // `session/created` stream and the RPC response race, so select must see
+  // a refreshed baseline).
   // The cast pins the client Session domain face: two published packages
   // augment `ctx.sessions` with conflicting types, so the ambient property
   // type is unusable and the installed service is the session-controller's.
@@ -183,13 +184,23 @@ function registerUi(ctx: ClientContext): void {
     inject: (): IdeaSectionInjected => ({
       hooks: { ideaRead: readSurface.state },
       load: () => { readSurface.load() },
+      selectView: (view) => { readSurface.selectView(view) },
       open: (id) => { readSurface.open(id) },
       closeDetail: () => { readSurface.closeDetail() },
+      openEditor: (id) => { readSurface.openEditor(id) },
       continueIdea: (id) => { readSurface.continueDiscussion(id) },
       prepareEvolution: () => { readSurface.prepareEvolution() },
       editProposalDraft: (patch) => { readSurface.editProposalDraft(patch) },
       cancelProposal: () => { readSurface.cancelProposal() },
       commitProposal: () => { readSurface.commitProposal() },
+      editDraft: (patch) => { readSurface.editDraft(patch) },
+      cancelEdit: () => { readSurface.cancelEdit() },
+      saveEdit: () => { readSurface.commitEdit() },
+      archiveIdea: () => { readSurface.archiveIdea() },
+      restoreIdea: () => { readSurface.restoreIdea() },
+      requestDelete: () => { readSurface.requestDelete() },
+      cancelDelete: () => { readSurface.cancelDelete() },
+      confirmDelete: () => { readSurface.confirmDelete() },
     }),
   }, IdeaSection))
 }

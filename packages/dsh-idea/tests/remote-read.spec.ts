@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import { cleanup, draft, harness, sourceDraft, storedBytes } from './helpers/harness.ts'
 import IdeaRemoteService from '../src/remote-host/index.ts'
-import type { IdeaDetail, IdeaSummary } from '../src/remote-host/types.ts'
+import type { IdeaDetail, IdeaListRow } from '../src/remote-host/types.ts'
 
 afterEach(cleanup)
 
@@ -43,49 +43,54 @@ const remoteCodeOf = async (run: () => Promise<unknown>): Promise<string | undef
 }
 
 describe('idea.list', () => {
-  it('projects saved ideas into summaries with source linkage, newest update first', async () => {
+  it('projects saved ideas into lightweight rows, newest update first', async () => {
     const env = await readHarness()
     const first = await env.service.create(draft({ title: 'First' }), sourceDraft({ sessionId: 'session-a', anchorMessageId: 'msg-a' }))
     // Distinct updatedAt: the listing order is most recently updated first.
     await new Promise(resolve => setTimeout(resolve, 5))
     const second = await env.service.create(draft({ title: 'Second' }), sourceDraft({ sessionId: 'session-b' }))
 
-    const listed = await env.idea.list()
+    const listed = await env.idea.list({ view: 'current' })
     expect(listed.map(row => row.id)).toEqual([second.idea.ideaId, first.idea.ideaId])
-    const row: IdeaSummary = listed[1]!
+    const row: IdeaListRow = listed[1]!
     expect(row).toEqual({
       id: first.idea.ideaId,
+      status: 'active',
+      currentVersionId: first.idea.currentVersionId,
       title: 'First',
       core: draft().core,
-      motivation: draft().motivation,
-      createdAt: first.idea.createdAt,
+      currentConclusion: draft().currentConclusion,
+      useWhen: [...draft().useWhen],
+      openQuestionsCount: draft().openQuestions.length,
       updatedAt: first.idea.updatedAt,
-      source: { sessionId: 'session-a', anchorMessageId: 'msg-a' },
     })
   })
 
-  it('produces JSON-representable summaries with no storage record leakage', async () => {
+  it('produces JSON-representable rows with no storage record leakage and no history or source bodies', async () => {
     const env = await readHarness()
     await env.service.create(draft(), sourceDraft())
-    const listed = await env.idea.list()
+    const listed = await env.idea.list({ view: 'current' })
     expect(listed).toHaveLength(1)
     for (const row of listed) {
       expect(typeof row.id).toBe('string')
       expect(Object.keys(row).sort()).toEqual([
-        'core', 'createdAt', 'id', 'motivation', 'source', 'title', 'updatedAt',
+        'core', 'currentConclusion', 'currentVersionId', 'id', 'openQuestionsCount', 'status', 'title', 'updatedAt', 'useWhen',
       ])
       expect(JSON.parse(JSON.stringify(row)) as unknown).toEqual(row)
     }
   })
 
-  it('excludes archived ideas from the list while they stay readable', async () => {
+  it('splits the views: current carries non-archived only, archived carries archived only', async () => {
     const env = await readHarness()
     const kept = await env.service.create(draft({ title: 'Kept' }), sourceDraft())
     const archived = await env.service.create(draft({ title: 'Archived' }), sourceDraft())
     await env.service.archive(archived.idea.ideaId, archived.idea.currentVersionId)
 
-    const listed = await env.idea.list()
-    expect(listed.map(row => row.id)).toEqual([kept.idea.ideaId])
+    const current = await env.idea.list({ view: 'current' })
+    expect(current.map(row => row.id)).toEqual([kept.idea.ideaId])
+    const archivedRows = await env.idea.list({ view: 'archived' })
+    expect(archivedRows.map(row => row.id)).toEqual([archived.idea.ideaId])
+    expect(archivedRows[0]!.status).toBe('archived')
 
     const detail = await env.idea.get({ id: archived.idea.ideaId })
     expect(detail.title).toBe('Archived')
@@ -95,7 +100,8 @@ describe('idea.list', () => {
     const env = await readHarness()
     const created = await env.service.create(draft(), sourceDraft())
     const before = await storedBytes(env.root, created.idea.ideaId)
-    await env.idea.list()
+    await env.idea.list({ view: 'current' })
+    await env.idea.list({ view: 'archived' })
     expect(await storedBytes(env.root, created.idea.ideaId)).toEqual(before)
   })
 })
@@ -108,6 +114,7 @@ describe('idea.get', () => {
     const detail: IdeaDetail = await env.idea.get({ id: created.idea.ideaId })
     expect(detail).toEqual({
       id: created.idea.ideaId,
+      status: 'active',
       title: draft().title,
       core: draft().core,
       motivation: draft().motivation,

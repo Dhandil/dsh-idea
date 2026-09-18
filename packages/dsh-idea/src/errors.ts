@@ -15,6 +15,12 @@ export type IdeaErrorCode =
   | 'version-not-found'
   /** No discussion workspace with the given id exists. */
   | 'discussion-not-found'
+  /** The Idea is archived: readable, but every mutation other than
+   * restore/delete is rejected. */
+  | 'archived'
+  /** A permanent delete of this Idea is in flight; competing mutations are
+   * rejected until it settles. */
+  | 'deleting'
 
 export class IdeaError extends Error {
   override readonly name = 'IdeaError'

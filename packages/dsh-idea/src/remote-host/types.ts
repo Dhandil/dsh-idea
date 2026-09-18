@@ -7,7 +7,7 @@
  * @module @dsh-external/dsh-idea/src/remote-host/types
  */
 
-import type { IdeaDraft, IdeaEvolutionReason, IdeaId, IdeaVersionId, IdeaVersionReason } from '../types.ts'
+import type { IdeaDraft, IdeaEvolutionReason, IdeaId, IdeaStatus, IdeaVersionId, IdeaVersionReason } from '../types.ts'
 import type { IdeaPreparationId, IdeaPreparationPreview } from '../preparation/types.ts'
 
 export type {
@@ -16,6 +16,7 @@ export type {
   IdeaId,
   IdeaPreparationId,
   IdeaPreparationPreview,
+  IdeaStatus,
   IdeaVersionId,
   IdeaVersionReason,
 }
@@ -51,13 +52,15 @@ export interface IdeaGetRequest {
 }
 
 /**
- * The read-only summary of one Idea's current version — the `idea.list` row.
- * Storage records never cross the wire; this is the projection the web
- * client may see. `source` cites the conversation snapshot the current
- * version was saved from, absent when the version cites none.
+ * The read-only summary of one Idea's current version — the base of the
+ * `idea.get` detail. Storage records never cross the wire; this is the
+ * projection the web client may see. `source` cites the conversation
+ * snapshot the current version was saved from, absent when the version
+ * cites none.
  */
 export interface IdeaSummary {
   id: string
+  status: IdeaStatus
   title: string
   core: string
   motivation: string
@@ -67,6 +70,35 @@ export interface IdeaSummary {
     sessionId: string
     anchorMessageId?: string
   }
+}
+
+/** `idea.list` request: which library view to project. */
+export interface IdeaListRequest {
+  /**
+   * `current` projects every non-archived Idea (active + dormant);
+   * `archived` projects archived Ideas only. No deleted view exists.
+   */
+  view: 'current' | 'archived'
+}
+
+/**
+ * One row of the `idea.list` result — the lightweight index projection the
+ * library list and its hover preview card render. Carries exactly the
+ * fields the row and the preview need (identity, status, current-version
+ * pointer, title, one-line core, current conclusion, use-when entries for
+ * the bounded preview, the open-question count) and never the full history,
+ * the remaining draft fields, or any captured source body.
+ */
+export interface IdeaListRow {
+  id: string
+  status: IdeaStatus
+  currentVersionId: string
+  title: string
+  core: string
+  currentConclusion: string
+  useWhen: readonly string[]
+  openQuestionsCount: number
+  updatedAt: number
 }
 
 /**
@@ -191,6 +223,65 @@ export interface IdeaRelatedRequest {
   sessionId: string
   /** The assistant message the user explicitly chose. */
   messageId: string
+}
+
+/** `idea.manualEdit` request: the user-authored draft plus the version the editor opened against. */
+export interface IdeaManualEditRequest {
+  /** The Idea to edit. */
+  id: string
+  /** The current version the editor opened at; a mismatch rejects the commit. */
+  expectedCurrentVersionId: string
+  /** The user-authored draft. Source provenance is Host-owned. */
+  draft: IdeaDraft
+}
+
+/**
+ * `idea.manualEdit` result: the canonical current version after the edit and
+ * whether a semantic change was actually committed. `committed: false` marks
+ * a normalized no-op — zero durable writes, the current version untouched.
+ */
+export interface IdeaManualEditResult {
+  ideaId: string
+  currentVersionId: string
+  ordinal: number
+  title: string
+  status: IdeaStatus
+  committed: boolean
+}
+
+/** `idea.archive` request: the Idea to archive, at the caller's current version. */
+export interface IdeaArchiveRequest {
+  id: string
+  expectedCurrentVersionId: string
+}
+
+/** `idea.restore` request: the archived Idea to restore, at the caller's current version. */
+export interface IdeaRestoreRequest {
+  id: string
+  expectedCurrentVersionId: string
+}
+
+/** `idea.deleteIdea` request: the Idea to remove permanently, at the caller's current version. */
+export interface IdeaDeleteRequest {
+  id: string
+  expectedCurrentVersionId: string
+}
+
+/**
+ * The canonical state an archive/restore produced — enough for the client to
+ * refresh safely (the idea id, the version the status flip happened at, the
+ * resulting status, and the new update time).
+ */
+export interface IdeaLifecycleResult {
+  ideaId: string
+  currentVersionId: string
+  status: IdeaStatus
+  updatedAt: number
+}
+
+/** `idea.deleteIdea` result: the permanently removed idea's id. */
+export interface IdeaDeleteResult {
+  ideaId: string
 }
 
 /**

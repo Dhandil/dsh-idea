@@ -147,16 +147,20 @@ describe('client plugin mount', () => {
     const contribution = mountedContributions[0]!
     expect(contribution.package).toBe('@dsh-external/dsh-idea')
     expect(contribution.descriptors?.map(d => d.id).sort()).toEqual([
+      '@dsh-external/dsh-idea#idea/archive',
       '@dsh-external/dsh-idea#idea/commitEvolution',
       '@dsh-external/dsh-idea#idea/continueDiscussion',
       '@dsh-external/dsh-idea#idea/create',
+      '@dsh-external/dsh-idea#idea/deleteIdea',
       '@dsh-external/dsh-idea#idea/get',
       '@dsh-external/dsh-idea#idea/getVersion',
       '@dsh-external/dsh-idea#idea/getVersions',
       '@dsh-external/dsh-idea#idea/list',
+      '@dsh-external/dsh-idea#idea/manualEdit',
       '@dsh-external/dsh-idea#idea/prepareEvolution',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
       '@dsh-external/dsh-idea#idea/relatedFromMessage',
+      '@dsh-external/dsh-idea#idea/restore',
     ])
     expect(localeRegisters).toEqual(['idea'])
     expect(slotInjectNames).toEqual([

@@ -17,7 +17,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { IdeaReadSurface } from '../src/client/read-state.ts'
-import type { IdeaDetail, IdeaEvolutionProposalPreview, IdeaSummary, IdeaVersionSummary } from '../src/remote-host/types.ts'
+import type { IdeaDetail, IdeaEvolutionProposalPreview, IdeaListRow, IdeaSummary, IdeaVersionSummary } from '../src/remote-host/types.ts'
 import type { IdeaReadFace, IdeaReadState } from '../src/client/read-state.ts'
 import { IdeaSection } from '../src/client/IdeaSection.tsx'
 import type { IdeaSectionProps } from '../src/client/slots.ts'
@@ -41,8 +41,21 @@ const flush = () => act(async () => { await new Promise(resolve => setTimeout(re
 const t = ((key: string, params?: Record<string, unknown>): string =>
   (zh as Record<string, string>)[key]!.replace(/\{(\w+)\}/g, (_, k: string) => String(params?.[k] ?? ''))) as never
 
+const row = (): IdeaListRow => ({
+  id: 'idea_1',
+  status: 'active',
+  currentVersionId: 'idea_ver_1',
+  title: 'Saved idea',
+  core: 'Core text',
+  currentConclusion: '',
+  useWhen: [],
+  openQuestionsCount: 0,
+  updatedAt: 1_700_000_000_000,
+})
+
 const summary = (): IdeaSummary => ({
   id: 'idea_1',
+  status: 'active',
   title: 'Saved idea',
   core: 'Core text',
   motivation: 'Why kept',
@@ -94,7 +107,7 @@ function faceWith(overrides: {
   commitEvolution?: () => Promise<unknown>
 } = {}) {
   return {
-    list: vi.fn(async () => ({ ok: true as const, value: [summary()] })),
+    list: vi.fn(async () => ({ ok: true as const, value: [row()] })),
     get: vi.fn(async () => ({ ok: true as const, value: detail() })),
     getVersions: vi.fn(async () => ({ ok: true as const, value: versions() })),
     continueDiscussion: vi.fn(async () => ({
