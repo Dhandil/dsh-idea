@@ -168,6 +168,50 @@ describe('prepare base-version binding', () => {
   })
 })
 
+describe('prepare archived boundary', () => {
+  it('rejects an archived idea before any session, route, model, or registry work', async () => {
+    const env = await evolutionHarness()
+    const { ideaId, discussion } = await seedDiscussion(env)
+    await env.ideaService.archive(ideaId, env.ideaService.get(ideaId).idea.currentVersionId)
+    const before = await storedBytes(env.root, ideaId)
+    const readSurface = vi.spyOn(env.sessionQuery, 'readSurface')
+    const observeSession = vi.spyOn(env.sessionQuery, 'observeSession')
+    const currentSelection = vi.spyOn(env.agentDefaultModel, 'currentSelection')
+    const stream = vi.spyOn(env.llm, 'stream')
+    const register = vi.spyOn(env.service.proposals, 'register')
+
+    await expect(env.service.prepare(discussion.discussionId))
+      .rejects.toMatchObject({ code: 'archived' })
+
+    // Every preparation seam is untouched: no surface read, no route
+    // resolution, no model call, no proposal registration, no durable write.
+    expect(readSurface).not.toHaveBeenCalled()
+    expect(observeSession).not.toHaveBeenCalled()
+    expect(currentSelection).not.toHaveBeenCalled()
+    expect(stream).not.toHaveBeenCalled()
+    expect(env.llm.calls).toHaveLength(0)
+    expect(register).not.toHaveBeenCalled()
+    expect(await storedBytes(env.root, ideaId)).toEqual(before)
+  })
+
+  it('allows preparation again after archive → restore: an archive gate, not a poison', async () => {
+    const env = await evolutionHarness()
+    const { ideaId, discussion } = await seedDiscussion(env)
+    const current = env.ideaService.get(ideaId).idea.currentVersionId
+    await env.ideaService.archive(ideaId, current)
+    await env.ideaService.restore(ideaId, current)
+    env.llm.enqueueChunks(textStream(draftText))
+
+    const preview = await env.service.prepare(discussion.discussionId)
+
+    expect(preview.ideaId).toBe(ideaId)
+    expect(preview.baseVersionId).toBe(discussion.baseVersionId)
+    expect(env.llm.calls).toHaveLength(1)
+    expect(env.service.proposals.resolve(preview.proposalId).proposal.baseVersionId)
+      .toBe(discussion.baseVersionId)
+  })
+})
+
 describe('commit', () => {
   it('appends the next immutable version with the discussion as provenance', async () => {
     const env = await evolutionHarness()

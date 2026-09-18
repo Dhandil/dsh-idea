@@ -70,7 +70,9 @@ export class IdeaEvolutionService extends Service {
    * @param signal - Optional caller cancellation; checked at every stage.
    * @returns the preview carrying the opaque proposal id and proposed draft.
    * @throws `IdeaError` with `idea-not-found` / `discussion-not-found`,
-   * `version-conflict` when the discussion's base version is superseded,
+   * `archived` when the idea is archived (rejected before any session read,
+   * route resolution, model call, or registration), `version-conflict` when
+   * the discussion's base version is superseded,
    * `invalid-input` on corrupt durable state, and `IdeaPreparationError` with
    * a stable {@link IdeaPreparationErrorCode}.
    */
@@ -79,6 +81,15 @@ export class IdeaEvolutionService extends Service {
 
     const discussion = this.ctx.ideaService.getDiscussion(IdeaDiscussionId(discussionId))
     const aggregate = this.ctx.ideaService.get(discussion.ideaId)
+    // Lifecycle gate before any expensive work: an archived Idea is
+    // read-only except restore/delete, so no session read, route resolution,
+    // model call, or proposal registration may run for it.
+    if (aggregate.idea.status === 'archived') {
+      throw new IdeaError(
+        'archived',
+        `idea '${aggregate.idea.ideaId}' is archived; restore it before preparing evolution`,
+      )
+    }
     if (aggregate.idea.currentVersionId !== discussion.baseVersionId) {
       throw new IdeaError(
         'version-conflict',

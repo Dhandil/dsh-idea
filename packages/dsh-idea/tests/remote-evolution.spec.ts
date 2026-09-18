@@ -67,6 +67,18 @@ describe('idea.prepareEvolution', () => {
     expect(env.llm.calls).toHaveLength(0)
   })
 
+  it('maps an archived idea onto idea/archived with zero model calls and zero writes', async () => {
+    const env = await remoteHarness()
+    const { ideaId, discussion } = await seedDiscussion(env)
+    await env.ideaService.archive(ideaId, env.ideaService.get(ideaId).idea.currentVersionId)
+    const before = await storedBytes(env.root, ideaId)
+
+    expect(await remoteCodeOf(() => env.idea.prepareEvolution({ discussionId: discussion.discussionId })))
+      .toBe('idea/archived')
+    expect(env.llm.calls).toHaveLength(0)
+    expect(await storedBytes(env.root, ideaId)).toEqual(before)
+  })
+
   it('maps a discussion whose base version is superseded onto idea/version-conflict', async () => {
     const env = await remoteHarness()
     const { ideaId, discussion } = await seedDiscussion(env)

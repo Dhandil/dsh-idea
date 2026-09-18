@@ -11,7 +11,7 @@
  * @module tests/lifecycle.spec
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IdeaError } from '../src/errors.ts'
 import { IdeaId, IdeaVersionId } from '../src/types.ts'
 import { cleanup, draft, harness, sourceDraft, storedAggregate, storedBytes } from './helpers/harness.ts'
@@ -300,5 +300,27 @@ describe('deleteIdea', () => {
     const { service } = await harness()
     await expect(errorCode(() => service.deleteIdea(IdeaId('idea_absent'), IdeaVersionId('idea_ver_x'))))
       .resolves.toBe('idea-not-found')
+  })
+
+  it('a forced storage delete failure rejects, never reports success, and releases the guard for a retry', async () => {
+    const { service } = await harness()
+    const created = await service.create(draft(), sourceDraft())
+    await service.continueDiscussion(created.idea.ideaId, async () => 'session-x')
+
+    // Inject one discussion-store delete failure through the instance's
+    // table handle; production code is untouched.
+    const tables = service as unknown as { workspaces: { delete: (id: string) => Promise<void> } }
+    const spy = vi.spyOn(tables.workspaces, 'delete').mockRejectedValueOnce(new Error('forced storage failure'))
+
+    await expect(service.deleteIdea(created.idea.ideaId, created.idea.currentVersionId))
+      .rejects.toThrow('forced storage failure')
+
+    // The failure surfaced instead of a success return and the idea survives
+    // intact; the finally released the guard, so the retry completes.
+    expect(() => service.get(created.idea.ideaId)).not.toThrow()
+    expect(service.list({ includeArchived: true })).toHaveLength(1)
+    spy.mockRestore()
+    await service.deleteIdea(created.idea.ideaId, created.idea.currentVersionId)
+    expect(() => service.get(created.idea.ideaId)).toThrow(IdeaError)
   })
 })
