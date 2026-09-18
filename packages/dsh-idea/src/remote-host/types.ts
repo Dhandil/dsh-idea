@@ -121,12 +121,14 @@ export interface IdeaContinueDiscussionRequest {
   /** The Idea whose current version seeds the new discussion. */
   id: string
   /**
-   * A client-prepared conversation to carry the discussion — bound to a
-   * workspace by the client's shared workspace navigation, so its composer
-   * is immediately usable. The Host adopts it only while no discussion is
-   * bound to it; anything else falls back to the Host-created default.
+   * The Workspace the continuation conversation should be created in. The
+   * browser only names a Workspace — the Host turns it into a canonical
+   * Session through the Harness Session Controller, which validates the
+   * Workspace, creates the Session, and attaches it. Absent lets the Host
+   * create its unbound default conversation. The browser never nominates
+   * the Session itself.
    */
-  conversationId?: string
+  workspaceId?: string
 }
 
 /**

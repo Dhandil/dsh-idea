@@ -82,6 +82,9 @@ describe('web client bundle', () => {
     expect(source).toContain('exports.inject')
     // The read-only library ships in the same bundle.
     expect(source).toContain('settings.section')
+    // The client names a Workspace for continuations; it never creates or
+    // adopts Sessions through the shared workspace navigation connector.
+    expect(source).not.toContain('connectWorkspace')
 
     const loaded: Record<string, { id: string, exports: Record<string, unknown> }> = {}
     const previousWindow = (globalThis as { window?: unknown }).window

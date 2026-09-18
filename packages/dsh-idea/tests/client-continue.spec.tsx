@@ -3,10 +3,12 @@
 /**
  * Client-focused tests for the detail page's Continue Discussion entry: the
  * button renders, a click enters the loading state and collapses duplicate
- * clicks into one Host call, success hands the conversation id to the
- * opener, failure shows the error copy without navigating and an explicit
- * re-click retries. The Host face is a scripted IdeaReadFace; no live Host,
- * provider, or model call.
+ * clicks into one Host call, the request carries at most a Workspace id —
+ * the current session's workspace, else the most recent one, else none —
+ * success hands the Host-returned conversation id to the opener, failure
+ * shows the error copy without navigating and an explicit re-click retries.
+ * The Host face is a scripted IdeaReadFace; no live Host, provider, or model
+ * call.
  * @module tests/client-continue.spec
  */
 
@@ -15,6 +17,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { IdeaReadSurface } from '../src/client/read-state.ts'
+import { selectContinuationWorkspace } from '../src/client/workspace.ts'
 import type { IdeaContinueDiscussionResult, IdeaDetail, IdeaSummary } from '../src/remote-host/types.ts'
 import type { IdeaReadFace, IdeaReadState } from '../src/client/read-state.ts'
 import { IdeaSection } from '../src/client/IdeaSection.tsx'
@@ -199,11 +202,11 @@ describe('Ideas section: continue discussion', () => {
     await act(async () => { release?.() })
   })
 
-  it('hands a prepared conversation to the Host call and opens the Host answer', async () => {
+  it('sends the resolved workspace id and opens the Host-returned conversation', async () => {
     const face = faceWith()
     const openConversation = vi.fn(async () => {})
-    const prepareConversation = vi.fn(async () => 'session-prepared')
-    const surface = new IdeaReadSurface(face, openConversation, prepareConversation)
+    const prepareWorkspace = vi.fn(async () => 'workspace-a')
+    const surface = new IdeaReadSurface(face, openConversation, prepareWorkspace)
     pendings.push(() => surface.dispose())
     render(<IdeaSection {...sectionProps(surface)} />)
     await flush()
@@ -212,16 +215,35 @@ describe('Ideas section: continue discussion', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
     await flush()
 
-    expect(prepareConversation).toHaveBeenCalledTimes(1)
-    expect(face.continueDiscussion).toHaveBeenCalledWith({ id: 'idea_1', conversationId: 'session-prepared' })
+    expect(prepareWorkspace).toHaveBeenCalledTimes(1)
+    // The request carries only the Workspace: never a client-nominated
+    // conversation id.
+    expect(face.continueDiscussion).toHaveBeenCalledWith({ id: 'idea_1', workspaceId: 'workspace-a' })
     expect(openConversation).toHaveBeenCalledWith('session-new')
   })
 
-  it('lands in the error state when the conversation preparation itself fails', async () => {
+  it('sends no workspace when none is selected, letting the Host choose', async () => {
     const face = faceWith()
     const openConversation = vi.fn(async () => {})
-    const prepareConversation = vi.fn(async () => { throw new Error('workspace refused') })
-    const surface = new IdeaReadSurface(face, openConversation, prepareConversation)
+    const prepareWorkspace = vi.fn(async () => undefined)
+    const surface = new IdeaReadSurface(face, openConversation, prepareWorkspace)
+    pendings.push(() => surface.dispose())
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await flush()
+
+    expect(face.continueDiscussion).toHaveBeenCalledWith({ id: 'idea_1' })
+    expect(openConversation).toHaveBeenCalledWith('session-new')
+  })
+
+  it('lands in the error state when the workspace selection itself fails', async () => {
+    const face = faceWith()
+    const openConversation = vi.fn(async () => {})
+    const prepareWorkspace = vi.fn(async () => { throw new Error('workspace store refused') })
+    const surface = new IdeaReadSurface(face, openConversation, prepareWorkspace)
     pendings.push(() => surface.dispose())
     render(<IdeaSection {...sectionProps(surface)} />)
     await flush()
@@ -233,5 +255,34 @@ describe('Ideas section: continue discussion', () => {
     expect(face.continueDiscussion).not.toHaveBeenCalled()
     expect(openConversation).not.toHaveBeenCalled()
     expect(screen.getByText('继续讨论失败，请稍后重试')).toBeTruthy()
+  })
+})
+
+describe('continuation workspace selection', () => {
+  const row = (workspaceId: string, sessionIds: string[], updatedAt: string) =>
+    ({ workspaceId, sessionIds, updatedAt })
+
+  it('prefers the workspace of the current session', () => {
+    const items = [
+      row('workspace-old', ['session-1'], '2026-09-01T00:00:00.000Z'),
+      row('workspace-current', ['session-2'], '2026-09-01T00:00:00.000Z'),
+    ]
+    expect(selectContinuationWorkspace(items, 'session-2')).toBe('workspace-current')
+  })
+
+  it('falls back to the most recently updated workspace', () => {
+    const items = [
+      row('workspace-older', ['session-1'], '2026-09-01T00:00:00.000Z'),
+      row('workspace-newest', ['session-9'], '2026-09-17T00:00:00.000Z'),
+    ]
+    // Neither the absent current session nor no current session at all can
+    // anchor the choice, so recency decides.
+    expect(selectContinuationWorkspace(items, 'session-absent')).toBe('workspace-newest')
+    expect(selectContinuationWorkspace(items, undefined)).toBe('workspace-newest')
+  })
+
+  it('selects nothing when no workspace exists', () => {
+    expect(selectContinuationWorkspace([], 'session-1')).toBeUndefined()
+    expect(selectContinuationWorkspace([], undefined)).toBeUndefined()
   })
 })

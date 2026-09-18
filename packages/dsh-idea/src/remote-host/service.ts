@@ -10,7 +10,8 @@
  * `list`/`get` project stored aggregates onto read-only wire summaries/
  * details and never write, `getVersions`/`getVersion` expose the immutable
  * version history the same way, `continueDiscussion` opens the Idea's
- * continuation conversation through the Host Session Controller while the
+ * continuation conversation through the Host Session Controller — the
+ * browser may name a Workspace, never the Session — while the
  * domain service owns idempotency, and `prepareEvolution`/`commitEvolution`
  * carry the evolution proposal pipeline — prepare is a read-only proposal,
  * commit is the only durable write and stays subject to the domain's
@@ -22,7 +23,7 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import type {} from '@deepseek-ai/dsh-api-session-controller'
+import type { SessionCreateRequest } from '@deepseek-ai/dsh-api-session-controller'
 import { ideaDraftSchema } from '../schema.ts'
 import { IdeaPreparationError } from '../preparation/errors.ts'
 import type { IdeaPreparationId, PreparedIdeaSource } from '../preparation/types.ts'
@@ -234,7 +235,10 @@ export class IdeaRemoteService extends TypertRemoteService {
   }
 
   /**
-   * Continue one Idea as a new focused conversation. Idempotency lives on
+   * Continue one Idea as a new focused conversation. The browser may only
+   * name the Workspace the discussion should live in; the Session itself is
+   * Host-created through the Session Controller (see
+   * {@link IdeaRemoteService.createConversation}). Idempotency lives on
    * the domain service (an active discussion for the same idea + current
    * version is reused, so one click never duplicates workspaces); this
    * layer owns only the conversation-creation seam. The Idea is never
@@ -245,7 +249,7 @@ export class IdeaRemoteService extends TypertRemoteService {
     try {
       const discussion = await this.ctx.ideaService.continueDiscussion(
         IdeaId(request.id),
-        () => this.adoptOrCreateConversation(request.conversationId),
+        () => this.createConversation(request.workspaceId),
       )
       return {
         discussionId: discussion.discussionId,
@@ -339,30 +343,19 @@ export class IdeaRemoteService extends TypertRemoteService {
   }
 
   /**
-   * The conversation the continuation opens. A client with workspace
-   * navigation prepares one through the shared New-Session seam — a blank
-   * session already bound to a workspace, so the conversation's composer is
-   * immediately usable — and it is adopted only while no other discussion
-   * is bound to it; a reused or unknown id falls back to the Host-created
-   * conversation below, so one discussion's seed can never be hijacked by
-   * another.
+   * The conversation the continuation opens. The browser may name the
+   * Workspace it wants the discussion anchored in, but never the Session
+   * itself: a named Workspace is executed through the Harness Session
+   * Controller — which validates the Workspace, creates the canonical
+   * Session, and attaches it to the Workspace — so no caller-supplied
+   * Session id can ever become an IdeaDiscussion binding. An absent
+   * Workspace falls back to the Host's own unbound default conversation
+   * (deployments without workspace selection); a named-but-failing
+   * Workspace fails loud with no discussion write and no silent fallback.
+   * Lazy resolution keeps the Idea remote mountable where session APIs are
+   * not (and matches the Harness convention for optional host services).
    */
-  private async adoptOrCreateConversation(conversationId?: string): Promise<string> {
-    if (conversationId !== undefined
-      && this.ctx.ideaService.findDiscussionByConversationId(conversationId) === undefined) {
-      return conversationId
-    }
-    return this.createConversation()
-  }
-
-  /**
-   * The Host's own default conversation: created through the Session
-   * Controller with no workspace binding — the deployment fallback for
-   * clients without workspace navigation. Lazy resolution keeps the Idea
-   * remote mountable where session APIs are not (and matches the Harness
-   * convention for optional host services).
-   */
-  private async createConversation(): Promise<string> {
+  private async createConversation(workspaceId?: string): Promise<string> {
     const sessions = this.ctx.get('sessionController')
     if (sessions === undefined) {
       throw new RemoteError(
@@ -372,7 +365,10 @@ export class IdeaRemoteService extends TypertRemoteService {
       )
     }
     try {
-      const created = await sessions.create({})
+      const request: SessionCreateRequest = workspaceId === undefined
+        ? {}
+        : { workspaceId: workspaceId as NonNullable<SessionCreateRequest['workspaceId']> }
+      const created = await sessions.create(request)
       return created.sessionId
     } catch (error) {
       throw new RemoteError(

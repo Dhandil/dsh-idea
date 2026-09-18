@@ -34,7 +34,7 @@ export interface IdeaReadFace {
   list(): Promise<RemoteRead<IdeaSummary[]>>
   get(request: { id: string }): Promise<RemoteRead<IdeaDetail>>
   getVersions(request: { id: string }): Promise<RemoteRead<IdeaVersionSummary[]>>
-  continueDiscussion(request: { id: string; conversationId?: string }): Promise<RemoteRead<IdeaContinueDiscussionResult>>
+  continueDiscussion(request: { id: string; workspaceId?: string }): Promise<RemoteRead<IdeaContinueDiscussionResult>>
   prepareEvolution(
     request: { discussionId: string },
     signal?: AbortSignal,
@@ -122,12 +122,13 @@ export class IdeaReadSurface {
     /** Hands a created continuation conversation to the client session domain. */
     private readonly openConversation: (conversationId: string) => void | Promise<void> = () => {},
     /**
-     * Prepares the conversation the continuation adopts — resolved through
-     * the client's shared workspace navigation so the conversation is bound
-     * to a workspace and its composer is immediately usable. Returns the
-     * conversation id, or undefined to let the Host create its default.
+     * Resolves the Workspace the continuation conversation should be created
+     * in — the current session's workspace, else the most recently updated
+     * one. Returns undefined to let the Host create its default. The client
+     * never creates or nominates the Session itself; the Host's Session
+     * Controller owns that identity.
      */
-    private readonly prepareConversation: () => Promise<string | undefined> = async () => undefined,
+    private readonly prepareWorkspace: () => Promise<string | undefined> = async () => undefined,
   ) {}
 
   /** Load the list once; repeats while ready or already loading are no-ops. */
@@ -272,9 +273,9 @@ export class IdeaReadSurface {
     let conversationId: string | undefined
     let discussionId: string | undefined
     try {
-      const adopted = await this.prepareConversation()
+      const workspaceId = await this.prepareWorkspace()
       const result = await this.remote.continueDiscussion(
-        adopted === undefined ? { id } : { id, conversationId: adopted },
+        workspaceId === undefined ? { id } : { id, workspaceId },
       )
       if (result.ok) {
         conversationId = result.value.conversationId

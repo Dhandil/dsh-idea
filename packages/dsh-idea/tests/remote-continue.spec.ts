@@ -1,15 +1,20 @@
 /**
- * The `idea.continueDiscussion` Remote path: identities cross the wire, the
- * Host Session Controller creates exactly one conversation for a fresh
- * workspace, repeated calls reuse the active discussion without touching
- * the controller again, unknown ideas map onto `idea/not-found`, a failing
- * conversation creation maps onto `idea/conversation-failed`, and an
- * unavailable session controller fails loud. The idea document stays
- * byte-identical throughout. No provider, network, or model call — local
- * json over a temp root plus a scripted session controller.
+ * The `idea.continueDiscussion` Remote path: the browser names at most a
+ * Workspace — the Host Session Controller creates the canonical Session and
+ * the IdeaDiscussion binds to the Host-returned id, never to a
+ * caller-supplied one. An invalid Workspace fails loud with no discussion
+ * write, no Idea mutation, and no unbound fallback; an absent Workspace
+ * uses the Host default; repeated calls reuse the active discussion without
+ * touching the controller again; unknown ideas map onto `idea/not-found`; a
+ * failing creation maps onto `idea/conversation-failed`; an unavailable
+ * session controller fails loud. The idea document stays byte-identical
+ * throughout. No provider, network, or model call — local json over a temp
+ * root plus a scripted session controller.
  * @module tests/remote-continue.spec
  */
 
+import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import { cleanup, draft, harness, sourceDraft, storedBytes } from './helpers/harness.ts'
@@ -18,12 +23,21 @@ import IdeaRemoteService from '../src/remote-host/index.ts'
 afterEach(cleanup)
 
 /** A session-controller face with a create() spy, as the plugin resolves it. */
-function sessionControllerOf(create: () => Promise<{ sessionId: string }>) {
+function sessionControllerOf(create: (request: unknown) => Promise<{ sessionId: string }>) {
   return { create: vi.fn(create) }
 }
 
+/** The discussion records stored so far (empty when the table is absent). */
+async function discussionIdsIn(root: string): Promise<string[]> {
+  try {
+    return await readdir(join(root, 'idea', 'discussions'))
+  } catch {
+    return []
+  }
+}
+
 /** Real storage stack, real IdeaService, mounted remote, scripted controller. */
-async function continueHarness(create?: () => Promise<{ sessionId: string }>) {
+async function continueHarness(create?: (request: unknown) => Promise<{ sessionId: string }>) {
   const env = await harness()
   const sessionController = sessionControllerOf(create ?? (async () => ({ sessionId: 'session-new' })))
   env.ctx.provide('ideaPreparations', {
@@ -95,6 +109,78 @@ describe('idea.continueDiscussion', () => {
     expect(env.sessionController.create).toHaveBeenCalledTimes(1)
   })
 
+  it('creates a workspace-bound conversation through the Host for a named workspace', async () => {
+    const env = await continueHarness()
+    const created = await env.service.create(draft(), sourceDraft())
+
+    const result = await env.idea.continueDiscussion({
+      id: created.idea.ideaId,
+      workspaceId: 'workspace-a',
+    })
+
+    expect(env.sessionController.create).toHaveBeenCalledTimes(1)
+    expect(env.sessionController.create).toHaveBeenCalledWith({ workspaceId: 'workspace-a' })
+    expect(result.conversationId).toBe('session-new')
+    // The IdeaDiscussion binds the Host-returned canonical Session id.
+    const bound = env.ctx.ideaService.findDiscussionByConversationId('session-new')
+    expect(bound?.discussionId).toBe(result.discussionId)
+    // The Idea itself is never written.
+    const before = await storedBytes(env.root, created.idea.ideaId)
+    expect((await storedBytes(env.root, created.idea.ideaId))?.equals(before!)).toBe(true)
+  })
+
+  it('never binds a caller-supplied session id: the Host always creates its own', async () => {
+    const env = await continueHarness()
+    const created = await env.service.create(draft(), sourceDraft())
+
+    const result = await env.idea.continueDiscussion({
+      id: created.idea.ideaId,
+      conversationId: 'session-unrelated',
+    } as never)
+
+    expect(env.sessionController.create).toHaveBeenCalledTimes(1)
+    expect(env.sessionController.create).toHaveBeenCalledWith({})
+    expect(result.conversationId).toBe('session-new')
+    expect(env.ctx.ideaService.findDiscussionByConversationId('session-unrelated')).toBeUndefined()
+    expect(env.ctx.ideaService.findDiscussionByConversationId('session-new')?.discussionId)
+      .toBe(result.discussionId)
+  })
+
+  it('fails loud on an invalid workspace: no discussion write, no idea write, no fallback', async () => {
+    const env = await continueHarness(async (request) => {
+      if ((request as { workspaceId?: string }).workspaceId === 'workspace-bad') {
+        throw new Error('workspace not found')
+      }
+      return { sessionId: 'session-new' }
+    })
+    const created = await env.service.create(draft(), sourceDraft())
+    const before = await storedBytes(env.root, created.idea.ideaId)
+
+    expect(await remoteCodeOf(() => env.idea.continueDiscussion({
+      id: created.idea.ideaId,
+      workspaceId: 'workspace-bad',
+    }))).toBe('idea/conversation-failed')
+
+    // Exactly one create attempt, carrying the named workspace — never an
+    // unbound fallback create({}).
+    expect(env.sessionController.create).toHaveBeenCalledTimes(1)
+    expect(env.sessionController.create).toHaveBeenCalledWith({ workspaceId: 'workspace-bad' })
+    expect(env.sessionController.create).not.toHaveBeenCalledWith({})
+    expect(await discussionIdsIn(env.root)).toEqual([])
+    expect((await storedBytes(env.root, created.idea.ideaId))?.equals(before!)).toBe(true)
+  })
+
+  it('reuses the active discussion with a named workspace: no second session is created', async () => {
+    const env = await continueHarness()
+    const created = await env.service.create(draft(), sourceDraft())
+    const first = await env.idea.continueDiscussion({ id: created.idea.ideaId, workspaceId: 'workspace-a' })
+
+    const second = await env.idea.continueDiscussion({ id: created.idea.ideaId, workspaceId: 'workspace-a' })
+
+    expect(second).toEqual(first)
+    expect(env.sessionController.create).toHaveBeenCalledTimes(1)
+  })
+
   it('maps an unknown idea onto idea/not-found without creating a conversation', async () => {
     const env = await continueHarness()
 
@@ -117,35 +203,6 @@ describe('idea.continueDiscussion', () => {
 
     expect(await remoteCodeOf(() => env.idea.continueDiscussion({ id: created.idea.ideaId })))
       .toBe('gateway/internal')
-  })
-
-  it('adopts a client-prepared conversation without touching the session controller', async () => {
-    const env = await continueHarness()
-    const created = await env.service.create(draft(), sourceDraft())
-
-    const result = await env.idea.continueDiscussion({
-      id: created.idea.ideaId,
-      conversationId: 'session-prepared',
-    })
-
-    expect(env.sessionController.create).not.toHaveBeenCalled()
-    expect(result.conversationId).toBe('session-prepared')
-    expect(result.discussionId).toEqual(expect.any(String))
-  })
-
-  it('falls back to Host creation when the prepared conversation already carries another discussion', async () => {
-    const env = await continueHarness()
-    const first = await env.service.create(draft(), sourceDraft())
-    await env.idea.continueDiscussion({ id: first.idea.ideaId, conversationId: 'session-prepared' })
-    const second = await env.service.create(draft(), sourceDraft())
-
-    const result = await env.idea.continueDiscussion({
-      id: second.idea.ideaId,
-      conversationId: 'session-prepared',
-    })
-
-    expect(env.sessionController.create).toHaveBeenCalledTimes(1)
-    expect(result.conversationId).toBe('session-new')
   })
 
   it('never writes the idea: the stored idea document stays byte-identical', async () => {
