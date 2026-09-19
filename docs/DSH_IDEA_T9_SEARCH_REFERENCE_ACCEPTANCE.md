@@ -11,7 +11,7 @@ actions, Settings library search), per
 | --- | --- |
 | `T9_BASELINE_SHA` | `6767ec0dafe2cec6e782c6bf5b58b4175e6076e4` — `docs: update dsh-idea t8 acceptance` (T8/T8R/T8R2 accepted state) |
 | `T9_TESTED_SHA` | `4e220714de10f15822e2a934d8e6ed1429486e54` — `feat: add dsh-idea search, exact-version references, unified actions` |
-| `T9_REPORT_SHA` | this documentation-only commit (recorded below; the only commit after `T9_TESTED_SHA`) |
+| `T9_REPORT_SHA` | the documentation-only commit that carries this file (its SHA lives in the git history and the execution report; it is the only commit after `T9_TESTED_SHA`, and the diff between the two SHAs touches only `docs/`) |
 | Harness read-only baseline SHA | `c291e7961a515f6d7af9304e7fd1d257929aef26` |
 | Repository | `Dhandil/dsh-idea` (public), branch `main` |
 | Domain name | `idea` (`packages/dsh-idea/src/spec.ts`) |
