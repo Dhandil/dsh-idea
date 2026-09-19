@@ -1,25 +1,29 @@
 /// <reference types="@testing-library/dom" />
 // @vitest-environment jsdom
 /**
- * Client-focused tests for the Save Idea surface: plugin mount, the `💡`
- * action, the preview modal, and the per-session state engine. The Host face
- * is a scripted IdeaRemoteFace; no live Host, provider, or model call.
+ * Client-focused tests for the Save Idea surface: plugin mount (one unified
+ * action entry, three composer overlays, the settings section, the `idea`
+ * command, and the `idea` composer reference source with its canonical
+ * codec), the unified per-message action and its two-operation menu, the
+ * preview modal, and the per-session state engine. The Host face is a
+ * scripted IdeaRemoteFace; no live Host, provider, or model call.
  * @module tests/client.spec
  */
 
-// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
 import { IdeaSaveSurface, durableFrom, listItemsOf } from '../src/client/state.ts'
 import type { EditableIdeaDraft, IdeaRemoteFace, IdeaSaveState } from '../src/client/state.ts'
 import { zh } from '../src/client/locales.ts'
-import { IdeaMessageActions } from '../src/client/IdeaMessageActions.tsx'
+import { IdeaAssistantActions } from '../src/client/IdeaAssistantActions.tsx'
 import { IdeaSaveDialog } from '../src/client/IdeaSaveDialog.tsx'
-import type { IdeaActionProps, IdeaDialogProps } from '../src/client/slots.ts'
+import { formatIdeaReferenceMention } from '../src/reference/uri.ts'
+import type { UnifiedActionProps, IdeaDialogProps } from '../src/client/slots.ts'
 import type { IdeaDraft } from '../src/types.ts'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -79,17 +83,28 @@ function newSurface(face: IdeaRemoteFace, sessionId = 'session-1'): IdeaSaveSurf
 }
 
 /** The framework-synthesized selector hook over the surface's store. */
-const useIdeaOf = (store: SnapshotStore<IdeaSaveState>) =>
-  (select: (state: IdeaSaveState) => unknown) =>
+const useIdeaOf = <T,>(store: SnapshotStore<T>) =>
+  (select: (state: T) => unknown) =>
     useSyncExternalStore(store.subscribe, () => select(store.getSnapshot()))
 
-function actionProps(surface: IdeaSaveSurface, messageId = 'a1'): IdeaActionProps {
+/** A minimal store shaped for the unified action's two pending selectors. */
+function pendingStore(): SnapshotStore<Partial<IdeaSaveState> & { loadingMessageId: string | null }> {
+  return createSnapshotStore({ preparingMessageId: null, loadingMessageId: null })
+}
+
+function actionProps(
+  surface: IdeaSaveSurface,
+  relatedStore = pendingStore(),
+  messageId = 'a1',
+): UnifiedActionProps {
   return {
     messageId,
     prepare: (id: MessageId) => { surface.prepare(id) },
+    findRelated: () => {},
     useIdea: useIdeaOf(surface.state),
+    useRelated: useIdeaOf(relatedStore),
     t,
-  } as unknown as IdeaActionProps
+  } as unknown as UnifiedActionProps
 }
 
 function dialogProps(surface: IdeaSaveSurface): IdeaDialogProps {
@@ -101,7 +116,8 @@ function dialogProps(surface: IdeaSaveSurface): IdeaDialogProps {
     dismissToast: (seq: number) => { surface.dismissToast(seq) },
     useIdea: useIdeaOf(surface.state),
     t,
-  } as unknown as IdeaDialogProps}
+  } as unknown as IdeaDialogProps
+}
 
 /** Prepare through the engine and wait for the modal to open. */
 const MSG = 'a1' as MessageId
@@ -113,6 +129,10 @@ async function openModal(surface: IdeaSaveSurface, face: IdeaRemoteFace): Promis
   expect(surface.state.getSnapshot().modal).not.toBeNull()
 }
 
+const openMenu = async () => {
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: '保存为 Idea' })) })
+}
+
 describe('client plugin mount', () => {
   it('mounts its own generated Remote contribution, then registers the UI', async () => {
     const ctx = new Context()
@@ -121,15 +141,25 @@ describe('client plugin mount', () => {
     const slotComponents: unknown[] = []
     const slotInjectNames: string[] = []
     const localeRegisters: string[] = []
+    const commandRegisters: unknown[] = []
+    const triggerSources: unknown[] = []
     let remoteUnmounts = 0
     ctx.provide('remote', {
       $mount: vi.fn(async (contribution: { package?: string, descriptors?: Array<{ id: string }> }) => {
         mountedContributions.push(contribution)
-        ctx.provide('remote.idea', { prepareFromMessage: vi.fn(), create: vi.fn() } as never)
+        ctx.provide('remote.idea', {
+          prepareFromMessage: vi.fn(),
+          create: vi.fn(),
+          get: vi.fn(),
+          search: vi.fn(),
+        } as never)
         return async () => { remoteUnmounts += 1 }
       }),
     } as never)
-    ctx.provide('locale', { register: vi.fn((ns: string) => { localeRegisters.push(ns) }) } as never)
+    ctx.provide('locale', {
+      register: vi.fn((ns: string) => { localeRegisters.push(ns) }),
+      bind: vi.fn(() => (key: string) => key),
+    } as never)
     ctx.provide('slots', {
       inject: vi.fn((name: string, register: () => void) => { slotInjectNames.push(name); register() }),
       register: vi.fn((registration: { name: string, id: string, order: number, locale: string }, component: unknown) => {
@@ -137,7 +167,15 @@ describe('client plugin mount', () => {
         slotComponents.push(component)
       }),
     } as never)
-    ctx.provide('sessions', { refresh: vi.fn(async () => {}), open: vi.fn(() => {}) } as never)
+    ctx.provide('sessions', {
+      refresh: vi.fn(async () => {}),
+      open: vi.fn(() => {}),
+      scope: vi.fn(() => undefined),
+      list: { getSnapshot: () => ({ current: undefined }) },
+    } as never)
+    ctx.provide('commandUi', { register: vi.fn((registration: unknown) => { commandRegisters.push(registration) }) } as never)
+    ctx.provide('inputTriggers', { registerSource: vi.fn((source: unknown) => { triggerSources.push(source) }) } as never)
+    ctx.provide('conversation', { input: { for: vi.fn() } } as never)
 
     const { apply } = await import('../src/client/index.ts')
     const dispose = await apply(ctx)
@@ -161,40 +199,72 @@ describe('client plugin mount', () => {
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
       '@dsh-external/dsh-idea#idea/relatedFromMessage',
       '@dsh-external/dsh-idea#idea/restore',
+      '@dsh-external/dsh-idea#idea/search',
     ])
     expect(localeRegisters).toEqual(['idea'])
     expect(slotInjectNames).toEqual([
       'conversation.chat.assistant-actions',
-      'conversation.chat.assistant-actions',
+      'conversation.input.overlay',
       'conversation.input.overlay',
       'conversation.input.overlay',
       'settings.section',
     ])
 
+    // The one unified per-message action entry.
     const action = slotRegistrations.find(entry => entry.id === 'idea')
     expect(action).toMatchObject({ name: 'conversation.chat.assistant-actions', order: 20, locale: 'idea' })
-    const relatedAction = slotRegistrations.find(entry => entry.id === 'idea-related' && entry.name === 'conversation.chat.assistant-actions')
-    expect(relatedAction).toMatchObject({ name: 'conversation.chat.assistant-actions', order: 21, locale: 'idea' })
+    const actionInjected = action !== undefined
+      ? (action as unknown as { inject: (sessionId: string) => unknown }).inject('session-1') as {
+          hooks: { idea: unknown; related: unknown }
+          prepare: (messageId: string) => void
+          findRelated: (messageId: string) => void
+        }
+      : undefined
+    expect(actionInjected?.hooks.idea).toBeDefined()
+    expect(actionInjected?.hooks.related).toBeDefined()
+    expect(typeof actionInjected?.prepare).toBe('function')
+    expect(typeof actionInjected?.findRelated).toBe('function')
+
+    // The three composer overlays: preview modal, related overlay, search card.
     const dialog = slotRegistrations.find(entry => entry.id === 'idea-dialog')
     expect(dialog).toMatchObject({ name: 'conversation.input.overlay', order: 3, locale: 'idea' })
-    const relatedOverlay = slotRegistrations.find(entry => entry.id === 'idea-related' && entry.name === 'conversation.input.overlay')
+    const relatedOverlay = slotRegistrations.find(entry => entry.id === 'idea-related')
     expect(relatedOverlay).toMatchObject({ name: 'conversation.input.overlay', order: 4, locale: 'idea' })
+    const relatedInjected = relatedOverlay !== undefined
+      ? (relatedOverlay as unknown as { inject: (sessionId: string) => unknown }).inject('session-1') as {
+          hooks: { related: unknown }
+          close: () => void
+          getDetail: (id: string) => Promise<unknown>
+          add: (descriptor: unknown) => void
+        }
+      : undefined
+    expect(relatedInjected?.hooks.related).toBeDefined()
+    expect(typeof relatedInjected?.close).toBe('function')
+    expect(typeof relatedInjected?.getDetail).toBe('function')
+    expect(typeof relatedInjected?.add).toBe('function')
+    const searchOverlay = slotRegistrations.find(entry => entry.id === 'idea-search')
+    expect(searchOverlay).toMatchObject({ name: 'conversation.input.overlay', order: 5, locale: 'idea' })
+    const searchInjected = searchOverlay !== undefined
+      ? (searchOverlay as unknown as { inject: (sessionId: string) => unknown }).inject('session-1') as {
+          hooks: { search: unknown }
+          setQuery: (query: string) => void
+          select: (id: string) => void
+          retry: () => void
+          add: (descriptor: unknown) => void
+          close: () => void
+        }
+      : undefined
+    expect(searchInjected?.hooks.search).toBeDefined()
+    expect(typeof searchInjected?.setQuery).toBe('function')
+    expect(typeof searchInjected?.select).toBe('function')
+    expect(typeof searchInjected?.retry).toBe('function')
+    expect(typeof searchInjected?.add).toBe('function')
+    expect(typeof searchInjected?.close).toBe('function')
+
     const section = slotRegistrations.find(entry => entry.id === 'ideas')
     expect(section).toMatchObject({ name: 'settings.section', order: 25, locale: 'idea' })
     expect(typeof (section as unknown as { label?: unknown } | undefined)?.label).toBe('function')
     expect(slotComponents).toHaveLength(5)
-
-    const relatedInjected = relatedAction !== undefined
-      ? (relatedAction as unknown as { inject: (sessionId: string) => unknown }).inject('session-1') as { hooks: { related: unknown }, findRelated: (messageId: string) => void }
-      : undefined
-    expect(typeof relatedInjected?.findRelated).toBe('function')
-    expect(relatedInjected?.hooks.related).toBeDefined()
-
-    const injected = action !== undefined
-      ? (action as unknown as { inject: (sessionId: string) => unknown }).inject('session-1') as { hooks: { idea: unknown }, prepare: (messageId: string) => void }
-      : undefined
-    expect(typeof injected?.prepare).toBe('function')
-    expect(injected?.hooks.idea).toBeDefined()
 
     const sectionInjected = section !== undefined
       ? (section as unknown as { inject: () => unknown }).inject() as {
@@ -219,41 +289,115 @@ describe('client plugin mount', () => {
     expect(typeof sectionInjected?.commitProposal).toBe('function')
     expect(sectionInjected?.hooks.ideaRead).toBeDefined()
 
+    // The `idea` command: the single composer `+`-menu entry opening the card.
+    expect(commandRegisters).toHaveLength(1)
+    const command = commandRegisters[0]! as { name: string; icon: unknown; available: () => boolean; ui: { kind: string; run: (session: { sessionId: string }) => void } }
+    expect(command.name).toBe('idea')
+    expect(command.icon).toBeDefined()
+    expect(command.available()).toBe(true)
+    expect(command.ui.kind).toBe('action')
+
+    // The `idea` composer reference source owns the chip codec: every
+    // serialized reference must be one canonical mention.
+    expect(triggerSources).toHaveLength(1)
+    const source = triggerSources[0]! as {
+      trigger: string
+      name: string
+      showGroupTitle: boolean
+      candidates: () => Promise<unknown[]>
+      codec: { clipboardText: (ref: string) => string; serialize: (ref: string) => Promise<string> }
+    }
+    expect(source.trigger).toBe('@')
+    expect(source.name).toBe('idea')
+    expect(source.showGroupTitle).toBe(false)
+    await expect(source.candidates()).resolves.toEqual([])
+    const mention = formatIdeaReferenceMention({ ideaId: 'idea_1', versionId: 'idea_ver_1' }, 'Title')
+    expect(source.codec.clipboardText(mention)).toBe(mention)
+    await expect(source.codec.serialize(mention)).resolves.toBe(mention)
+    await expect(source.codec.serialize('plain text')).rejects.toThrow()
+    await expect(source.codec.serialize(`${mention} and ${mention}`)).rejects.toThrow()
+
     await dispose()
     expect(remoteUnmounts).toBe(1)
   })
 })
 
-describe('💡 action', () => {
-  it('appears in the assistant action row and prepares for its own message', async () => {
+describe('unified idea action', () => {
+  it('renders exactly one entry with the outline icon, no emoji, and no text verb', () => {
     const face = faceWith()
     const surface = newSurface(face)
-    render(<IdeaMessageActions {...actionProps(surface)} />)
+    render(<IdeaAssistantActions {...actionProps(surface)} />)
     const button = screen.getByRole('button', { name: '保存为 Idea' })
-    expect(button.textContent).toContain('💡')
-    await act(async () => { fireEvent.click(button) })
-    await flush()
-    expect(face.prepareFromMessage).toHaveBeenCalledWith({ sessionId: 'session-1', messageId: 'a1' }, expect.any(AbortSignal))
-    expect(surface.state.getSnapshot().modal).not.toBeNull()
+    expect(button.querySelector('svg')).not.toBeNull()
+    expect(button.textContent).not.toContain('💡')
+    expect(button.textContent).not.toContain('关联')
+    expect(button.getAttribute('aria-haspopup')).toBe('menu')
+    // The menu is closed: no operation rows exist yet.
+    expect(screen.queryByRole('menuitem')).toBeNull()
   })
 
-  it('shows the loading state and swallows duplicate clicks while preparing', async () => {
+  it('opens a menu with exactly the two operations 总结 and 相关', async () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    render(<IdeaAssistantActions {...actionProps(surface)} />)
+    await openMenu()
+    const items = screen.getAllByRole('menuitem')
+    expect(items).toHaveLength(2)
+    expect(items.map(item => item.textContent)).toEqual(['总结', '相关'])
+  })
+
+  it('总结 prepares once for its own message and closes the menu', async () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    render(<IdeaAssistantActions {...actionProps(surface)} />)
+    await openMenu()
+    await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: '总结' })) })
+    await flush()
+    expect(face.prepareFromMessage).toHaveBeenCalledWith({ sessionId: 'session-1', messageId: 'a1' }, expect.any(AbortSignal))
+    expect(face.prepareFromMessage).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('menuitem')).toBeNull()
+  })
+
+  it('相关 triggers exactly one judge call and closes the menu', async () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    const findRelated = vi.fn()
+    render(<IdeaAssistantActions {...{ ...actionProps(surface), findRelated } as unknown as UnifiedActionProps} />)
+    await openMenu()
+    await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: '相关' })) })
+    expect(findRelated).toHaveBeenCalledTimes(1)
+    expect(findRelated).toHaveBeenCalledWith('a1')
+    expect(screen.queryByRole('menuitem')).toBeNull()
+  })
+
+  it('disables a running operation and folds its duplicate click', async () => {
     const gate = deferred<unknown>()
     const face = faceWith(() => gate.promise)
     const surface = newSurface(face)
-    render(<IdeaMessageActions {...actionProps(surface)} />)
-
-    await act(async () => {
-      surface.prepare(MSG)
-      surface.prepare(MSG)
-    })
+    render(<IdeaAssistantActions {...actionProps(surface)} />)
+    await openMenu()
+    await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: '总结' })) })
+    await flush()
     expect(face.prepareFromMessage).toHaveBeenCalledTimes(1)
-    expect(surface.state.getSnapshot().preparingMessageId).toBe('a1')
-    expect((screen.getByRole('button', { name: '保存为 Idea' }) as HTMLButtonElement).disabled).toBe(true)
+    // Reopen while the prepare is still running: 总结 disabled, 相关 live.
+    await openMenu()
+    expect((screen.getByRole('menuitem', { name: '总结' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('menuitem', { name: '相关' }) as HTMLButtonElement).disabled).toBe(false)
+    await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: '总结' })) })
+    expect(face.prepareFromMessage).toHaveBeenCalledTimes(1)
 
     await act(async () => { gate.resolve(okPreview()) })
     await flush()
-    expect(surface.state.getSnapshot().modal).not.toBeNull()
+  })
+
+  it('Escape closes the menu without firing any verb', async () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    render(<IdeaAssistantActions {...actionProps(surface)} />)
+    await openMenu()
+    await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }) })
+    expect(screen.queryByRole('menuitem')).toBeNull()
+    expect(face.prepareFromMessage).not.toHaveBeenCalled()
   })
 
   it('coexists with neighboring actions in the row', () => {
@@ -262,7 +406,7 @@ describe('💡 action', () => {
     render(
       <div>
         <button type="button">echo</button>
-        <IdeaMessageActions {...actionProps(surface)} />
+        <IdeaAssistantActions {...actionProps(surface)} />
       </div>,
     )
     expect(screen.getByRole('button', { name: 'echo' })).toBeTruthy()
@@ -382,7 +526,7 @@ describe('preview modal', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '保存' })) })
     await flush()
     expect(surface.state.getSnapshot().failure).toBe('expired')
-    expect(screen.getByText('预览已过期，请关闭后重新点击 💡 生成')).toBeTruthy()
+    expect(screen.getByText('预览已过期，请关闭后重新通过回答旁的 Idea 菜单生成')).toBeTruthy()
     expect((screen.getByLabelText('标题 *') as HTMLInputElement).value).toBe('Model title')
     expect(screen.queryByText('保存失败，请稍后重试')).toBeNull()
   })

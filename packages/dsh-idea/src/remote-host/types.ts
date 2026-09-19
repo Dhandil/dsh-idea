@@ -298,6 +298,8 @@ export interface IdeaRelatedMatch {
     updatedAt: number
   }
   whyUsefulNow: string
+  /** The canonical pinned reference descriptor, Host-owned. */
+  reference: IdeaReferenceDescriptor
 }
 
 /**
@@ -306,4 +308,42 @@ export interface IdeaRelatedMatch {
  */
 export interface IdeaRelatedResult {
   items: readonly IdeaRelatedMatch[]
+}
+
+/** The wire descriptor of one pinned Idea version: identity plus mention. */
+export interface IdeaReferenceDescriptor {
+  ideaId: string
+  versionId: string
+  /** The display title at listing (or pin) time. */
+  label: string
+  /** The canonical `@[label](dsh-idea:...)` mention text. */
+  mention: string
+}
+
+/** Which stored Ideas a search covers: `current` excludes archived Ideas. */
+export type IdeaSearchScope = 'current' | 'all'
+
+/** `idea.search` request: the user's query and the library scope. */
+export interface IdeaSearchRequest {
+  query: string
+  scope: IdeaSearchScope
+}
+
+/**
+ * One row of the `idea.search` result — the lightweight search projection,
+ * ranked Host-side. Carries exactly the fields the search row renders plus
+ * the canonical pinned reference descriptor for one-tap attachment; never
+ * the full history, the remaining draft fields, or any captured source body.
+ */
+export interface IdeaSearchResult {
+  id: string
+  status: IdeaStatus
+  currentVersionId: string
+  title: string
+  core: string
+  currentConclusion: string
+  useWhen: readonly string[]
+  openQuestionsCount: number
+  updatedAt: number
+  reference: IdeaReferenceDescriptor
 }

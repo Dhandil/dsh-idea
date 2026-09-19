@@ -6,6 +6,7 @@
  * @module @dsh-external/dsh-idea/src/related/types
  */
 
+import type { IdeaReferenceDescriptor } from '../reference/types.ts'
 import type { IdeaId, IdeaVersionId } from '../types.ts'
 
 /** Most candidates one judge call may receive. */
@@ -68,6 +69,8 @@ export interface RelatedIdeaMatch {
     updatedAt: number
   }
   whyUsefulNow: string
+  /** The canonical pinned reference descriptor, Host-owned. */
+  reference: IdeaReferenceDescriptor
 }
 
 /** The whole Related Ideas result: zero to three rows, model-ordered. */

@@ -27,6 +27,7 @@ import type {
   IdeaLifecycleResult,
   IdeaListRow,
   IdeaManualEditResult,
+  IdeaSearchResult,
   IdeaVersionSummary,
 } from '../remote-host/types.ts'
 import { durableFrom, editableFrom } from './state.ts'
@@ -44,6 +45,7 @@ export type IdeaViewKey = 'current' | 'archived'
 /** The read face of the Host idea namespace the section talks to. */
 export interface IdeaReadFace {
   list(request: { view: IdeaViewKey }): Promise<RemoteRead<readonly IdeaListRow[]>>
+  search(request: { query: string; scope: 'all' }, signal?: AbortSignal): Promise<RemoteRead<readonly IdeaSearchResult[]>>
   get(request: { id: string }): Promise<RemoteRead<IdeaDetail>>
   getVersions(request: { id: string }): Promise<RemoteRead<readonly IdeaVersionSummary[]>>
   continueDiscussion(request: { id: string; workspaceId?: string }): Promise<RemoteRead<IdeaContinueDiscussionResult>>
@@ -73,6 +75,12 @@ export type IdeaReadStatus = 'idle' | 'loading' | 'ready' | 'error'
 export interface IdeaListLoad {
   status: IdeaReadStatus
   items: readonly IdeaListRow[]
+}
+
+/** The mixed-scope search load state over the whole library. */
+export interface IdeaSearchLoad {
+  status: IdeaReadStatus
+  items: readonly IdeaSearchResult[]
 }
 
 /** The evolution proposal flow's lifecycle inside the detail view. */
@@ -119,6 +127,15 @@ export interface IdeaReadState {
   view: IdeaViewKey
   /** Per-view load states — current and archived load independently. */
   lists: { current: IdeaListLoad; archived: IdeaListLoad }
+  /**
+   * The section search box's text. Blank means the tabbed library views;
+   * non-blank means one Host-ranked mixed search over every Idea
+   * (scope `all`), each row marked with its status. The tabs and their
+   * cached lists are untouched by searching and return on clearing.
+   */
+  searchQuery: string
+  /** The mixed search load state behind the search box. */
+  search: IdeaSearchLoad
   /** The open detail's idea id, or null while the list is shown. */
   detailId: string | null
   detailStatus: 'loading' | 'ready' | 'error'
@@ -155,6 +172,8 @@ const CLOSED_DELETION: IdeaDeletionState = { status: 'closed', ideaId: null, err
 const INITIAL: IdeaReadState = {
   view: 'current',
   lists: { current: { status: 'idle', items: [] }, archived: { status: 'idle', items: [] } },
+  searchQuery: '',
+  search: { status: 'idle', items: [] },
   detailId: null,
   detailStatus: 'loading',
   detail: null,
@@ -198,6 +217,7 @@ export class IdeaReadSurface {
 
   private listFlights: Record<IdeaViewKey, boolean> = { current: false, archived: false }
   private listAborts: Record<IdeaViewKey, AbortController | undefined> = { current: undefined, archived: undefined }
+  private searchAbort: AbortController | undefined
   private detailAbort: AbortController | undefined
   private evolutionAbort: AbortController | undefined
   /** An edit requested from a row whose detail is still loading. */
@@ -266,6 +286,52 @@ export class IdeaReadSurface {
   private refreshLists(): void {
     this.loadList('current', true)
     this.loadList('archived', true)
+    // A live search re-runs too, so returning from the mutation's detail
+    // never shows a stale mixed list.
+    const { searchQuery } = this.state.getSnapshot()
+    if (searchQuery.trim().length > 0) this.searchIdeas(searchQuery)
+  }
+
+  /**
+   * Run the section search for the typed query. A blank query returns to
+   * the tabbed library views (the tabs and their cached lists are
+   * untouched); a non-blank query is one Host-ranked mixed search over
+   * every Idea (scope `all`), with a newer query superseding an older one.
+   */
+  searchIdeas(query: string): void {
+    this.state.update((draft) => { draft.searchQuery = query })
+    if (query.trim().length === 0) {
+      this.searchAbort?.abort()
+      this.searchAbort = undefined
+      this.state.update((draft) => { draft.search = { status: 'idle', items: [] } })
+      return
+    }
+    this.searchAbort?.abort()
+    const controller = new AbortController()
+    this.searchAbort = controller
+    this.state.update((draft) => { draft.search.status = 'loading' })
+    void this.runSearchIdeas(query, controller)
+  }
+
+  private async runSearchIdeas(query: string, controller: AbortController): Promise<void> {
+    let items: readonly IdeaSearchResult[] | undefined
+    try {
+      const result = await this.remote.search({ query, scope: 'all' }, controller.signal)
+      if (!controller.signal.aborted && result.ok) items = result.value
+    } catch {
+      // A thrown carrier failure renders as the search's error state.
+    }
+    if (controller.signal.aborted) return
+    this.state.update((draft) => {
+      // A newer query superseded this flight underneath the abort.
+      if (draft.searchQuery !== query) return
+      if (items === undefined) {
+        draft.search.status = 'error'
+        return
+      }
+      draft.search.status = 'ready'
+      draft.search.items = items
+    })
   }
 
   /** Open one idea's detail and its version history; any prior read is abandoned. */
@@ -749,6 +815,8 @@ export class IdeaReadSurface {
       this.listAborts[key] = undefined
       this.listFlights[key] = false
     }
+    this.searchAbort?.abort()
+    this.searchAbort = undefined
     this.detailAbort?.abort()
     this.detailAbort = undefined
     this.evolutionAbort?.abort()

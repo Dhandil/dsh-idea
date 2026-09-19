@@ -23,6 +23,8 @@ import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import { captureDiscussionFromSurface } from '../preparation/context.ts'
 import { checkCancelled, extractModelText, readSessionSurface, resolveModelRoute } from '../preparation/pipeline.ts'
+import { ideaReferenceDescriptor } from '../reference/uri.ts'
+import type { IdeaReferenceDescriptor } from '../reference/types.ts'
 import type { IdeaCurrentView, IdeaService } from '../index.ts'
 import { parseRelatedMatches } from './parser.ts'
 import { buildRelatedIdeasPrompt } from './prompt.ts'
@@ -130,6 +132,11 @@ export class IdeaRelatedService extends Service {
     return {
       items: judgments.map((judgment) => {
         const candidate = byId.get(judgment.ideaId)!
+        const reference: IdeaReferenceDescriptor = ideaReferenceDescriptor(
+          candidate.ideaId,
+          candidate.currentVersionId,
+          candidate.title,
+        )
         return {
           idea: {
             id: candidate.ideaId,
@@ -139,6 +146,7 @@ export class IdeaRelatedService extends Service {
             updatedAt: candidate.updatedAt,
           },
           whyUsefulNow: judgment.whyUsefulNow,
+          reference,
         }
       }),
     }

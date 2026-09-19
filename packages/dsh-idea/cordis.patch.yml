@@ -11,3 +11,5 @@
       name: '@dsh-external/dsh-idea/continuation'
     - id: dsh-idea-related
       name: '@dsh-external/dsh-idea/related'
+    - id: dsh-idea-reference
+      name: '@dsh-external/dsh-idea/reference'

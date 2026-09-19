@@ -17,6 +17,7 @@ import type { EvolutionEnv } from './helpers/evolution.ts'
 import { cleanup, draft, storedBytes } from './helpers/harness.ts'
 import IdeaRemoteService from '../src/remote-host/index.ts'
 import IdeaRelatedService from '../src/related/index.ts'
+import { decodeIdeaReferenceUri } from '../src/reference/uri.ts'
 
 afterEach(cleanup)
 
@@ -71,7 +72,7 @@ describe('idea.relatedFromMessage', () => {
     expect(JSON.parse(JSON.stringify(result)) as unknown).toEqual(result)
     expect(Object.keys(result).sort()).toEqual(['items'])
     expect(result.items).toHaveLength(1)
-    expect(Object.keys(result.items[0]!).sort()).toEqual(['idea', 'whyUsefulNow'])
+    expect(Object.keys(result.items[0]!).sort()).toEqual(['idea', 'reference', 'whyUsefulNow'])
     expect(Object.keys(result.items[0]!.idea).sort())
       .toEqual(['core', 'currentVersionId', 'id', 'title', 'updatedAt'])
     expect(typeof result.items[0]!.idea.updatedAt).toBe('number')
@@ -79,6 +80,17 @@ describe('idea.relatedFromMessage', () => {
     expect(result.items[0]!.idea.title).toBe('Alpha idea')
     expect(result.items[0]!.idea.core).toBe('Core of Alpha idea')
     expect(result.items[0]!.whyUsefulNow).toBe('answers the open question now')
+    // The Host owns the reference: it pins the exact current version.
+    const reference = result.items[0]!.reference
+    expect(reference).toEqual({
+      ideaId: alpha,
+      versionId: result.items[0]!.idea.currentVersionId,
+      label: 'Alpha idea',
+      mention: reference.mention,
+    })
+    expect(reference.mention.startsWith(`@[Alpha idea](dsh-idea:`)).toBe(true)
+    expect(decodeIdeaReferenceUri(reference.mention.slice('@[Alpha idea]('.length, -1)))
+      .toEqual({ ideaId: alpha, versionId: reference.versionId })
     // No aggregate internals leak onto the wire.
     const wire = JSON.stringify(result)
     expect(wire).not.toContain(ideaId)

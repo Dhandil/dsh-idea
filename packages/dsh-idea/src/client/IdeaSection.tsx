@@ -1,16 +1,19 @@
 /**
  * The Ideas settings section: the two-view library (当前 / 已归档 tabs, no
- * deleted view), one lightweight index row per Idea (title, one-line core,
- * updated time) with an optional hover preview card whose Edit quick action
+ * deleted view), the section search box (blank = the tabbed views untouched;
+ * non-blank = one Host-ranked mixed search over every Idea with an explicit
+ * 当前 / 已归档 marker per row, clicking through to the existing detail), one
+ * lightweight index row per Idea (title, one-line core, updated time) with an
+ * optional hover preview card whose Edit quick action
  * is independently clickable, the read-only detail view over one Idea's
  * current version, and the lifecycle flows: manual edit (the shared
  * seven-field draft form, Save as New Version, cancel with zero writes,
  * no-change Save disabled), Continue Discussion, the evolution proposal
  * flow, Archive, Restore, and the detail-only permanent delete behind an
  * acknowledged RiskConfirmation. Hover is a convenience — every action is
- * reachable without it. Nothing renders optimistically: the lists refetch
- * after confirmed Host mutations, and archived details expose only
- * Restore/Delete.
+ * reachable without it. Nothing renders optimistically: the lists (and a
+ * live search) refetch after confirmed Host mutations, and archived details
+ * expose only Restore/Delete.
  * @module @dsh-external/dsh-idea/client/IdeaSection
  */
 
@@ -67,7 +70,7 @@ const DRAFT_FIELDS: ReadonlyArray<{
  * @returns the section element tree.
  */
 export function IdeaSection({
-  open, closeDetail, selectView, openEditor, continueIdea, prepareEvolution,
+  open, closeDetail, selectView, searchIdeas, openEditor, continueIdea, prepareEvolution,
   editProposalDraft, cancelProposal, commitProposal,
   editDraft, cancelEdit, saveEdit,
   archiveIdea, restoreIdea, requestDelete, cancelDelete, confirmDelete,
@@ -141,26 +144,62 @@ export function IdeaSection({
     )
   }
 
+  const searching = state.searchQuery.trim().length > 0
   const view = state.lists[state.view]
   return (
     <div className="dsh-idea-library">
-      <div className="dsh-idea-tabs" role="tablist">
-        <Pill active={state.view === 'current'} onClick={() => { selectView('current') }}>{t('read.tab.current')}</Pill>
-        <Pill active={state.view === 'archived'} onClick={() => { selectView('archived') }}>{t('read.tab.archived')}</Pill>
-      </div>
-      {view.status !== 'ready' && view.status !== 'error' && <p className="dsh-idea-state">{t('read.loading')}</p>}
-      {view.status === 'error' && (
+      <input
+        type="text"
+        className="dsh-idea-library-search"
+        value={state.searchQuery}
+        placeholder={t('read.search.placeholder')}
+        aria-label={t('read.search.placeholder')}
+        onChange={event => { searchIdeas(event.target.value) }}
+      />
+      {searching ? (
+        state.search.status === 'loading' && <p className="dsh-idea-state">{t('read.loading')}</p>
+      ) : (
+        <div className="dsh-idea-tabs" role="tablist">
+          <Pill active={state.view === 'current'} onClick={() => { selectView('current') }}>{t('read.tab.current')}</Pill>
+          <Pill active={state.view === 'archived'} onClick={() => { selectView('archived') }}>{t('read.tab.archived')}</Pill>
+        </div>
+      )}
+      {searching && state.search.status === 'error' && <p className="dsh-idea-state">{t('read.error')}</p>}
+      {searching && state.search.status === 'ready' && state.search.items.length === 0 && (
+        <p className="dsh-idea-state">{t('search.empty')}</p>
+      )}
+      {searching && state.search.status === 'ready' && state.search.items.length > 0 && (
+        <ul className="dsh-idea-list" role="list">
+          {state.search.items.map(idea => (
+            <li key={idea.id}>
+              <button type="button" className="dsh-idea-row" onClick={() => { open(idea.id) }}>
+                <span className="dsh-idea-row-title">{idea.title}</span>
+                <span className="dsh-idea-row-core">{idea.core}</span>
+                <span className="dsh-idea-row-meta">
+                  <span className={idea.status === 'archived' ? 'dsh-idea-search-scope-archived' : 'dsh-idea-search-scope-current'}>
+                    {idea.status === 'archived' ? t('read.status.archived') : t('read.tab.current')}
+                  </span>
+                  {' · '}
+                  {t('read.updated', { time: formatTime(idea.updatedAt) })}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!searching && view.status !== 'ready' && view.status !== 'error' && <p className="dsh-idea-state">{t('read.loading')}</p>}
+      {!searching && view.status === 'error' && (
         <>
           <p className="dsh-idea-state">{t('read.error')}</p>
           <Button variant="outline" onClick={() => { load() }}>{t('read.retry')}</Button>
         </>
       )}
-      {view.status === 'ready' && view.items.length === 0 && (
+      {!searching && view.status === 'ready' && view.items.length === 0 && (
         <p className="dsh-idea-state">
           {state.view === 'archived' ? t('read.emptyArchived') : t('read.empty')}
         </p>
       )}
-      {view.status === 'ready' && view.items.length > 0 && (
+      {!searching && view.status === 'ready' && view.items.length > 0 && (
         <ul className="dsh-idea-list" role="list">
           {view.items.map(idea => (
             <IdeaRow key={idea.id} idea={idea} open={open} openEditor={openEditor} t={t} />

@@ -103,7 +103,9 @@ describe('web client bundle', () => {
       await import(pathToFileURL(entry).href)
       expect(Object.keys(loaded)).toEqual(['@dsh-external/dsh-idea'])
       expect(typeof loaded['@dsh-external/dsh-idea']?.exports.apply).toBe('function')
-      expect(loaded['@dsh-external/dsh-idea']?.exports.inject).toEqual(['remote', 'locale', 'slots', 'sessions'])
+      expect(loaded['@dsh-external/dsh-idea']?.exports.inject).toEqual([
+        'remote', 'locale', 'slots', 'sessions', 'commandUi', 'inputTriggers', 'conversation',
+      ])
     } finally {
       ;(globalThis as { window?: unknown }).window = previousWindow
     }

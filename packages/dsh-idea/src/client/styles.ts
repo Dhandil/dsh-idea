@@ -154,6 +154,24 @@ const CSS = `
   align-items: center;
   gap: 8px;
 }
+.dsh-idea-library-search {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--dsw-alias-line-secondary, transparent);
+  border-radius: 8px;
+  background: var(--dsw-alias-fill-secondary, transparent);
+  color: inherit;
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-idea-search-scope-current,
+.dsh-idea-search-scope-archived {
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-idea-search-scope-archived {
+  color: var(--dsw-alias-label-warning, var(--dsw-alias-label-secondary));
+}
 .dsh-idea-preview {
   display: flex;
   flex-direction: column;
@@ -309,6 +327,119 @@ const CSS = `
 .dsh-idea-evolution-actions {
   display: flex;
   gap: 8px;
+}
+.dsh-idea-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+/* The conversation search card rides on the composer's overlay seat: the
+   transparent backdrop catches outside clicks (close, zero side effects),
+   the card floats above the composer. */
+.dsh-idea-search-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: none;
+}
+.dsh-idea-search-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+.dsh-idea-search {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: min(480px, calc(100vw - 48px));
+  max-height: min(420px, calc(100vh - 160px));
+  margin-bottom: 84px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #2C2C2E;
+  box-shadow: var(--dsw-shadow-lv3);
+  pointer-events: auto;
+}
+.dsh-idea-search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dsh-idea-search-title {
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.dsh-idea-search-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dsh-idea-search-close:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-idea-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--dsw-alias-border-primary, rgba(127, 127, 127, 0.35));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-idea-search-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  min-height: 48px;
+}
+.dsh-idea-search-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dsh-idea-search-row:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.dsh-idea-search-row-selected,
+.dsh-idea-search-row-selected:hover {
+  border-color: var(--dsw-alias-border-primary, rgba(127, 127, 127, 0.35));
+  background: var(--dsw-alias-interactive-bg-selected, var(--dsw-alias-interactive-bg-hover));
+}
+.dsh-idea-search-foot {
+  display: flex;
+  justify-content: flex-end;
 }
 `
 

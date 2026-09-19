@@ -27,6 +27,10 @@
       "types": "./lib/related/index.d.ts",
       "default": "./lib/related/index.js"
     },
+    "./reference": {
+      "types": "./lib/reference/index.d.ts",
+      "default": "./lib/reference/index.js"
+    },
     "./remote-host": {
       "types": "./lib/remote-host/index.d.ts",
       "default": "./lib/remote-host/index.js"
@@ -63,7 +67,9 @@
       "inject": [
         "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-commands",
         "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-input-trigger",
         "@deepseek-ai/dsh-client-ui-renderer"
       ]
     }

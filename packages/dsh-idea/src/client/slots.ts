@@ -7,40 +7,53 @@
 
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { IdeaDetail, IdeaReferenceDescriptor } from '../remote-host/types.ts'
 import type { IdeaReadState } from './read-state.ts'
+import type { IdeaSearchUiState } from './search-state.ts'
 import type { RelatedIdeasUiState } from './related-state.ts'
 import type { EditableIdeaDraft, IdeaSaveState } from './state.ts'
 
-/** Injected business face of one assistant-message Idea action. */
-export interface IdeaActionInjected {
+/** Injected business face of one assistant-message unified Idea action. */
+export interface UnifiedActionInjected {
   hooks: {
-    /** The owning Session's Idea interaction state. */
+    /** The owning Session's Idea interaction state (Save Idea). */
     idea: HostObservable<IdeaSaveState>
-  }
-  /** Start the (at most one) prepare call for this message. */
-  prepare: (messageId: MessageId) => void
-}
-
-/** Full props of one assistant-message Idea action entry. */
-export type IdeaActionProps =
-  PropsRuntime<'conversation.chat.assistant-actions'>
-  & InjectFace<IdeaActionInjected>
-  & PropsLocale<'idea'>
-
-/** Injected business face of one assistant-message Related Ideas action. */
-export interface RelatedActionInjected {
-  hooks: {
     /** The owning Session's Related Ideas interaction state. */
     related: HostObservable<RelatedIdeasUiState>
   }
+  /** Start the (at most one) prepare call for this message. */
+  prepare: (messageId: MessageId) => void
   /** Start the (at most one) related-Ideas query for this message. */
   findRelated: (messageId: MessageId) => void
 }
 
-/** Full props of one assistant-message Related Ideas action entry. */
-export type RelatedActionProps =
+/** Full props of one assistant-message unified Idea action entry. */
+export type UnifiedActionProps =
   PropsRuntime<'conversation.chat.assistant-actions'>
-  & InjectFace<RelatedActionInjected>
+  & InjectFace<UnifiedActionInjected>
+  & PropsLocale<'idea'>
+
+/** Injected business face of the Session's Idea search card. */
+export interface SearchCardInjected {
+  hooks: {
+    /** The owning Session's Idea search interaction state. */
+    search: HostObservable<IdeaSearchUiState>
+  }
+  /** Run one search for the typed query (blank = the recency list). */
+  setQuery: (query: string) => void
+  /** Select exactly one result row. */
+  select: (id: string) => void
+  /** Re-run the current query after a failure. */
+  retry: () => void
+  /** Attach the selected Idea reference to the draft and close the card. */
+  add: (descriptor: IdeaReferenceDescriptor) => void
+  /** Close the card with zero side effects. */
+  close: () => void
+}
+
+/** Full props of the Idea search card entry. */
+export type SearchCardProps =
+  InjectFace<SearchCardInjected>
   & PropsLocale<'idea'>
 
 /** Injected business face of the Session's Related Ideas overlay. */
@@ -51,6 +64,13 @@ export interface RelatedOverlayInjected {
   }
   /** Close the overlay and reset its state. */
   close: () => void
+  /** Read one Idea's full current-version detail (read-only View). */
+  getDetail: (id: string) => Promise<
+    | { ok: true; value: IdeaDetail }
+    | { ok: false; error: { code: string } }
+  >
+  /** Attach one Idea's pinned reference to the draft; never submits. */
+  add: (descriptor: IdeaReferenceDescriptor) => void
 }
 
 /** Full props of the Related Ideas overlay entry. */
@@ -89,6 +109,8 @@ export interface IdeaSectionInjected {
   }
   /** Load the selected view's list; called once when the section first renders. */
   load: () => void
+  /** Run the section search for the typed query (blank returns to the tabs). */
+  searchIdeas: (query: string) => void
   /** Switch the library tab (current/archived); a read-only operation. */
   selectView: (view: 'current' | 'archived') => void
   /** Open one Idea's detail. */

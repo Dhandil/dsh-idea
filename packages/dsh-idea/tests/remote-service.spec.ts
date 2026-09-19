@@ -347,15 +347,18 @@ describe('generated contributions', () => {
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
       '@dsh-external/dsh-idea#idea/relatedFromMessage',
       '@dsh-external/dsh-idea#idea/restore',
+      '@dsh-external/dsh-idea#idea/search',
     ])
     for (const descriptor of descriptors) {
       expect(descriptor.result?.mode).toBe('strict')
-      // The save/evolution proposal flights are cancellable; the synchronous
-      // reads and the durable commit are not.
+      // The save/evolution proposal flights and the client-abortable search
+      // are cancellable; the other synchronous reads and the durable commit
+      // are not.
       const cancellable = descriptor.id.endsWith('#idea/create')
         || descriptor.id.endsWith('#idea/prepareFromMessage')
         || descriptor.id.endsWith('#idea/prepareEvolution')
         || descriptor.id.endsWith('#idea/relatedFromMessage')
+        || descriptor.id.endsWith('#idea/search')
       expect(descriptor.cancellation, descriptor.id).toEqual(cancellable ? { parameter: 'signal' } : undefined)
     }
   })

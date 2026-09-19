@@ -1,12 +1,12 @@
 /// <reference types="@testing-library/dom" />
 // @vitest-environment jsdom
 /**
- * Client-focused tests for the Related Ideas surface: the per-message action
- * beside Save Idea, the one-query lifecycle (duplicate clicks folded,
- * loading/ready/empty/error states), canonical card rendering, close and
- * dispose semantics (abort plus stale-completion immunity), and separation
- * from the Save Idea state. The Host face is a scripted IdeaRelatedFace; no
- * live Host, provider, or model call.
+ * Client-focused tests for the Related Ideas surface: the one-query
+ * lifecycle (duplicate clicks folded, loading/ready/empty/error states),
+ * canonical card rendering with the two verbs — Add (Host-owned pinned
+ * reference) and View (read-only detail, no lifecycle mutation) — close and
+ * dispose semantics, and the tightened judge prompt criteria. The Host face
+ * is a scripted IdeaRelatedFace; no live Host, provider, or model call.
  * @module tests/client-related.spec
  */
 
@@ -19,11 +19,11 @@ import { IdeaSaveSurface } from '../src/client/state.ts'
 import { RelatedIdeasSurface } from '../src/client/related-state.ts'
 import type { IdeaRelatedFace } from '../src/client/related-state.ts'
 import { zh } from '../src/client/locales.ts'
-import { IdeaRelatedActions } from '../src/client/IdeaRelatedActions.tsx'
 import { IdeaRelatedOverlay } from '../src/client/IdeaRelatedOverlay.tsx'
-import { IdeaMessageActions } from '../src/client/IdeaMessageActions.tsx'
-import type { IdeaActionProps, RelatedActionProps, RelatedOverlayProps } from '../src/client/slots.ts'
-import type { IdeaRelatedMatch, IdeaRelatedResult } from '../src/remote-host/types.ts'
+import { SYSTEM_PROMPT, buildRelatedIdeasPrompt } from '../src/related/prompt.ts'
+import type { RelatedOverlayProps } from '../src/client/slots.ts'
+import type { IdeaDetail, IdeaRelatedMatch, IdeaRelatedResult } from '../src/remote-host/types.ts'
+import type { IdeaVersionId } from '../src/types.ts'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -55,6 +55,27 @@ function deferred<T>() {
 const matchOf = (id: string, title: string): IdeaRelatedMatch => ({
   idea: { id, currentVersionId: `idea_ver_${id}`, title, core: `Core of ${title}`, updatedAt: 5 },
   whyUsefulNow: `${title} answers the open question now`,
+  reference: {
+    ideaId: id,
+    versionId: `idea_ver_${id}`,
+    label: title,
+    mention: `@[${title}](dsh-idea:x)`,
+  },
+})
+
+const detailOf = (id: string, title: string): IdeaDetail => ({
+  id,
+  status: 'active',
+  title,
+  core: `Core of ${title}`,
+  motivation: `Motivation of ${title}`,
+  createdAt: 1,
+  updatedAt: 5,
+  currentConclusion: `Conclusion of ${title}`,
+  possibleValue: `Value of ${title}`,
+  useWhen: [`Use ${title}`],
+  openQuestions: [`Question of ${title}`],
+  versionId: `idea_ver_${id}` as IdeaVersionId,
 })
 
 const okRelated = (items: IdeaRelatedMatch[]): { ok: true; value: IdeaRelatedResult } => ({
@@ -82,18 +103,15 @@ const useIdeaOf = <T,>(store: SnapshotStore<T>) =>
 
 const useRelatedOf = useIdeaOf<ReturnType<RelatedIdeasSurface['state']['getSnapshot']>>
 
-function actionProps(surface: RelatedIdeasSurface, messageId = 'a1'): RelatedActionProps {
-  return {
-    messageId,
-    findRelated: (id: MessageId) => { surface.findRelated(id) },
-    useRelated: useRelatedOf(surface.state),
-    t,
-  } as unknown as RelatedActionProps
-}
-
-function overlayProps(surface: RelatedIdeasSurface): RelatedOverlayProps {
+function overlayProps(
+  surface: RelatedIdeasSurface,
+  getDetail: (id: string) => Promise<{ ok: true; value: IdeaDetail } | { ok: false; error: { code: string } }> = vi.fn(),
+  add: (descriptor: unknown) => void = vi.fn(),
+): RelatedOverlayProps {
   return {
     close: () => { surface.close() },
+    getDetail,
+    add,
     useRelated: useRelatedOf(surface.state),
     t,
   } as unknown as RelatedOverlayProps
@@ -101,57 +119,18 @@ function overlayProps(surface: RelatedIdeasSurface): RelatedOverlayProps {
 
 const MSG = 'a1' as MessageId
 
-describe('related action', () => {
-  it('appears beside the Save Idea action in the row', () => {
-    const face = relatedFace()
-    const surface = newSurface(face)
-    const saveFace = { prepareFromMessage: vi.fn(), create: vi.fn() } as never
-    const save = new IdeaSaveSurface(saveFace, 'session-1')
-    pendings.push(() => save.dispose())
-    render(
-      <div>
-        <IdeaMessageActions {...{
-          messageId: MSG,
-          prepare: () => {},
-          useIdea: useIdeaOf(save.state),
-          t,
-        } as unknown as IdeaActionProps} />
-        <IdeaRelatedActions {...actionProps(surface)} />
-      </div>,
-    )
-    expect(screen.getByRole('button', { name: '保存为 Idea' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '关联 Idea' })).toBeTruthy()
-  })
-
-  it('sends the session and message identity with a signal on click', async () => {
-    const face = relatedFace()
-    const surface = newSurface(face)
-    render(<IdeaRelatedActions {...actionProps(surface)} />)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '关联 Idea' })) })
-    await flush()
-    expect(face.relatedFromMessage).toHaveBeenCalledWith({ sessionId: 'session-1', messageId: 'a1' }, expect.any(AbortSignal))
-    expect(surface.state.getSnapshot().status).toBe('ready')
-  })
-
-  it('folds a duplicate click while pending and disables the control', async () => {
-    const gate = deferred<unknown>()
-    const face = relatedFace(() => gate.promise)
-    const surface = newSurface(face)
-    render(<IdeaRelatedActions {...actionProps(surface)} />)
-
-    await act(async () => {
-      surface.findRelated(MSG)
-      surface.findRelated(MSG)
-    })
-    expect(face.relatedFromMessage).toHaveBeenCalledTimes(1)
-    expect(surface.state.getSnapshot().loadingMessageId).toBe(MSG)
-    expect((screen.getByRole('button', { name: '关联 Idea' }) as HTMLButtonElement).disabled).toBe(true)
-
-    await act(async () => { gate.resolve(okRelated([])) })
-    await flush()
-    expect(surface.state.getSnapshot().status).toBe('ready')
-  })
-})
+/** Query, resolve, and render one ready overlay. */
+async function readyOverlay(
+  face = relatedFace(),
+  getDetail?: Parameters<typeof overlayProps>[1],
+  add?: Parameters<typeof overlayProps>[2],
+) {
+  const surface = newSurface(face)
+  await act(async () => { surface.findRelated(MSG) })
+  await flush()
+  render(<IdeaRelatedOverlay {...overlayProps(surface, getDetail, add)} />)
+  return surface
+}
 
 describe('related overlay', () => {
   it('shows the loading copy while the query is in flight', async () => {
@@ -164,12 +143,7 @@ describe('related overlay', () => {
   })
 
   it('renders canonical cards with the why-useful-now reason', async () => {
-    const face = relatedFace()
-    const surface = newSurface(face)
-    await act(async () => { surface.findRelated(MSG) })
-    await flush()
-    render(<IdeaRelatedOverlay {...overlayProps(surface)} />)
-
+    await readyOverlay()
     expect(screen.getByText('Alpha idea')).toBeTruthy()
     expect(screen.getByText('Core of Alpha idea')).toBeTruthy()
     expect(screen.getByText('为什么现在有用')).toBeTruthy()
@@ -177,20 +151,12 @@ describe('related overlay', () => {
   })
 
   it('shows the empty copy on a zero-match judgment', async () => {
-    const face = relatedFace(async () => okRelated([]))
-    const surface = newSurface(face)
-    await act(async () => { surface.findRelated(MSG) })
-    await flush()
-    render(<IdeaRelatedOverlay {...overlayProps(surface)} />)
+    await readyOverlay(relatedFace(async () => okRelated([])))
     expect(screen.getByText('暂时没有值得关联的 Idea')).toBeTruthy()
   })
 
   it('shows the error copy on a wire failure and on a thrown carrier error', async () => {
-    const face = relatedFace(async () => ({ ok: false as const, error: { code: 'idea/model-failed' } }))
-    const surface = newSurface(face)
-    await act(async () => { surface.findRelated(MSG) })
-    await flush()
-    render(<IdeaRelatedOverlay {...overlayProps(surface)} />)
+    await readyOverlay(relatedFace(async () => ({ ok: false as const, error: { code: 'idea/model-failed' } })))
     expect(screen.getByText('查找关联 Idea 失败，请重试')).toBeTruthy()
 
     const thrown = newSurface(relatedFace(async () => { throw new Error('carrier exploded') }))
@@ -202,10 +168,7 @@ describe('related overlay', () => {
 
   it('resets to idle on close and issues a fresh query on the next click', async () => {
     const face = relatedFace()
-    const surface = newSurface(face)
-    await act(async () => { surface.findRelated(MSG) })
-    await flush()
-    render(<IdeaRelatedOverlay {...overlayProps(surface)} />)
+    const surface = await readyOverlay(face)
 
     await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: '关闭' })[0]!) })
     expect(surface.state.getSnapshot().status).toBe('idle')
@@ -215,6 +178,96 @@ describe('related overlay', () => {
     await flush()
     expect(face.relatedFromMessage).toHaveBeenCalledTimes(2)
     expect(surface.state.getSnapshot().status).toBe('ready')
+  })
+})
+
+describe('add and view verbs', () => {
+  it('Add attaches the Host-owned pinned reference and keeps the overlay open', async () => {
+    const add = vi.fn()
+    await readyOverlay(relatedFace(), undefined, add)
+    const expected = matchOf('idea_1', 'Alpha idea').reference
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '添加' })) })
+
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(add).toHaveBeenCalledWith(expected)
+    expect(add).not.toHaveBeenCalledWith(expect.objectContaining({ ideaId: 'idea_2' }))
+    // The overlay stays open: attachment never dismisses the suggestions.
+    expect(screen.getByText('Alpha idea')).toBeTruthy()
+  })
+
+  it('View opens the read-only detail with every field and no lifecycle mutation', async () => {
+    const getDetail = vi.fn(async () => ({ ok: true as const, value: detailOf('idea_1', 'Alpha idea') }))
+    await readyOverlay(relatedFace(), getDetail)
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '查看' })) })
+    await flush()
+
+    expect(getDetail).toHaveBeenCalledTimes(1)
+    expect(getDetail).toHaveBeenCalledWith('idea_1')
+    expect(screen.getByLabelText('Idea 详情（只读）')).toBeTruthy()
+    expect(screen.getByText('Conclusion of Alpha idea')).toBeTruthy()
+    expect(screen.getByText('Motivation of Alpha idea')).toBeTruthy()
+    expect(screen.getByText('Value of Alpha idea')).toBeTruthy()
+    expect(screen.getByText('Use Alpha idea')).toBeTruthy()
+    expect(screen.getByText('Question of Alpha idea')).toBeTruthy()
+    // Read-only: only 返回 and 添加 — never 编辑/归档/恢复/删除/保存.
+    const buttons = screen.getAllByRole('button').map(button => button.textContent)
+    expect(buttons).toContain('返回列表')
+    expect(buttons).toContain('添加')
+    expect(buttons).not.toContain('保存')
+    expect(buttons).not.toContain('归档')
+    expect(buttons).not.toContain('恢复')
+    expect(buttons).not.toContain('删除')
+    expect(screen.queryByText('保存 Idea')).toBeNull()
+  })
+
+  it('detail Add reuses the match’s pinned reference', async () => {
+    const getDetail = vi.fn(async () => ({ ok: true as const, value: detailOf('idea_1', 'Alpha idea') }))
+    const add = vi.fn()
+    await readyOverlay(relatedFace(), getDetail, add)
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '查看' })) })
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '添加' })) })
+
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(add).toHaveBeenCalledWith(matchOf('idea_1', 'Alpha idea').reference)
+  })
+
+  it('Back returns to the list without refetching', async () => {
+    const getDetail = vi.fn(async () => ({ ok: true as const, value: detailOf('idea_1', 'Alpha idea') }))
+    await readyOverlay(relatedFace(), getDetail)
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '查看' })) })
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '返回列表' })) })
+
+    expect(getDetail).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Alpha idea')).toBeTruthy()
+    expect(screen.queryByLabelText('Idea 详情（只读）')).toBeNull()
+  })
+
+  it('shows the error copy when the detail read fails', async () => {
+    const getDetail = vi.fn(async () => ({ ok: false as const, error: { code: 'idea/not-found' } }))
+    await readyOverlay(relatedFace(), getDetail)
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '查看' })) })
+    await flush()
+
+    expect(screen.getByText('该 Idea 加载失败')).toBeTruthy()
+  })
+})
+
+describe('judge prompt criteria', () => {
+  it('demands useful-now value, rejects weak signals, and prefers zero results', () => {
+    expect(SYSTEM_PROMPT).toContain('meaningful change')
+    expect(SYSTEM_PROMPT).toContain('When in doubt, leave the Idea out')
+    expect(SYSTEM_PROMPT).toContain('never enough')
+    // The strict JSON contract stays: matches with ideaId + whyUsefulNow only.
+    const built = buildRelatedIdeasPrompt({ messages: [], candidates: [] })
+    expect(built.user).toContain('"matches"')
+    expect(built.user).toContain('"whyUsefulNow"')
   })
 })
 

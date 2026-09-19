@@ -31,6 +31,9 @@ import type { SessionCreateRequest } from '@deepseek-ai/dsh-api-session-controll
 import { ideaDraftSchema } from '../schema.ts'
 import { IdeaPreparationError } from '../preparation/errors.ts'
 import type { IdeaPreparationId, PreparedIdeaSource } from '../preparation/types.ts'
+import { ideaReferenceDescriptor } from '../reference/uri.ts'
+import { searchRecords } from '../search/service.ts'
+import type { IdeaSearchRecord } from '../search/types.ts'
 import { IdeaId, IdeaVersionId } from '../types.ts'
 import type {
   Idea,
@@ -63,6 +66,8 @@ import type {
   IdeaRelatedRequest,
   IdeaRelatedResult,
   IdeaRestoreRequest,
+  IdeaSearchRequest,
+  IdeaSearchResult,
   IdeaSummary,
   IdeaVersionDetail,
   IdeaVersionGetRequest,
@@ -432,6 +437,46 @@ export class IdeaRemoteService extends TypertRemoteService {
   }
 
   /**
+   * Search the stored Ideas over their current versions. Ranking is
+   * deterministic and Host-side: a blank query surfaces every in-scope Idea
+   * by recency; a non-blank query surfaces only positive-score Ideas by
+   * score DESC → updatedAt DESC → id ASC, with no zero-score fill. Read-only
+   * and capped at the explicit search limit; each row carries the canonical
+   * pinned reference descriptor for one-tap attachment.
+   */
+  @Remote
+  async search(request: IdeaSearchRequest, signal?: AbortSignal): Promise<IdeaSearchResult[]> {
+    if (signal?.aborted) {
+      throw new RemoteError('gateway/cancelled', 'idea search was cancelled', {})
+    }
+    const records: IdeaSearchRecord[] = this.ctx.ideaService.list({ includeArchived: true }).map(view => ({
+      ideaId: view.idea.ideaId,
+      currentVersionId: view.idea.currentVersionId,
+      status: view.idea.status,
+      title: view.currentVersion.draft.title,
+      core: view.currentVersion.draft.core,
+      motivation: view.currentVersion.draft.motivation,
+      currentConclusion: view.currentVersion.draft.currentConclusion,
+      possibleValue: view.currentVersion.draft.possibleValue,
+      useWhen: [...view.currentVersion.draft.useWhen],
+      openQuestions: [...view.currentVersion.draft.openQuestions],
+      updatedAt: view.idea.updatedAt,
+    }))
+    return searchRecords(records, request.query, request.scope).map(record => ({
+      id: record.ideaId,
+      status: record.status,
+      currentVersionId: record.currentVersionId,
+      title: record.title,
+      core: record.core,
+      currentConclusion: record.currentConclusion,
+      useWhen: [...record.useWhen],
+      openQuestionsCount: record.openQuestions.length,
+      updatedAt: record.updatedAt,
+      reference: ideaReferenceDescriptor(record.ideaId, record.currentVersionId, record.title),
+    }))
+  }
+
+  /**
    * Judge which saved Ideas would genuinely help the discussion behind one
    * finalized assistant message right now. Delegates entirely to the Related
    * service; zero durable writes. An empty candidate corpus and a zero-match
@@ -451,6 +496,7 @@ export class IdeaRemoteService extends TypertRemoteService {
             updatedAt: match.idea.updatedAt,
           },
           whyUsefulNow: match.whyUsefulNow,
+          reference: match.reference,
         })),
       }
     } catch (error) {

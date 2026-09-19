@@ -1,61 +1,35 @@
 /**
- * Deterministic lexical candidate retrieval: the query features extracted
- * from the bounded captured discussion (Latin/alphanumeric word tokens plus
- * CJK bigrams), the frozen weighted field scoring, and the top-K selection
- * with its recency recall fallback. Similarity only narrows the candidate
- * pool — usefulness is judged later by the model. Scores never reach the
- * user, and stored Ideas are never mutated.
+ * Deterministic lexical candidate retrieval for Related Ideas: the query
+ * features extracted from the bounded captured discussion, the frozen
+ * weighted field scoring, and the top-K selection with its recency recall
+ * fallback. The lexical mechanics are shared with Search
+ * (`../retrieval/lexical.ts`); this module owns the Related product
+ * semantics — the recency fill, the judge-pool bound, and the bounded
+ * candidate projection. Similarity only narrows the candidate pool —
+ * usefulness is judged later by the model. Scores never reach the user, and
+ * stored Ideas are never mutated.
  * @module @dsh-external/dsh-idea/src/related/retrieval
  */
 
-import { IDEA_CAPTURE_LIMITS, truncateToBudget } from '../preparation/context.ts'
+import { extractQueryFeatures as extractFeatures, normalizeLexical, recencyThenIdOrder, scoreLexicalFields } from '../retrieval/lexical.ts'
+import { boundedList, boundedText, IDEA_FIELD_BUDGET_LADDER, IDEA_FIELD_DEGRADATION_ORDER, projectWithinBudget } from '../retrieval/budget.ts'
 import { RELATED_CANDIDATE_LIMIT, RELATED_FIELD_WEIGHTS, RELATED_PAYLOAD_LIMIT } from './types.ts'
 import type { RelatedIdeaCandidate } from './types.ts'
 
-/** One NFKC + lowercase + collapsed-whitespace normalization. */
-function normalizeForMatch(text: string): string {
-  return text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ')
-}
+/** Compatible public re-export of the shared feature extraction. */
+export const extractQueryFeatures = extractFeatures
 
-/**
- * Word tokens and CJK scripts, after normalization. CJK script runs cover
- * Han, Hiragana/Katakana, and Hangul; word tokens are runs of two or more
- * ASCII letters/digits.
- */
-const FEATURE_PATTERN = /([a-z0-9]{2,})|([぀-ヿ㐀-䶿一-鿿豈-﫿가-힯]+)/g
-
-/**
- * Extract the deduplicated query features of one text: Latin/alphanumeric
- * word tokens (min length 2) and CJK bigrams over contiguous CJK runs —
- * a single-character run contributes itself. Chinese/English mixed text
- * yields both feature kinds.
- */
-export function extractQueryFeatures(text: string): string[] {
-  const normalized = normalizeForMatch(text)
-  const features = new Set<string>()
-  for (const match of normalized.matchAll(FEATURE_PATTERN)) {
-    const word = match[1]
-    const run = match[2]
-    if (word !== undefined) {
-      features.add(word)
-    } else if (run !== undefined) {
-      if (run.length === 1) {
-        features.add(run)
-      } else {
-        for (let index = 0; index < run.length - 1; index += 1) {
-          features.add(run.slice(index, index + 2))
-        }
-      }
-    }
+/** One candidate's normalized lexical field texts, over the frozen fields. */
+function fieldTexts(candidate: RelatedIdeaCandidate): Record<string, string> {
+  const texts: Record<string, string> = {}
+  for (const field of Object.keys(RELATED_FIELD_WEIGHTS)) {
+    const value =
+      field === 'useWhen' ? candidate.useWhen.join(' ')
+      : field === 'openQuestions' ? candidate.openQuestions.join(' ')
+      : candidate[field as 'title' | 'core' | 'motivation' | 'currentConclusion' | 'possibleValue']
+    texts[field] = normalizeLexical(value)
   }
-  return [...features]
-}
-
-/** The one text a lexical field scores against. */
-function fieldText(candidate: RelatedIdeaCandidate, field: keyof typeof RELATED_FIELD_WEIGHTS): string {
-  if (field === 'useWhen') return candidate.useWhen.join(' ')
-  if (field === 'openQuestions') return candidate.openQuestions.join(' ')
-  return candidate[field]
+  return texts
 }
 
 /**
@@ -64,24 +38,7 @@ function fieldText(candidate: RelatedIdeaCandidate, field: keyof typeof RELATED_
  * once) times the field's frozen weight, summed.
  */
 export function scoreCandidate(candidate: RelatedIdeaCandidate, features: readonly string[]): number {
-  let score = 0
-  for (const field of Object.keys(RELATED_FIELD_WEIGHTS) as Array<keyof typeof RELATED_FIELD_WEIGHTS>) {
-    const text = normalizeForMatch(fieldText(candidate, field))
-    let present = 0
-    for (const feature of features) {
-      if (text.includes(feature)) present += 1
-    }
-    score += present * RELATED_FIELD_WEIGHTS[field]
-  }
-  return score
-}
-
-/** Recency-then-id order: the corpus order and the zero-score fallback order. */
-function recencyOrder(a: RelatedIdeaCandidate, b: RelatedIdeaCandidate): number {
-  if (a.updatedAt !== b.updatedAt) return b.updatedAt - a.updatedAt
-  if (a.ideaId < b.ideaId) return -1
-  if (a.ideaId > b.ideaId) return 1
-  return 0
+  return scoreLexicalFields(fieldTexts(candidate), RELATED_FIELD_WEIGHTS, features)
 }
 
 /**
@@ -98,7 +55,12 @@ export function selectCandidates(
   if (candidates.length <= RELATED_CANDIDATE_LIMIT) return [...candidates]
   const ranked = candidates
     .map(candidate => ({ candidate, score: scoreCandidate(candidate, features) }))
-    .sort((a, b) => b.score - a.score || recencyOrder(a.candidate, b.candidate))
+    .sort((a, b) =>
+      b.score - a.score
+      || recencyThenIdOrder(
+        { updatedAt: a.candidate.updatedAt, id: a.candidate.ideaId },
+        { updatedAt: b.candidate.updatedAt, id: b.candidate.ideaId },
+      ))
   const positive = ranked.filter(entry => entry.score > 0)
   if (positive.length >= RELATED_CANDIDATE_LIMIT) {
     return positive.slice(0, RELATED_CANDIDATE_LIMIT).map(entry => entry.candidate)
@@ -121,44 +83,7 @@ export interface RelatedCandidateProjection {
   possibleValue?: string
 }
 
-/**
- * Descending per-field content budgets one degradable tier walks through:
- * a tier starts whole and, once degradation reaches it, is capped down this
- * ladder rung by rung until it is dropped entirely.
- */
-const FIELD_BUDGET_LADDER: readonly number[] = [4_000, 2_000, 1_000, 500, 250, 120, 60, 0]
-
-/**
- * Degradable content fields from lowest preservation priority to highest
- * (identity and title sit above every tier and never drop). Payload pressure
- * must exhaust a lower tier completely — every rung down to zero — before
- * the next higher tier gives up anything.
- */
-const DEGRADATION_ORDER = [
-  'possibleValue',
-  'motivation',
-  'openQuestions',
-  'useWhen',
-  'currentConclusion',
-  'core',
-] as const
-
-type DegradableField = (typeof DEGRADATION_ORDER)[number]
-
-/** Below this field budget a list field is dropped instead of clipped. */
-const LIST_DROP_BUDGET = 40
-
-function boundedText(text: string, budget: number): string {
-  if (text.length <= budget) return text
-  if (budget < IDEA_CAPTURE_LIMITS.minTruncatable) return ''
-  return truncateToBudget(text, budget)
-}
-
-function boundedList(items: readonly string[], budget: number): readonly string[] {
-  if (budget < LIST_DROP_BUDGET) return []
-  const bounded = items.map(item => boundedText(item, budget)).filter(item => item.length > 0)
-  return bounded.length > 0 ? bounded : []
-}
+type DegradableField = (typeof IDEA_FIELD_DEGRADATION_ORDER)[number]
 
 function projectOne(
   candidate: RelatedIdeaCandidate,
@@ -181,21 +106,6 @@ function projectOne(
 }
 
 /**
- * Step the lowest-priority tier that is not yet fully degraded one rung down
- * its ladder. @returns false when every tier is already at zero.
- */
-function stepDegradation(budgets: Map<DegradableField, number>): boolean {
-  for (const field of DEGRADATION_ORDER) {
-    const current = budgets.get(field)!
-    if (current === 0) continue
-    const rung = FIELD_BUDGET_LADDER.indexOf(current)
-    budgets.set(field, rung >= 0 ? (FIELD_BUDGET_LADDER[rung + 1] ?? 0) : FIELD_BUDGET_LADDER[0]!)
-    return true
-  }
-  return false
-}
-
-/**
  * Project the judge pool onto the bounded prompt payload along the frozen
  * preservation priority: identity and title always survive; from lowest to
  * highest (possibleValue → motivation → openQuestions → useWhen →
@@ -207,13 +117,10 @@ function stepDegradation(budgets: Map<DegradableField, number>): boolean {
 export function projectCandidates(
   candidates: readonly RelatedIdeaCandidate[],
 ): readonly RelatedCandidateProjection[] {
-  const budgets = new Map<DegradableField, number>(
-    DEGRADATION_ORDER.map(field => [field, Number.POSITIVE_INFINITY]),
-  )
-  for (;;) {
-    const budgetOf = (field: DegradableField) => budgets.get(field)!
-    const projection = candidates.map(candidate => projectOne(candidate, budgetOf))
-    if (JSON.stringify(projection).length <= RELATED_PAYLOAD_LIMIT) return projection
-    if (!stepDegradation(budgets)) return projection
-  }
+  return projectWithinBudget<DegradableField, RelatedCandidateProjection>({
+    order: IDEA_FIELD_DEGRADATION_ORDER,
+    ladder: IDEA_FIELD_BUDGET_LADDER,
+    project: budgetOf => candidates.map(candidate => projectOne(candidate, budgetOf)),
+    limit: RELATED_PAYLOAD_LIMIT,
+  })
 }

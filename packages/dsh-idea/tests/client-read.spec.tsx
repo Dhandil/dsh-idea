@@ -88,13 +88,35 @@ function faceWith(
   list: () => Promise<unknown> = async () => ({ ok: true as const, value: [row()] }),
   get: () => Promise<unknown> = async () => ({ ok: true as const, value: detailOf(summary()) }),
   getVersions: () => Promise<unknown> = async () => ({ ok: true as const, value: [versionSummary()] }),
+  search: () => Promise<unknown> = async () => ({ ok: true as const, value: [searchRow()] }),
 ): IdeaReadFace {
   return {
     list: vi.fn(list),
     get: vi.fn(get),
     getVersions: vi.fn(getVersions),
+    search: vi.fn(search),
   } as unknown as IdeaReadFace
 }
+
+/** One search row, exactly what `idea.search` projects. */
+const searchRow = (overrides: Partial<Record<string, unknown>> & { id?: string } = {}): Record<string, unknown> => ({
+  id: 'idea_1',
+  status: 'active',
+  currentVersionId: 'idea_ver_1',
+  title: 'Saved idea',
+  core: 'Core text',
+  currentConclusion: 'Conclusion text',
+  useWhen: ['use one'],
+  openQuestionsCount: 1,
+  updatedAt: 1_700_000_000_000,
+  reference: {
+    ideaId: 'idea_1',
+    versionId: 'idea_ver_1',
+    label: 'Saved idea',
+    mention: '@[Saved idea](dsh-idea:abc)',
+  },
+  ...overrides,
+})
 
 function newSurface(face: IdeaReadFace): IdeaReadSurface {
   const surface = new IdeaReadSurface(face)
@@ -110,8 +132,11 @@ const useIdeaReadOf = (store: SnapshotStore<IdeaReadState>) =>
 function sectionProps(surface: IdeaReadSurface): IdeaSectionProps {
   return {
     load: () => { surface.load() },
+    searchIdeas: (query: string) => { surface.searchIdeas(query) },
+    selectView: (view: 'current' | 'archived') => { surface.selectView(view) },
     open: (id: string) => { surface.open(id) },
     closeDetail: () => { surface.closeDetail() },
+    archiveIdea: () => { surface.archiveIdea() },
     continueIdea: (id: string) => { surface.continueDiscussion(id) },
     prepareEvolution: () => { surface.prepareEvolution() },
     editProposalDraft: (patch: Partial<EditableIdeaDraft>) => { surface.editProposalDraft(patch) },
@@ -377,5 +402,151 @@ describe('Ideas section: version history', () => {
     expect(screen.getByText('版本历史')).toBeTruthy()
     expect(screen.getByText('当前版本 v1')).toBeTruthy()
     expect(screen.getByText('初次保存')).toBeTruthy()
+  })
+})
+
+describe('Ideas section: search', () => {
+  const searchInput = (): HTMLInputElement =>
+    screen.getByLabelText('搜索全部 Idea…') as HTMLInputElement
+
+  it('keeps the T8 tabbed views on a blank query', async () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+
+    await act(async () => { fireEvent.change(searchInput(), { target: { value: '   ' } }) })
+    await flush()
+
+    expect(face.search).not.toHaveBeenCalled()
+    expect(screen.getByRole('tablist')).toBeTruthy()
+    expect(surface.state.getSnapshot().lists.current.items).toHaveLength(1)
+  })
+
+  it('runs one mixed all-scope search per typed query and hides the tabs', async () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+
+    await act(async () => { fireEvent.change(searchInput(), { target: { value: '向量' } }) })
+    await flush()
+
+    expect(face.search).toHaveBeenCalledTimes(1)
+    expect(face.search).toHaveBeenCalledWith({ query: '向量', scope: 'all' }, expect.any(AbortSignal))
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(surface.state.getSnapshot().search.status).toBe('ready')
+    expect(surface.state.getSnapshot().lists.current.items).toHaveLength(1)
+  })
+
+  it('marks each row 当前 or 已归档', async () => {
+    const face = faceWith(undefined, undefined, undefined, async () => ({
+      ok: true as const,
+      value: [
+        searchRow({ id: 'idea_1', status: 'active' }),
+        searchRow({ id: 'idea_2', status: 'archived', title: 'Old idea' }),
+      ],
+    }))
+    const surface = newSurface(face)
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+
+    await act(async () => { fireEvent.change(searchInput(), { target: { value: 'idea' } }) })
+    await flush()
+
+    const rows = document.querySelectorAll('.dsh-idea-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.textContent).toContain('当前')
+    expect(rows[0]!.textContent).not.toContain('已归档')
+    expect(rows[1]!.textContent).toContain('已归档')
+    expect(rows[1]!.textContent).not.toContain('当前')
+  })
+
+  it('clicks a search row through to the existing detail', async () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+
+    await act(async () => { fireEvent.change(searchInput(), { target: { value: 'idea' } }) })
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
+    await flush()
+
+    expect(face.get).toHaveBeenCalledWith({ id: 'idea_1' })
+    expect(surface.state.getSnapshot().detailId).toBe('idea_1')
+  })
+
+  it('clearing restores the prior tab and its cached list without refetching', async () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '已归档' })) })
+    await flush()
+    const listCalls = (face.list as ReturnType<typeof vi.fn>).mock.calls.length
+    expect(listCalls).toBe(2)
+
+    await act(async () => { fireEvent.change(searchInput(), { target: { value: 'idea' } }) })
+    await flush()
+    await act(async () => { fireEvent.change(searchInput(), { target: { value: '' } }) })
+    await flush()
+
+    expect(screen.getByRole('tablist')).toBeTruthy()
+    expect(surface.state.getSnapshot().view).toBe('archived')
+    // The archived tab's cached list returns untouched; no extra fetches.
+    expect((face.list as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2)
+  })
+
+  it('re-runs the live search after a confirmed mutation so the mixed list is never stale', async () => {
+    const fullFace = faceWith()
+    const face = fullFace as IdeaReadFace & { archive: ReturnType<typeof vi.fn>; search: ReturnType<typeof vi.fn> }
+    face.archive = vi.fn(async () => ({
+      ok: true as const,
+      value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'archived' as const, updatedAt: 2 },
+    }))
+    const surface = newSurface(fullFace)
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+
+    await act(async () => { fireEvent.change(searchInput(), { target: { value: 'idea' } }) })
+    await flush()
+    expect(face.search).toHaveBeenCalledTimes(1)
+
+    // Open the detail from the search row and archive it there.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '归档' })) })
+    await flush()
+
+    expect(face.archive).toHaveBeenCalledTimes(1)
+    expect(face.search).toHaveBeenCalledTimes(2)
+    expect(face.search).toHaveBeenLastCalledWith({ query: 'idea', scope: 'all' }, expect.any(AbortSignal))
+  })
+
+  it('ignores a superseded query completion', async () => {
+    let resolveOld: ((value: unknown) => void) | undefined
+    let call = 0
+    const face = faceWith(undefined, undefined, undefined, () => {
+      call += 1
+      if (call === 1) {
+        return new Promise((resolve) => { resolveOld = resolve })
+      }
+      return Promise.resolve({ ok: true as const, value: [searchRow({ id: 'idea_new', title: 'New result' })] })
+    })
+    const surface = newSurface(face)
+    render(<IdeaSection {...sectionProps(surface)} />)
+    await flush()
+
+    await act(async () => { fireEvent.change(searchInput(), { target: { value: 'old' } }) })
+    await act(async () => { fireEvent.change(searchInput(), { target: { value: 'new' } }) })
+    await flush()
+    expect(surface.state.getSnapshot().search.items.map(item => item.id)).toEqual(['idea_new'])
+
+    // The 'old' flight lands late: its result must never apply.
+    await act(async () => { resolveOld?.({ ok: true as const, value: [searchRow({ id: 'idea_old', title: 'Old result' })] }) })
+    await flush()
+    expect(surface.state.getSnapshot().search.items.map(item => item.id)).toEqual(['idea_new'])
   })
 })
