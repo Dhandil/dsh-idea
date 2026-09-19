@@ -215,6 +215,23 @@ describe('mention rewrite and recall context', () => {
     expect((payloadOf(decision) as unknown[])).toHaveLength(1)
     expect(textOf(decision.messages[0]!.content)).not.toContain(mention)
   })
+
+  it('rewrites every occurrence of one pin when the labels differ', async () => {
+    const env = await referenceHarness()
+    const { ideaId, versionId } = await seedIdea(env, 'Host title')
+    const labelA = formatIdeaReferenceMention({ ideaId, versionId }, 'Label A')
+    const labelB = formatIdeaReferenceMention({ ideaId, versionId }, 'Label B')
+
+    const decision = await firePreStep(env, [directUser(`${labelA} plus ${labelB}`)])
+    if (decision.kind !== 'enter') throw new Error(`expected enter, got '${decision.kind}'`)
+
+    expect((payloadOf(decision) as unknown[])).toHaveLength(1)
+    const rewritten = textOf(decision.messages[0]!.content)
+    expect(rewritten.split('Idea「Host title」')).toHaveLength(3)
+    expect(rewritten).not.toContain('Label A')
+    expect(rewritten).not.toContain('Label B')
+    expect(rewritten).not.toContain('dsh-idea:')
+  })
 })
 
 describe('scope discipline', () => {
@@ -254,6 +271,12 @@ describe('loud failures', () => {
     expect(decision.kind).toBe('reject')
   })
 
+  it('rejects an explicit mention with an empty URI payload', async () => {
+    const env = await referenceHarness()
+    const decision = await firePreStep(env, [directUser('See @[X](dsh-idea:) now')])
+    expect(decision.kind).toBe('reject')
+  })
+
   it('rejects a pin to a deleted Idea', async () => {
     const env = await referenceHarness()
     const created = await env.ideaService.create(draft({ title: 'Doomed' }), {
@@ -284,11 +307,11 @@ describe('loud failures', () => {
     expect(decision.kind).toBe('reject')
   })
 
-  it('caps five distinct references; surplus mentions stay raw', async () => {
+  it('admits exactly five distinct references', async () => {
     const env = await referenceHarness()
     const seeded = []
-    for (let index = 0; index < 6; index += 1) {
-      seeded.push(await seedIdea(env, `Cap idea ${index}`))
+    for (let index = 0; index < 5; index += 1) {
+      seeded.push(await seedIdea(env, `Limit idea ${index}`))
     }
     const text = seeded.map(entry => entry.mention).join(' ')
 
@@ -297,10 +320,39 @@ describe('loud failures', () => {
 
     expect((payloadOf(decision) as unknown[])).toHaveLength(5)
     const rewritten = textOf(decision.messages[0]!.content)
-    for (const entry of seeded.slice(0, 5)) {
-      expect(rewritten).toContain(`Idea「${entry.mention.slice(2, entry.mention.indexOf(']('))}」`)
+    for (const entry of seeded) {
+      const label = entry.mention.slice(2, entry.mention.indexOf(']('))
+      expect(rewritten).toContain(`Idea「${label}」`)
+      expect(rewritten).not.toContain(entry.mention)
     }
-    expect(rewritten).toContain(seeded[5]!.mention)
+  })
+
+  it('rejects six distinct references loudly, reaching no model and admitting no context', async () => {
+    const env = await referenceHarness()
+    const seeded = []
+    for (let index = 0; index < 6; index += 1) {
+      seeded.push(await seedIdea(env, `Over-limit idea ${index}`))
+    }
+    const text = seeded.map(entry => entry.mention).join(' ')
+
+    const decision = await firePreStep(env, [directUser(text)])
+
+    expect(decision.kind).toBe('reject')
+    expect(env.llm.calls).toHaveLength(0)
+  })
+
+  it('admits six occurrences of five unique pins as five projections', async () => {
+    const env = await referenceHarness()
+    const seeded = []
+    for (let index = 0; index < 5; index += 1) {
+      seeded.push(await seedIdea(env, `Unique idea ${index}`))
+    }
+    const text = [...seeded.map(entry => entry.mention), seeded[0]!.mention].join(' ')
+
+    const decision = await firePreStep(env, [directUser(text)])
+    if (decision.kind !== 'enter') throw new Error(`expected enter, got '${decision.kind}'`)
+
+    expect((payloadOf(decision) as unknown[])).toHaveLength(5)
   })
 
   it('keeps a downstream reject authoritative', async () => {

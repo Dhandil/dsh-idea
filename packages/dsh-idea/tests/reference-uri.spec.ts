@@ -117,7 +117,21 @@ describe('text parsing', () => {
     expect(parseIdeaReferenceText('email someone@somewhere')).toEqual([])
   })
 
+  it('treats prose about the scheme as prose, not a mention', () => {
+    expect(parseIdeaReferenceText('the dsh-idea: scheme pins one Idea version')).toEqual([])
+    expect(parseIdeaReferenceText('a bare dsh-idea:payload-like token is not a mention')).toEqual([])
+  })
+
   it('throws on a mention whose payload is malformed rather than dropping it', () => {
     expect(() => parseIdeaReferenceText('see @[Label](dsh-idea:!!!not-base64) now')).toThrow(IdeaError)
+  })
+
+  it('throws on a non-canonical payload instead of treating it as prose', () => {
+    expect(() => parseIdeaReferenceText('see @[Label](dsh-idea:non-canonical-or-invalid) now')).toThrow(IdeaError)
+  })
+
+  it('throws on an explicit mention with an empty URI payload', () => {
+    expect(() => parseIdeaReferenceText('see @[X](dsh-idea:) now')).toThrow(IdeaError)
+    expect(() => parseIdeaReferenceText('see @[X](dsh-idea:) now')).toThrow('malformed Idea reference payload')
   })
 })

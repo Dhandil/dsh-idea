@@ -137,13 +137,16 @@ export interface ParsedIdeaReference {
   mention: string
 }
 
-const MENTION_PATTERN = /@\[((?:\\.|[^\\\]])*)\]\((dsh-idea:[^)\s]+)\)/g
+// The payload matches even when empty (`*`, not `+`): an explicit
+// `@[X](dsh-idea:)` mention must reach the canonical decoder and be
+// rejected, never survive as ordinary text.
+const MENTION_PATTERN = /@\[((?:\\.|[^\\\]])*)\]\((dsh-idea:[^\s)]*)\)/g
 
 /**
  * Parse every Idea mention in one text, in occurrence order. The URI payload
  * of each mention is validated (decode → re-encode); a mention-shaped string
- * whose payload is malformed or non-canonical throws — references never
- * silently degrade to plain text.
+ * whose payload is empty, malformed, or non-canonical throws — references
+ * never silently degrade to plain text.
  */
 export function parseIdeaReferenceText(text: string): ParsedIdeaReference[] {
   const parsed: ParsedIdeaReference[] = []

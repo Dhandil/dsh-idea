@@ -2,13 +2,14 @@
  * The Host-side Idea reference resolver (`ctx.ideaReferences`). On every
  * accepted Agent pre-step it inspects only direct user messages
  * (`source.kind === 'user'`) for `@[label](dsh-idea:...)` mentions, resolves
- * each pinned exact Idea/version, rewrites the mention text to a readable
- * `Idea「label」` form, and appends exactly one plugin-sourced user-role
- * recall context carrying the bounded projections. Malformed or
- * unresolvable references reject the request loudly instead of silently
- * dropping or substituting. The listener always delegates through `next()`
- * first, so later policy listeners keep authority; a downstream reject
- * admits nothing. No model call happens here.
+ * each pinned exact Idea/version, rewrites every mention occurrence to a
+ * readable `Idea「title」` form keyed by the exact pin, and appends exactly
+ * one plugin-sourced user-role recall context carrying the bounded
+ * projections. Malformed, unresolvable, or over-limit (more than
+ * `MAX_IDEA_REFERENCES` unique pins) references reject the request loudly
+ * instead of silently dropping, slicing, or substituting. The listener
+ * always delegates through `next()` first, so later policy listeners keep
+ * authority; a downstream reject admits nothing. No model call happens here.
  * @module @dsh-external/dsh-idea/src/reference/service
  */
 
@@ -94,10 +95,13 @@ export class IdeaReferenceService extends Service {
         const key = `${entry.pin.ideaId}::${entry.pin.versionId}`
         if (!pins.has(key)) pins.set(key, entry.pin)
       }
-      const selected = [...pins.values()].slice(0, MAX_IDEA_REFERENCES)
+      // Over the admission limit the request is rejected loudly; a user who
+      // explicitly added six Ideas must never get five contexts plus an
+      // opaque raw mention. Duplicate exact pins count once.
+      if (pins.size > MAX_IDEA_REFERENCES) return { kind: 'reject' }
 
       const resolved: ResolvedReference[] = []
-      for (const pin of selected) {
+      for (const pin of pins.values()) {
         let version
         try {
           // A deleted Idea/version fails loud: the request is rejected before
@@ -123,10 +127,18 @@ export class IdeaReferenceService extends Service {
         })
       }
 
-      const readable = new Map<string, string>()
+      // Every parsed occurrence of an admitted pin is rewritten to the
+      // Host-resolved exact-version title — client labels are presentation
+      // only, and two spellings of one pin must not leave a raw mention.
+      const titles = new Map<string, string>()
       for (const entry of resolved) {
-        const mention = parsed.find(item => item.pin.ideaId === entry.pin.ideaId && item.pin.versionId === entry.pin.versionId)!.mention
-        readable.set(mention, entry.title)
+        titles.set(`${entry.pin.ideaId}::${entry.pin.versionId}`, entry.title)
+      }
+      const readable = new Map<string, string>()
+      for (const occurrence of parsed) {
+        const key = `${occurrence.pin.ideaId}::${occurrence.pin.versionId}`
+        const title = titles.get(key)
+        if (title !== undefined) readable.set(occurrence.mention, title)
       }
 
       const messages = decision.messages.map(message => {

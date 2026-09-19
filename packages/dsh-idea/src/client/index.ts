@@ -126,11 +126,14 @@ function registerUi(ctx: ClientContext): void {
     }
   }
 
-  /** Attach one reference to the Session's draft; a failure reports locally. */
-  const attachReference = (sessionId: SessionId, descriptor: IdeaReferenceDescriptor): void => {
+  /**
+   * Attach one reference to the Session's draft. Reports whether the append
+   * applied; a failure reports locally and the caller keeps its surface open.
+   */
+  const attachReference = (sessionId: SessionId, descriptor: IdeaReferenceDescriptor): boolean => {
     const seams = appendSeamsFor(sessionId)
-    if (seams === undefined) return
-    appendIdeaReferenceNotified(seams, descriptor, t('search.addFailed'))
+    if (seams === undefined) return false
+    return appendIdeaReferenceNotified(seams, descriptor, t('search.addFailed'))
   }
 
   ctx.slots.inject('conversation.chat.assistant-actions', () => ctx.slots.register({
@@ -195,8 +198,11 @@ function registerUi(ctx: ClientContext): void {
         select: (id) => { surface.select(id) },
         retry: () => { surface.retry() },
         add: (descriptor) => {
-          attachReference(sessionId, descriptor)
-          surface.close()
+          // The card closes only after a successful append; a CAS/seam
+          // failure keeps it open with the localized composer notice.
+          if (attachReference(sessionId, descriptor)) {
+            surface.close()
+          }
         },
         close: () => { surface.close() },
       }

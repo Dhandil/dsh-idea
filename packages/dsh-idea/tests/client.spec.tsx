@@ -322,6 +322,153 @@ describe('client plugin mount', () => {
   })
 })
 
+describe('reference add close semantics', () => {
+  const mention = formatIdeaReferenceMention({ ideaId: 'idea_1', versionId: 'idea_ver_1' }, 'Title')
+  const descriptor = { ideaId: 'idea_1', versionId: 'idea_ver_1', label: 'Title', mention }
+
+  /**
+   * Mount the client UI against a configurable composer seam. The input
+   * facade records reference inserts and notices; the session scope's `bail`
+   * records every composer event, so a submit attempt cannot hide.
+   */
+  async function mountWithSeams(insertReference: (ref: unknown) => boolean, withSeams = true) {
+    const ctx = new Context()
+    const slotRegistrations: Array<{ id: string, inject: (sessionId: string) => unknown }> = []
+    const commandRegisters: Array<{ name: string, ui: { run: (session: { sessionId: string }) => void } }> = []
+    const notices: Array<{ level: string, text: string }> = []
+    const bailEvents: string[] = []
+    const inputFacade = {
+      state: { getSnapshot: () => ({ draft: 'seed', draftRev: 7, occurrences: [] }) },
+      insertReference: vi.fn(insertReference),
+      notify: vi.fn((level: 'info' | 'error', text: string) => { notices.push({ level, text }) }),
+    }
+    const actx = { bail: vi.fn((_target: unknown, event: string) => { bailEvents.push(event); return true }) }
+    // The fake remote service carries the idea face as a property (the way
+    // client code reads `ctx.remote.idea`), and the mounted namespace is
+    // also provided as its own cordis service key, which the plugin's inner
+    // `ctx.inject(['remote.idea', …])` requires before registerUi runs.
+    const ideaFace = {
+      prepareFromMessage: vi.fn(),
+      create: vi.fn(),
+      get: vi.fn(),
+      search: vi.fn(),
+      relatedFromMessage: vi.fn(async () => ({ ok: true as const, value: { items: [] } })),
+    }
+    const remoteService: { $mount?: unknown; idea?: Record<string, unknown> } = {}
+    remoteService.$mount = vi.fn(async () => {
+      remoteService.idea = ideaFace
+      ctx.provide('remote.idea', ideaFace as never)
+      return async () => {}
+    })
+    ctx.provide('remote', remoteService as never)
+    ctx.provide('locale', { register: vi.fn(), bind: vi.fn(() => (key: string) => key) } as never)
+    ctx.provide('slots', {
+      inject: vi.fn((_name: string, register: () => void) => { register() }),
+      register: vi.fn((registration: { id: string, inject: (sessionId: string) => unknown }) => { slotRegistrations.push(registration) }),
+    } as never)
+    ctx.provide('sessions', {
+      refresh: vi.fn(async () => {}),
+      open: vi.fn(),
+      scope: vi.fn(() => (withSeams ? actx : undefined)),
+      list: { getSnapshot: () => ({ current: undefined }) },
+    } as never)
+    ctx.provide('commandUi', { register: vi.fn((registration: never) => { commandRegisters.push(registration as never) }) } as never)
+    ctx.provide('inputTriggers', { registerSource: vi.fn() } as never)
+    ctx.provide('conversation', { input: { for: vi.fn(() => inputFacade) } } as never)
+
+    const { apply } = await import('../src/client/index.ts')
+    const dispose = await apply(ctx)
+    const injectOf = (id: string) =>
+      (slotRegistrations.find(entry => entry.id === id)!.inject as (sessionId: string) => never)('session-1')
+    return {
+      inputFacade,
+      notices,
+      bailEvents,
+      dispose,
+      openCard: () => { commandRegisters[0]!.ui.run({ sessionId: 'session-1' }) },
+      search: injectOf('idea-search') as {
+        hooks: { search: SnapshotStore<{ open: boolean }> }
+        add: (picked: typeof descriptor) => void
+      },
+      related: injectOf('idea-related') as {
+        hooks: { related: SnapshotStore<{ status: string, items: readonly unknown[] }> }
+        add: (picked: typeof descriptor) => void
+      },
+      action: injectOf('idea') as { findRelated: (messageId: string) => void },
+    }
+  }
+
+  it('a successful Search Add appends exactly one reference and closes the card', async () => {
+    const mount = await mountWithSeams(() => true)
+    mount.openCard()
+    expect(mount.search.hooks.search.getSnapshot().open).toBe(true)
+
+    mount.search.add(descriptor)
+
+    expect(mount.inputFacade.insertReference).toHaveBeenCalledTimes(1)
+    expect(mount.inputFacade.insertReference.mock.calls[0]?.[0]).toMatchObject({
+      source: 'idea', ref: mention, label: 'Title',
+    })
+    expect(mount.search.hooks.search.getSnapshot().open).toBe(false)
+    expect(mount.notices).toEqual([])
+    await mount.dispose()
+  })
+
+  it('a CAS failure keeps the card open, publishes one failure notice, and never submits', async () => {
+    const mount = await mountWithSeams(() => false)
+    mount.openCard()
+
+    mount.search.add(descriptor)
+
+    expect(mount.search.hooks.search.getSnapshot().open).toBe(true)
+    expect(mount.inputFacade.insertReference).toHaveBeenCalledTimes(1)
+    expect(mount.notices).toEqual([{ level: 'error', text: 'search.addFailed' }])
+    // The only composer event ever dispatched is the separating-space plain
+    // text edit; no submit path exists on the append seam.
+    expect(mount.bailEvents).toEqual(['slash/input-insert-text'])
+    await mount.dispose()
+  })
+
+  it('a missing Session input seam keeps the card open without touching the composer', async () => {
+    const mount = await mountWithSeams(() => true, false)
+    mount.openCard()
+
+    mount.search.add(descriptor)
+
+    expect(mount.search.hooks.search.getSnapshot().open).toBe(true)
+    expect(mount.inputFacade.insertReference).not.toHaveBeenCalled()
+    expect(mount.notices).toEqual([])
+    await mount.dispose()
+  })
+
+  it('a failed Related Add leaves the overlay open with the failure notice', async () => {
+    const mount = await mountWithSeams(() => false)
+    await act(async () => { mount.action.findRelated('a1') })
+    await flush()
+    expect(mount.related.hooks.related.getSnapshot().status).toBe('ready')
+
+    mount.related.add(descriptor)
+
+    expect(mount.related.hooks.related.getSnapshot().status).toBe('ready')
+    expect(mount.notices).toEqual([{ level: 'error', text: 'search.addFailed' }])
+    await mount.dispose()
+  })
+
+  it('a successful Related Add appends and leaves the overlay open as before', async () => {
+    const mount = await mountWithSeams(() => true)
+    await act(async () => { mount.action.findRelated('a1') })
+    await flush()
+    expect(mount.related.hooks.related.getSnapshot().status).toBe('ready')
+
+    mount.related.add(descriptor)
+
+    expect(mount.inputFacade.insertReference).toHaveBeenCalledTimes(1)
+    expect(mount.related.hooks.related.getSnapshot().status).toBe('ready')
+    expect(mount.notices).toEqual([])
+    await mount.dispose()
+  })
+})
+
 describe('unified idea action', () => {
   it('renders exactly one entry with the outline icon, no emoji, and no text verb', () => {
     const face = faceWith()
