@@ -11,7 +11,7 @@ actions, Settings library search), per
 | --- | --- |
 | `T9_BASELINE_SHA` | `6767ec0dafe2cec6e782c6bf5b58b4175e6076e4` — `docs: update dsh-idea t8 acceptance` (T8/T8R/T8R2 accepted state) |
 | `T9_TESTED_SHA` | `4e220714de10f15822e2a934d8e6ed1429486e54` — `feat: add dsh-idea search, exact-version references, unified actions` |
-| `T9_REPORT_SHA` | the documentation-only commit that carries this file (its SHA lives in the git history and the execution report; it is the only commit after `T9_TESTED_SHA`, and the diff between the two SHAs touches only `docs/`) |
+| `T9_REPORT_SHA` | the documentation-only commits that carry this file — a two-commit chain directly after `T9_TESTED_SHA`: `ac178e1` (`docs: record dsh-idea t9 acceptance`, which added this report plus the pending T8/T8R/T8R2/T9 instruction documents) and `943dce5` (`docs: update dsh-idea t9 acceptance`, wording only). The diff `T9_TESTED_SHA..943dce5` touches only `docs/`. |
 | Harness read-only baseline SHA | `c291e7961a515f6d7af9304e7fd1d257929aef26` |
 | Repository | `Dhandil/dsh-idea` (public), branch `main` |
 | Domain name | `idea` (`packages/dsh-idea/src/spec.ts`) |
@@ -83,8 +83,10 @@ patch, shim, or override was introduced. T9 ships entirely inside
   `src/retrieval/budget.ts`) as a user-role context — the mention text is
   rewritten to `Idea「label」` prose. Resolution is exact-version: the recall
   content comes from the pinned `versionId`, not from whatever happens to be
-  current at read time. Pins to missing ideas/versions degrade to a marked
-  unavailable note, never to a silent substitution.
+  current at read time. Pins to missing or deleted ideas/versions are a
+  fail-loud rejection before any model request (pre-step reject, zero model
+  calls, zero partial recall context) — never a degradation, a substitution,
+  or a marked-unavailable note.
 - **Search/Related shared reference behavior (§13)**: the composer search
   card's 添加 and the Related overlay's 添加 both go through the same
   reference-append seam (`src/client/reference-append.ts`) and produce the
@@ -93,7 +95,8 @@ patch, shim, or override was introduced. T9 ships entirely inside
 - **Projection tests** (`tests/reference-projection.spec.ts`,
   `tests/reference-uri.spec.ts`, `tests/reference-service.spec.ts`) pin the
   codec round-trip, label escaping, pre-step boundaries (non-user messages
-  ignored), exact-version recall, and degradation marking.
+  ignored), exact-version recall, and the fail-loud rejection of malformed,
+  over-limit, and missing/deleted pins before any model request.
 
 ### 2.3 Unified assistant-action behavior (§15–§18)
 
@@ -254,9 +257,11 @@ ledger:
 **None.** The last executable change (the `idea/search` cancellation fix) was
 followed by: full offline gate re-run (§4), §26 smoke re-run (18/18), and the
 final E2E stages (D re-verification, E–H including H3). The only commits after
-`T9_TESTED_SHA` are documentation-only (this report and the pending
-instruction documents), proven by the diff between the two SHAs touching only
-`docs/`.
+`T9_TESTED_SHA` are the two documentation-only commits named in §1 (`ac178e1`
+and `943dce5` — this report and the pending instruction documents), proven by
+the diff touching only `docs/`. (The T9R repair round later superseded
+`4e220714` as the accepted executable baseline; see §14 — that round produced
+its own executable commit and its own documentation-only chain.)
 
 ## 11. Runtime cleanup record (§28)
 
@@ -292,3 +297,94 @@ T9 is accepted at `T9_TESTED_SHA`
 re-decoration limitation (§6), which is a host-persistence design property
 explicitly outside the plugin's allowed modification boundary, and whose
 semantic bar §22 requires is proven by wire evidence.
+
+## 14. T9R repair round — reference admission and Search Add (supersession)
+
+Per `docs/implements/DSH_IDEA_T9R_REFERENCE_ADMISSION_AND_SEARCH_ADD_REPAIR.md`,
+the T9R round repaired four reference-admission defects found in T9. This
+section supersedes §13: the accepted executable baseline for the T9 scope is
+no longer `4e220714` but `T9R_TESTED_SHA`
+(`47b1894f19ad1b7969f3f82cb58f73e02a3f36fa`, `fix: harden idea reference
+admission`). T9's history and evidence above are preserved unchanged; every
+§4–§13 record remains a true statement about `4e220714`.
+
+| Item | Value |
+| --- | --- |
+| `T9R_BASELINE_SHA` | `943dce5be7412c34f924efda810e464ddb6379ee` — `origin/main` at round start |
+| `T9R_TESTED_SHA` | `47b1894f19ad1b7969f3f82cb58f73e02a3f36fa` — `fix: harden idea reference admission` |
+| `T9R_ACCEPTANCE_SHA` | the documentation-only commit that carries this section (SHA in git history and the execution report; diff `T9R_TESTED_SHA..T9R_ACCEPTANCE_SHA` touches only `docs/`) |
+| Harness read-only SHA | `c291e7961a515f6d7af9304e7fd1d257929aef26` (unchanged) |
+
+### 14.1 The four repairs (R1–R4)
+
+- **R1 — Search Add failure keeps the card open**: `attachReference` returns
+  `boolean`; the search card closes only after a successful append. A CAS
+  failure keeps the card open with one bounded localized failure notice (and
+  performs no submit); a missing seam keeps the card open with the composer
+  untouched and no notice. The Related overlay's 添加 keeps its T9 semantics
+  (chip appended, overlay state free, status stays ready) and is covered by
+  the same deterministic client tests.
+- **R2 — over-limit reject, never silent truncation**: after dedup by
+  `(ideaId, versionId)`, more than `MAX_IDEA_REFERENCES` (5) unique pins
+  reject the request at the pre-step before any model call — zero model
+  requests, zero partial recall context. Duplicate exact pins count once.
+- **R3 — malformed empty reference rejected**: `MENTION_PATTERN` now matches
+  an empty payload (`dsh-idea:[^\s)]*`), so an explicit `@[X](dsh-idea:)`
+  mention reaches the canonical decoder and throws instead of surviving as
+  prose; `decodeIdeaReferenceUri()` stays the single canonical validator, and
+  prose that merely contains the scheme stays prose.
+- **R4 — Host-authoritative rewrite of every occurrence**: after resolution,
+  every parsed occurrence of an admitted pin is rewritten to the Host-resolved
+  exact-version title, so two mentions of one pin under different labels
+  produce one projection and zero raw mentions. Client labels remain
+  presentation-only.
+
+### 14.2 T9R evidence
+
+- **Offline gates** at `T9R_TESTED_SHA`: `generate:typert` (no drift),
+  `typecheck` (clean), `build` + `build:client` (clean), `git diff --check`
+  (clean), full test suite **499 passed / 34 files** (12 new tests across
+  `reference-uri.spec.ts`, `reference-service.spec.ts`, and a new
+  `client.spec.tsx` reference-add-close-semantics suite with the integration
+  seam: success closes, CAS failure opens + one notice + no submit, missing
+  seam opens + composer untouched, Related failure opens + status ready).
+- **Zero-provider smoke** (§26 equivalent) re-run fresh in an isolated
+  providerless home: 10/10 records (boot, +→Idea opens the search card, blank
+  recency, explicit query, close, Settings Ideas search box/list, zero
+  console/page errors, zero failed requests).
+- **Full Playwright A–H** on a fresh isolated acceptance home (fresh profile
+  copy, seeded workspace table, empty Idea storage; real DeepSeek route):
+  stages A (10), B (7), C (6), D (12), E (12), F1+F2 archive/restore (11),
+  G (6), H (13) — 77 records, zero failures
+  (`e2e-results-t9r-final.jsonl`). Stages A/C created both Ideas with NEW
+  ids, and stages D/H proved the exact-version pin on the wire against those
+  newly discovered ids (D: pin `846b01c4/0ae242fd` = current version of the
+  NS-4471 idea; H: reload-persisted draft mention and post-reload wire pin
+  `ff84daa0/931b471f` = current version of the A idea). R1's browser-side
+  rejection proof is covered authoritatively by the deterministic client
+  tests (the real-browser CAS failure would be artificial); the browser
+  Search success path is proven by stages B/D.
+- **Architecture unchanged**: Search/Add/Reference still make zero LLM calls;
+  no ranking/weights/limits/retrieval/judge/save/lifecycle/domain/
+  continuation/payload-budget changes; no Harness-core or schema changes
+  (domain `idea/v3`, storage untouched).
+- **Runtime cleanup**: acceptance server killed by PID, port 3080 confirmed
+  closed, zero `bin.ts` nodes, zero `ms-playwright` chromium processes, user
+  Chrome untouched; token-bearing logs and the isolated home deleted; final
+  token grep clean.
+
+### 14.3 Wording corrections to this report (§6 of the T9R instructions)
+
+The T9 text above described missing/deleted pins as degrading to a "marked
+unavailable note". That was wrong at `4e220714` and is wrong now: pins to
+missing or deleted ideas/versions **reject loudly before any model request**
+(§2.2 and the projection-tests paragraph have been corrected in place). The
+post-tested commit chain was also corrected in §1 and §10: T9's docs landed
+as **two** commits (`ac178e1`, `943dce5`), not one.
+
+### 14.4 Verdict (T9R)
+
+T9 scope is accepted at `T9R_TESTED_SHA`
+(`47b1894f19ad1b7969f3f82cb58f73e02a3f36fa`), which supersedes `4e220714` as
+the accepted executable baseline; the acceptance commit chain remains
+documentation-only after it.
