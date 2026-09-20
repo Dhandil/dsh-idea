@@ -385,10 +385,15 @@ body[data-ds-dark-theme] .dsh-idea-hover-card {
   max-height: min(420px, calc(100vh - 160px));
   margin-bottom: 84px;
   padding: 12px 16px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
   border-radius: 12px;
-  background: #2C2C2E;
+  background: var(--dsw-alias-bg-layer-1, #fff);
   box-shadow: var(--dsw-shadow-lv3);
   pointer-events: auto;
+}
+body[data-ds-dark-theme] .dsh-idea-search {
+  border-color: transparent;
+  background: #2C2C2E;
 }
 .dsh-idea-search-head {
   display: flex;
