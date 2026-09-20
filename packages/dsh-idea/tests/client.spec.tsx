@@ -169,10 +169,12 @@ describe('client plugin mount', () => {
     } as never)
     ctx.provide('sessions', {
       refresh: vi.fn(async () => {}),
-      open: vi.fn(() => {}),
       scope: vi.fn(() => undefined),
-      list: { getSnapshot: () => ({ current: undefined }) },
+      // The 0.1.6-alpha.2 SessionListState shape: no `current`, and no
+      // `open()` on the service — navigation moved to uiWorkspace.
+      list: { getSnapshot: () => ({ ids: [], byId: {}, phase: 'ready' }) },
     } as never)
+    ctx.provide('uiWorkspace', { openSession: vi.fn() } as never)
     ctx.provide('commandUi', { register: vi.fn((registration: unknown) => { commandRegisters.push(registration) }) } as never)
     ctx.provide('inputTriggers', { registerSource: vi.fn((source: unknown) => { triggerSources.push(source) }) } as never)
     ctx.provide('conversation', { input: { for: vi.fn() } } as never)
@@ -323,6 +325,78 @@ describe('client plugin mount', () => {
     await dispose()
     expect(remoteUnmounts).toBe(1)
   })
+
+  it('mounts with uiWorkspace and opens the created Continue Discussion conversation through it', async () => {
+    const ctx = new Context()
+    const slotRegistrations: Array<{ id: string, inject: () => unknown }> = []
+    const refresh = vi.fn(async () => {})
+    const openSession = vi.fn()
+    // The client reads the idea face as a property of the remote service
+    // AND expects it as its own cordis service key (same dual pattern as
+    // mountWithSeams below).
+    const ideaFace = {
+      prepareFromMessage: vi.fn(),
+      create: vi.fn(),
+      get: vi.fn(),
+      search: vi.fn(),
+      continueDiscussion: vi.fn(async () => ({
+        ok: true as const,
+        value: { discussionId: 'idea_dis_1', conversationId: 'session-new', baseVersionId: 'idea_ver_1' },
+      })),
+    }
+    const remoteService: { $mount?: unknown; idea?: Record<string, unknown> } = {}
+    remoteService.$mount = vi.fn(async () => {
+      remoteService.idea = ideaFace
+      ctx.provide('remote.idea', ideaFace as never)
+      return async () => {}
+    })
+    ctx.provide('remote', remoteService as never)
+    ctx.provide('locale', { register: vi.fn(), bind: vi.fn(() => (key: string) => key) } as never)
+    ctx.provide('slots', {
+      inject: vi.fn((_name: string, register: () => void) => { register() }),
+      register: vi.fn((registration: { id: string, inject: () => unknown }) => { slotRegistrations.push(registration) }),
+    } as never)
+    ctx.provide('sessions', {
+      refresh,
+      scope: vi.fn(() => undefined),
+      // No `open()` and no `list.current`: both were removed by Harness
+      // 0.1.6-alpha.2, so a regression back to them fails loudly here.
+      list: { getSnapshot: () => ({ ids: [], byId: {}, phase: 'ready' }) },
+    } as never)
+    ctx.provide('uiWorkspace', { openSession } as never)
+    ctx.provide('commandUi', { register: vi.fn() } as never)
+    ctx.provide('inputTriggers', { registerSource: vi.fn() } as never)
+    ctx.provide('conversation', { input: { for: vi.fn() } } as never)
+
+    const { apply } = await import('../src/client/index.ts')
+    const dispose = await apply(ctx)
+
+    // The plugin mounts with `uiWorkspace` in its inject list (the mount
+    // completing proves the declared dependency is satisfied).
+    const section = slotRegistrations.find(entry => entry.id === 'ideas')
+    expect(section).toBeDefined()
+
+    // Drive the Continue Discussion entry through the section inject.
+    const injected = section!.inject() as { continueIdea: (id: string) => void }
+    await act(async () => { injected.continueIdea('idea_1') })
+    await flush()
+
+    expect(ctx.remote.$mount).toHaveBeenCalledTimes(1)
+    const face = await vi.waitFor(() => {
+      const idea = (ctx.remote as unknown as { idea?: { continueDiscussion?: ReturnType<typeof vi.fn> } }).idea
+      expect(idea?.continueDiscussion).toBeDefined()
+      return idea!
+    })
+    expect(face.continueDiscussion).toHaveBeenCalledWith({ id: 'idea_1' })
+    // Refresh-before-navigation ordering, then the Host-created conversation
+    // id handed to uiWorkspace.openSession — never sessions.open.
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(openSession).toHaveBeenCalledTimes(1)
+    expect(openSession).toHaveBeenCalledWith('session-new')
+    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(openSession.mock.invocationCallOrder[0]!)
+
+    await dispose()
+  })
 })
 
 describe('reference add close semantics', () => {
@@ -371,10 +445,12 @@ describe('reference add close semantics', () => {
     } as never)
     ctx.provide('sessions', {
       refresh: vi.fn(async () => {}),
-      open: vi.fn(),
       scope: vi.fn(() => (withSeams ? actx : undefined)),
-      list: { getSnapshot: () => ({ current: undefined }) },
+      // The 0.1.6-alpha.2 SessionListState shape: no `current`, and no
+      // `open()` on the service — navigation moved to uiWorkspace.
+      list: { getSnapshot: () => ({ ids: [], byId: {}, phase: 'ready' }) },
     } as never)
+    ctx.provide('uiWorkspace', { openSession: vi.fn() } as never)
     ctx.provide('commandUi', { register: vi.fn((registration: never) => { commandRegisters.push(registration as never) }) } as never)
     ctx.provide('inputTriggers', { registerSource: vi.fn() } as never)
     ctx.provide('conversation', { input: { for: vi.fn(() => inputFacade) } } as never)

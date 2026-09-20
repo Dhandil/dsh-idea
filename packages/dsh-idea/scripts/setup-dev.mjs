@@ -43,6 +43,7 @@ const LINKS = [
   ['@deepseek-ai/dsh-client-ui-settings', 'packages/client/ui-settings'],
   ['@deepseek-ai/dsh-client-ui-commands', 'packages/client/ui-commands'],
   ['@deepseek-ai/dsh-client-ui-input-trigger', 'packages/client/ui-input-trigger'],
+  ['@deepseek-ai/dsh-client-ui-workspace', 'packages/client/ui-workspace'],
 ]
 
 function link(name, target) {

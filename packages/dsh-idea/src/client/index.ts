@@ -25,6 +25,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { parseIdeaReferenceText } from '../reference/uri.ts'
 import type { IdeaReferenceDescriptor } from '../reference/types.ts'
 import type { IdeaReadFace } from './read-state.ts'
@@ -70,8 +71,8 @@ import './styles.ts'
 /** Dictionary namespace owned by this plugin. */
 const NS = 'idea'
 
-/** Required services: the typed Remote mount carrier, the copy, the slots, the session domain, and the composer command / input-trigger / conversation seams (accessed via ctx.commandUi / ctx.inputTriggers / ctx.conversation — cordis rejects any service access not declared here). */
-export const inject = ['remote', 'locale', 'slots', 'sessions', 'commandUi', 'inputTriggers', 'conversation']
+/** Required services: the typed Remote mount carrier, the copy, the slots, the session domain, the workspace navigation seam, and the composer command / input-trigger / conversation seams (accessed via ctx.commandUi / ctx.inputTriggers / ctx.conversation / ctx.uiWorkspace — cordis rejects any service access not declared here). */
+export const inject = ['remote', 'locale', 'slots', 'sessions', 'commandUi', 'inputTriggers', 'conversation', 'uiWorkspace']
 
 /**
  * Register the UI half once the mounted `idea` namespace is available. Lives
@@ -338,12 +339,14 @@ function registerUi(ctx: ClientContext): void {
     const snapshot = workspaces.list.getSnapshot()
     if (snapshot.phase !== 'ready') return undefined
     // The client names only the Workspace; the Host's Session Controller
-    // creates the Session and attaches it to that Workspace.
-    return selectContinuationWorkspace(snapshot.items, sessions.list.getSnapshot().current)
+    // creates the Session and attaches it to that Workspace. Harness
+    // 0.1.6-alpha.2 no longer exposes the current main Session, so the
+    // selection falls back to the most recently updated Workspace.
+    return selectContinuationWorkspace(snapshot.items, undefined)
   }
   const readSurface = new IdeaReadSurface(ctx.remote.idea as IdeaReadFace, async (conversationId) => {
     await sessions.refresh()
-    sessions.open(SessionId(conversationId))
+    ctx.uiWorkspace.openSession(SessionId(conversationId))
   }, prepareWorkspace)
   ctx.effect(() => () => { readSurface.dispose() }, 'dsh-idea: library read surface')
   ctx.slots.inject('settings.section', () => ctx.slots.register({

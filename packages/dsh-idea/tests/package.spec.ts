@@ -104,7 +104,7 @@ describe('web client bundle', () => {
       expect(Object.keys(loaded)).toEqual(['@dsh-external/dsh-idea'])
       expect(typeof loaded['@dsh-external/dsh-idea']?.exports.apply).toBe('function')
       expect(loaded['@dsh-external/dsh-idea']?.exports.inject).toEqual([
-        'remote', 'locale', 'slots', 'sessions', 'commandUi', 'inputTriggers', 'conversation',
+        'remote', 'locale', 'slots', 'sessions', 'commandUi', 'inputTriggers', 'conversation', 'uiWorkspace',
       ])
     } finally {
       ;(globalThis as { window?: unknown }).window = previousWindow

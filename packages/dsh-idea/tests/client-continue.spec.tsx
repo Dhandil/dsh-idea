@@ -4,9 +4,10 @@
  * Client-focused tests for the detail page's Continue Discussion entry: the
  * button renders, a click enters the loading state and collapses duplicate
  * clicks into one Host call, the request carries at most a Workspace id —
- * the current session's workspace, else the most recent one, else none —
- * success hands the Host-returned conversation id to the opener, failure
- * shows the error copy without navigating and an explicit re-click retries.
+ * the most recently updated Workspace, else none (Harness 0.1.6-alpha.2 no
+ * longer exposes the current main Session to the client) — success hands
+ * the Host-returned conversation id to the opener, failure shows the error
+ * copy without navigating and an explicit re-click retries.
  * The Host face is a scripted IdeaReadFace; no live Host, provider, or model
  * call.
  * @module tests/client-continue.spec
