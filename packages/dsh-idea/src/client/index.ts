@@ -3,9 +3,10 @@
  * Remote contribution, then — only after the `idea` namespace is ready —
  * registers the unified per-message Idea action, the Session's preview
  * modal, the Related Ideas overlay, the conversation search card behind the
- * `idea` command, the `idea` composer reference source, and the read-only
- * Ideas library settings section. Unload runs in reverse: the UI scope dies
- * first, then the Remote mount.
+ * `idea` command, the `idea` composer reference source, the contextual
+ * resurfacing strip on the composer dock, and the read-only Ideas library
+ * settings section. Unload runs in reverse: the UI scope dies first, then
+ * the Remote mount.
  * @module @dsh-external/dsh-idea/client
  */
 
@@ -38,6 +39,7 @@ import { IdeaSaveDialog } from './IdeaSaveDialog.tsx'
 import { IdeaAssistantActions } from './IdeaAssistantActions.tsx'
 import { IdeaRelatedOverlay } from './IdeaRelatedOverlay.tsx'
 import { IdeaSearchCard } from './IdeaSearchCard.tsx'
+import { IdeaResurfaceStrip } from './IdeaResurfaceStrip.tsx'
 import { IdeaSection } from './IdeaSection.tsx'
 import { IdeaLightbulbIcon } from './icons.tsx'
 import { installIdeaNavIcon } from './nav-icon.ts'
@@ -51,10 +53,18 @@ import type {
   IdeaDialogInjected,
   IdeaSectionInjected,
   RelatedOverlayInjected,
+  ResurfaceStripInjected,
   SearchCardInjected,
   UnifiedActionInjected,
 } from './slots.ts'
 import { IdeaSaveSurface } from './state.ts'
+import { IdeaResurfacingController } from './resurfacing-state.ts'
+import type {
+  ResurfacingEventWindowFace,
+  ResurfacingInputFace,
+  ResurfacingRemoteFace,
+  ResurfacingSaveFace,
+} from './resurfacing-state.ts'
 import './styles.ts'
 
 /** Dictionary namespace owned by this plugin. */
@@ -121,6 +131,37 @@ function registerUi(ctx: ClientContext): void {
     for (const surface of searchSurfaces.values()) surface.dispose()
     searchSurfaces.clear()
   }, 'dsh-idea: per-session search surfaces')
+
+  // The contextual resurfacing controllers (T10): one per conversation,
+  // subscribing to that session's incremental event feed and owning all
+  // ephemeral state (trigger identity, the pending pool, surfaced /
+  // referenced / dismissed ids, the one-suggestion budget). Nothing here is
+  // durable and nothing writes until the user picks Reference.
+  const resurfacingControllers = new Map<SessionId, IdeaResurfacingController>()
+  const controllerFor = (sessionId: SessionId): IdeaResurfacingController => {
+    let controller = resurfacingControllers.get(sessionId)
+    if (controller === undefined) {
+      const binding = sessions.binding(sessionId)
+      const actx = sessions.scope(sessionId)
+      if (binding === undefined || actx === undefined) {
+        throw new Error(`idea resurface: session "${sessionId}" resolved no binding`)
+      }
+      controller = new IdeaResurfacingController({
+        sessionId,
+        remote: ctx.remote.idea as unknown as ResurfacingRemoteFace,
+        events: binding.eventSource as unknown as ResurfacingEventWindowFace,
+        input: ctx.conversation.input.for(actx).state as unknown as ResurfacingInputFace,
+        save: surfaceFor(sessionId).state as unknown as ResurfacingSaveFace,
+        appendReference: descriptor => attachReference(sessionId, descriptor),
+      })
+      resurfacingControllers.set(sessionId, controller)
+    }
+    return controller
+  }
+  ctx.effect(() => () => {
+    for (const controller of resurfacingControllers.values()) controller.dispose()
+    resurfacingControllers.clear()
+  }, 'dsh-idea: per-session resurfacing controllers')
 
   /** Resolve the live composer seams of one Session for reference appends. */
   const appendSeamsFor = (sessionId: SessionId): ReferenceAppendSeams | undefined => {
@@ -215,6 +256,26 @@ function registerUi(ctx: ClientContext): void {
       }
     },
   }, IdeaSearchCard))
+
+  // The contextual Idea resurfacing strip (T10) on the composer dock seat:
+  // the dock entry renders only whatever its conversation's controller
+  // decided — zero or one lightweight suggestion with View / Reference /
+  // Dismiss; the controller, not the component, owns every gate.
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock',
+    id: 'idea-resurface',
+    order: 15,
+    locale: NS,
+    inject: (sessionId): ResurfaceStripInjected => {
+      const controller = controllerFor(sessionId)
+      return {
+        hooks: { resurface: controller.state },
+        toggleDetail: () => { controller.toggleDetail() },
+        reference: () => { controller.reference() },
+        dismiss: () => { controller.dismiss() },
+      }
+    },
+  }, IdeaResurfaceStrip))
 
   // The `idea` command: the single composer `+`-menu entry opening the
   // search card. The action only opens the card; attaching happens through

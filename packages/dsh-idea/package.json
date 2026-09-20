@@ -27,6 +27,10 @@
       "types": "./lib/related/index.d.ts",
       "default": "./lib/related/index.js"
     },
+    "./resurfacing": {
+      "types": "./lib/resurfacing/index.d.ts",
+      "default": "./lib/resurfacing/index.js"
+    },
     "./reference": {
       "types": "./lib/reference/index.d.ts",
       "default": "./lib/reference/index.js"

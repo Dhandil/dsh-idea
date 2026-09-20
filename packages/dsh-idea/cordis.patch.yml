@@ -11,5 +11,7 @@
       name: '@dsh-external/dsh-idea/continuation'
     - id: dsh-idea-related
       name: '@dsh-external/dsh-idea/related'
+    - id: dsh-idea-resurfacing
+      name: '@dsh-external/dsh-idea/resurfacing'
     - id: dsh-idea-reference
       name: '@dsh-external/dsh-idea/reference'

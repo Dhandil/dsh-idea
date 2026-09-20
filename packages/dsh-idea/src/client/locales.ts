@@ -113,6 +113,12 @@ export const zh = {
   'search.error': '搜索失败，请重试',
   'search.add': '添加',
   'search.addFailed': '无法附加该 Idea 引用，请重试',
+  'resurface.title': 'Idea 提醒',
+  'resurface.banner': '💡 以前保存过一个可能相关的 Idea：「{title}」',
+  'resurface.view': '查看',
+  'resurface.collapse': '收起',
+  'resurface.reference': '引用',
+  'resurface.dismiss': '忽略',
 } satisfies Record<string, string>
 
 /** The idea namespace key union. */
@@ -233,4 +239,10 @@ export const en = {
   'search.error': 'Search failed. Try again.',
   'search.add': 'Add',
   'search.addFailed': 'Could not attach the Idea reference. Try again.',
+  'resurface.title': 'Idea reminder',
+  'resurface.banner': '💡 A previously saved Idea may be relevant: “{title}”',
+  'resurface.view': 'View',
+  'resurface.collapse': 'Collapse',
+  'resurface.reference': 'Reference',
+  'resurface.dismiss': 'Dismiss',
 } satisfies Record<IdeaLocaleKey, string>

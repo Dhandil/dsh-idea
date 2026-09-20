@@ -27,6 +27,7 @@ import type { IdeaPreparationId, IdeaPreparationPreview, PreparedIdeaSource } fr
 import IdeaEvolutionService from '../src/evolution/index.ts'
 import IdeaRemoteService from '../src/remote-host/index.ts'
 import IdeaRelatedService from '../src/related/index.ts'
+import IdeaResurfacingService from '../src/resurfacing/index.ts'
 import type { IdeaPrepareRequest } from '../src/remote-host/types.ts'
 import { EvolutionEventId, IdeaId, IdeaVersionId } from '../src/types.ts'
 import type { IdeaAggregate, SourceDiscussionDraft } from '../src/types.ts'
@@ -94,6 +95,7 @@ async function fullHarness() {
   const env = await preparationHarness({ sessionQuery, agentDefaultModel: new FakeAgentDefaultModel(), llm })
   await env.ctx.plugin(IdeaEvolutionService)
   await env.ctx.plugin(IdeaRelatedService)
+  await env.ctx.plugin(IdeaResurfacingService)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, llm }
 }
@@ -142,6 +144,10 @@ function stubHarness(overrides: {
     } as never)
     ctx.provide('ideaRelated', {
       relatedFromMessage: vi.fn(async () => { throw new Error('this suite never judges related ideas') }),
+    } as never)
+    ctx.provide('ideaResurfacing', {
+      evaluate: vi.fn(async () => { throw new Error('this suite never evaluates resurfacing') }),
+      judge: vi.fn(async () => { throw new Error('this suite never judges resurfacing') }),
     } as never)
     await ctx.plugin(IdeaRemoteService)
     return { ctx, idea: ctx.idea, create, resolve, prepareFromMessage }
@@ -338,9 +344,11 @@ describe('generated contributions', () => {
       '@dsh-external/dsh-idea#idea/continueDiscussion',
       '@dsh-external/dsh-idea#idea/create',
       '@dsh-external/dsh-idea#idea/deleteIdea',
+      '@dsh-external/dsh-idea#idea/evaluateResurfacing',
       '@dsh-external/dsh-idea#idea/get',
       '@dsh-external/dsh-idea#idea/getVersion',
       '@dsh-external/dsh-idea#idea/getVersions',
+      '@dsh-external/dsh-idea#idea/judgeResurfacing',
       '@dsh-external/dsh-idea#idea/list',
       '@dsh-external/dsh-idea#idea/manualEdit',
       '@dsh-external/dsh-idea#idea/prepareEvolution',
@@ -358,6 +366,7 @@ describe('generated contributions', () => {
         || descriptor.id.endsWith('#idea/prepareFromMessage')
         || descriptor.id.endsWith('#idea/prepareEvolution')
         || descriptor.id.endsWith('#idea/relatedFromMessage')
+        || descriptor.id.endsWith('#idea/judgeResurfacing')
         || descriptor.id.endsWith('#idea/search')
       expect(descriptor.cancellation, descriptor.id).toEqual(cancellable ? { parameter: 'signal' } : undefined)
     }

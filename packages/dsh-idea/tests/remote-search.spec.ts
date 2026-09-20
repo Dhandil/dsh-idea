@@ -23,6 +23,10 @@ async function searchHarness() {
   env.ctx.provide('ideaPreparations', {
     preparations: { resolve: () => { throw new Error('search never resolves preparations') } },
   } as never)
+  env.ctx.provide('ideaResurfacing', {
+    evaluate: () => { throw new Error('search never evaluates resurfacing') },
+    judge: () => { throw new Error('search never judges resurfacing') },
+  } as never)
   await env.ctx.plugin(IdeaRelatedService)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, idea: env.ctx.idea }

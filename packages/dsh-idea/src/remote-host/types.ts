@@ -347,3 +347,107 @@ export interface IdeaSearchResult {
   updatedAt: number
   reference: IdeaReferenceDescriptor
 }
+
+/** `idea.evaluateResurfacing` request: one admitted completed turn, bounded. */
+export interface IdeaResurfacingEvaluateRequest {
+  /** The Session the completed turn lives in. */
+  sessionId: string
+  /** The completed user turn text the detector admitted (client-bounded). */
+  currentTurn: string
+  /** A small bounded recent visible context. */
+  recentContext: readonly {
+    role: 'user' | 'assistant'
+    text: string
+  }[]
+}
+
+/** One candidate of the T10 evaluation: the pinned current version only. */
+export interface IdeaResurfacingCandidate {
+  ideaId: string
+  evaluatedVersionId: string
+  title: string
+  core: string
+  possibleValue: string
+  useWhen: readonly string[]
+  currentConclusion: string
+  score: number
+}
+
+/** Why one scored Idea never reached the Judge pool. */
+export type IdeaResurfacingSuppressionReason =
+  | 'IDEA_LIFECYCLE_INACTIVE'
+  | 'CURRENT_DISCUSSION_DESCENDS_FROM_IDEA'
+  | 'CREATED_IN_CURRENT_CONVERSATION'
+  | 'BELOW_RETRIEVAL_FLOOR'
+
+/**
+ * `idea.evaluateResurfacing` result: the zero-model deterministic stage.
+ * `stop` is set when nothing is eligible; `suppressed` carries the closed
+ * host-side reasons for observability; at most three candidates survive.
+ */
+export interface IdeaResurfacingEvaluateResult {
+  stop?: { reason: 'NO_ELIGIBLE_IDEAS' }
+  candidates: readonly IdeaResurfacingCandidate[]
+  suppressed: readonly { ideaId: string; reason: IdeaResurfacingSuppressionReason }[]
+}
+
+/** `idea.judgeResurfacing` request: the bounded judgment frame plus the pinned pool. */
+export interface IdeaResurfacingJudgeRequest {
+  sessionId: string
+  currentTurn: string
+  recentContext: readonly {
+    role: 'user' | 'assistant'
+    text: string
+  }[]
+  /** The settled Assistant reply of the triggering turn (client-bounded). */
+  assistantReply: string
+  /** The deterministic detector observations (client-bounded). */
+  signals: readonly {
+    type: string
+    strength: 'strong' | 'medium'
+    evidence: string
+    derivedFrom?: readonly string[]
+  }[]
+  /** The pinned pool the client still holds: canonical ids only. */
+  candidates: readonly {
+    ideaId: string
+    evaluatedVersionId: string
+  }[]
+}
+
+/** A positive Judge reason: why one Idea genuinely helps right now. */
+export type IdeaResurfacingJudgePositiveReason =
+  | 'ADDS_MISSING_OPTION'
+  | 'RESTORES_FORGOTTEN_DIRECTION'
+  | 'ADDS_DECISION_VALUE'
+  | 'ADDS_VALUE_TO_RECURRENT_PROBLEM'
+
+/**
+ * A negative Judge reason, including every fail-closed mode. A negative
+ * outcome is silence: the client never falls back to a lexical guess.
+ */
+export type IdeaResurfacingJudgeNegativeReason =
+  | 'NOT_RELEVANT'
+  | 'REDUNDANT_WITH_CONTEXT'
+  | 'INTERESTING_BUT_NOT_USEFUL_NOW'
+  | 'STALE_FOR_CURRENT_SITUATION'
+  | 'TOO_WEAKLY_CONNECTED'
+  | 'MULTIPLE_AMBIGUOUS_CANDIDATES'
+  | 'JUDGE_UNAVAILABLE'
+  | 'JUDGE_INVALID_OUTPUT'
+  | 'JUDGE_FAILED'
+
+/**
+ * `idea.judgeResurfacing` result. `reason` is present whenever the model
+ * ran; it is absent only when every candidate was dropped before the call,
+ * in which case `dropped` carries the canonical reasons.
+ */
+export interface IdeaResurfacingJudgeResult {
+  outcome: 'none' | 'surface'
+  reason?: IdeaResurfacingJudgePositiveReason | IdeaResurfacingJudgeNegativeReason
+  ideaId?: string
+  dropped: readonly {
+    ideaId: string
+    reason: 'CANDIDATE_BECAME_INELIGIBLE' | 'CANDIDATE_VERSION_CHANGED'
+  }[]
+}

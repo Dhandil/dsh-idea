@@ -28,6 +28,10 @@ async function readHarness() {
   env.ctx.provide('ideaRelated', {
     relatedFromMessage: () => { throw new Error('reads never judge related ideas') },
   } as never)
+  env.ctx.provide('ideaResurfacing', {
+    evaluate: () => { throw new Error('reads never evaluate resurfacing') },
+    judge: () => { throw new Error('reads never judge resurfacing') },
+  } as never)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, idea: env.ctx.idea }
 }

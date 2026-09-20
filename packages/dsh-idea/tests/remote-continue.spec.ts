@@ -50,6 +50,10 @@ async function continueHarness(create?: (request: unknown) => Promise<{ sessionI
   env.ctx.provide('ideaRelated', {
     relatedFromMessage: () => { throw new Error('continuation never judges related ideas') },
   } as never)
+  env.ctx.provide('ideaResurfacing', {
+    evaluate: () => { throw new Error('continuation never evaluates resurfacing') },
+    judge: () => { throw new Error('continuation never judges resurfacing') },
+  } as never)
   env.ctx.provide('sessionController', sessionController as never)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, sessionController, idea: env.ctx.idea }
@@ -67,6 +71,10 @@ async function controllerlessHarness() {
   } as never)
   env.ctx.provide('ideaRelated', {
     relatedFromMessage: () => { throw new Error('continuation never judges related ideas') },
+  } as never)
+  env.ctx.provide('ideaResurfacing', {
+    evaluate: () => { throw new Error('continuation never evaluates resurfacing') },
+    judge: () => { throw new Error('continuation never judges resurfacing') },
   } as never)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, idea: env.ctx.idea }

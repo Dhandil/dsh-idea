@@ -43,6 +43,7 @@ import type {
   SourceDiscussionDraft,
 } from '../types.ts'
 import { remoteDomainError, remoteEvolutionError, remotePreparationError } from './errors.ts'
+import type { ResurfacingMediumAtomicSignal, ResurfacingSignalType } from '../resurfacing/types.ts'
 import type {
   IdeaArchiveRequest,
   IdeaCommitEvolutionRequest,
@@ -65,6 +66,10 @@ import type {
   IdeaPrepareRequest,
   IdeaRelatedRequest,
   IdeaRelatedResult,
+  IdeaResurfacingEvaluateRequest,
+  IdeaResurfacingEvaluateResult,
+  IdeaResurfacingJudgeRequest,
+  IdeaResurfacingJudgeResult,
   IdeaRestoreRequest,
   IdeaSearchRequest,
   IdeaSearchResult,
@@ -87,7 +92,7 @@ type CommitEntry =
   | { kind: 'committed'; result: IdeaCreateResult }
 
 export class IdeaRemoteService extends TypertRemoteService {
-  static inject = ['ideaService', 'ideaPreparations', 'ideaEvolutions', 'ideaRelated']
+  static inject = ['ideaService', 'ideaPreparations', 'ideaEvolutions', 'ideaRelated', 'ideaResurfacing']
 
   /** Commit state per preparationId; entries live for the process lifetime. */
   private readonly commits = new Map<IdeaPreparationId, CommitEntry>()
@@ -501,6 +506,74 @@ export class IdeaRemoteService extends TypertRemoteService {
       }
     } catch (error) {
       throw remotePreparationError(error) ?? error
+    }
+  }
+
+  /**
+   * The deterministic, zero-model resurfacing evaluation behind one
+   * completed turn: pin current versions, score with the shared lexical
+   * mechanics under a positive-evidence floor, suppress deterministically,
+   * and return at most three candidates. Delegates entirely to the
+   * resurfacing service; no model call ever runs here.
+   */
+  @Remote
+  async evaluateResurfacing(request: IdeaResurfacingEvaluateRequest): Promise<IdeaResurfacingEvaluateResult> {
+    const evaluation = await this.ctx.ideaResurfacing.evaluate({
+      sessionId: request.sessionId,
+      currentTurn: request.currentTurn,
+      recentContext: request.recentContext,
+    })
+    return {
+      ...(evaluation.stop !== undefined ? { stop: { reason: evaluation.stop.reason } } : {}),
+      candidates: evaluation.candidates.map(candidate => ({
+        ideaId: candidate.ideaId,
+        evaluatedVersionId: candidate.evaluatedVersionId,
+        title: candidate.title,
+        core: candidate.core,
+        possibleValue: candidate.possibleValue,
+        useWhen: [...candidate.useWhen],
+        currentConclusion: candidate.currentConclusion,
+        score: candidate.score,
+      })),
+      suppressed: evaluation.suppressed.map(entry => ({ ideaId: entry.ideaId, reason: entry.reason })),
+    }
+  }
+
+  /**
+   * The one-call semantic Judge of the resurfacing pipeline: revalidate the
+   * pinned pool against canonical state, frame the bounded prompt, make
+   * exactly one direct model call, and parse the closed-vocabulary answer
+   * strictly. Every failure mode fails closed to a negative outcome — the
+   * client stays silent and never falls back to a lexical guess.
+   */
+  @Remote
+  async judgeResurfacing(request: IdeaResurfacingJudgeRequest, signal?: AbortSignal): Promise<IdeaResurfacingJudgeResult> {
+    if (signal?.aborted) {
+      throw new RemoteError('gateway/cancelled', 'idea resurfacing judge was cancelled', {})
+    }
+    const judgment = await this.ctx.ideaResurfacing.judge({
+      sessionId: request.sessionId,
+      currentTurn: request.currentTurn,
+      recentContext: request.recentContext,
+      assistantReply: request.assistantReply,
+      signals: request.signals.map(signal => ({
+        type: signal.type as ResurfacingSignalType,
+        strength: signal.strength,
+        evidence: signal.evidence,
+        ...(signal.derivedFrom !== undefined
+          ? { derivedFrom: signal.derivedFrom as ResurfacingMediumAtomicSignal[] }
+          : {}),
+      })),
+      candidates: request.candidates.map(candidate => ({
+        ideaId: candidate.ideaId,
+        evaluatedVersionId: candidate.evaluatedVersionId,
+      })),
+    }, signal)
+    return {
+      outcome: judgment.outcome,
+      ...(judgment.reason !== undefined ? { reason: judgment.reason } : {}),
+      ...(judgment.ideaId !== undefined ? { ideaId: judgment.ideaId } : {}),
+      dropped: judgment.dropped.map(entry => ({ ideaId: entry.ideaId, reason: entry.reason })),
     }
   }
 

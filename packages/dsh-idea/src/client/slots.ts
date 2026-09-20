@@ -12,6 +12,7 @@ import type { IdeaReadState } from './read-state.ts'
 import type { IdeaSearchUiState } from './search-state.ts'
 import type { RelatedIdeasUiState } from './related-state.ts'
 import type { EditableIdeaDraft, IdeaSaveState } from './state.ts'
+import type { ResurfaceUiState } from './resurfacing-state.ts'
 
 /** Injected business face of one assistant-message unified Idea action. */
 export interface UnifiedActionInjected {
@@ -99,6 +100,25 @@ export interface IdeaDialogInjected {
 /** Full props of the Idea preview modal overlay entry. */
 export type IdeaDialogProps =
   InjectFace<IdeaDialogInjected>
+  & PropsLocale<'idea'>
+
+/** Injected business face of the Session's contextual Idea resurfacing strip. */
+export interface ResurfaceStripInjected {
+  hooks: {
+    /** The owning Session's resurfacing strip state (zero or one suggestion). */
+    resurface: HostObservable<ResurfaceUiState>
+  }
+  /** Toggle the read-only detail expansion; never attaches or mutates. */
+  toggleDetail: () => void
+  /** Attach the suggested Idea reference through the accepted T9 seam. */
+  reference: () => void
+  /** Dismiss this opportunity in this conversation; the Idea is untouched. */
+  dismiss: () => void
+}
+
+/** Full props of the contextual Idea resurfacing strip entry. */
+export type ResurfaceStripProps =
+  InjectFace<ResurfaceStripInjected>
   & PropsLocale<'idea'>
 
 /** Injected business face of the Ideas settings section. */
