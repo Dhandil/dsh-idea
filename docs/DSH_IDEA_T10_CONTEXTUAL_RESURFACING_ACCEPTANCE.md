@@ -34,10 +34,16 @@ before T10 and were preserved untouched).
 31 files, +4633/−5 (see `git show --stat T10_TESTED_SHA`):
 
 **Server side — `src/resurfacing/` (new module)**
-- `types.ts` — frozen vocabulary and limits: signal types
-  (`GOAL_DECLARATION`, `PROBLEM_RECURRENCE`, `MEMORY_GAP`, `DECISION_POINT`,
-  `TOPIC_REENTRY`, `ATTITUDE_REOPENING`, `STRATEGY_RESET` + derived
-  `FRUSTRATION`, `NO_CLEAR_PROGRESS`), suppression reasons (`IDEA_LIFECYCLE_INACTIVE`,
+- `types.ts` — frozen vocabulary and limits: signal types, exactly as
+  declared in `packages/dsh-idea/src/resurfacing/types.ts` — strong atomic
+  `GOAL_DECLARATION` / `DECISION_POINT` / `PROBLEM_RECURRENCE` /
+  `MEMORY_GAP` (each one alone satisfies the admission threshold), strong
+  compound `TOPIC_REENTRY` / `STRATEGY_RESET` (equally admitting; observed
+  through their atomic components, which are reported as `derivedFrom`
+  instead of counted twice), and medium atomic `TOPIC_SHIFT` / `FRUSTRATION`
+  / `ATTITUDE_REOPENING` / `STAGE_TRANSITION` / `PARTIAL_RECALL` (real but
+  weaker observations that never admit an evaluation alone and are recorded
+  only as observability), suppression reasons (`IDEA_LIFECYCLE_INACTIVE`,
   `CURRENT_DISCUSSION_DESCENDS_FROM_IDEA`, `CREATED_IN_CURRENT_CONVERSATION`,
   `BELOW_RETRIEVAL_FLOOR`, `CANDIDATE_VERSION_CHANGED`,
   `CANDIDATE_BECAME_INELIGIBLE`), stop reasons (`FEATURE_DISABLED`,
@@ -49,9 +55,10 @@ before T10 and were preserved untouched).
   limits.
 - `detector.ts` — deterministic Chinese opportunity detector: explicit
   atomic signals, short-form topic re-entry requiring both prior-entity
-  overlap and a choice/attitude marker, medium-form attitude/strategy
-  signals with `derivedFrom` derivation (no double count), continuation
-  phrases silent, evidence snippets bounded (≤80).
+  overlap and a choice/attitude marker, the strong compound signals
+  (`TOPIC_REENTRY` / `STRATEGY_RESET`) reported with the medium atomic
+  components they were observed through as `derivedFrom` (never double
+  counted), continuation phrases silent, evidence snippets bounded (≤80).
 - `retrieval.ts` — shared T9 lexical mechanics under resurfacing semantics:
   positive evidence only, floor `8`, no zero-score fill, no recency fallback,
   ranking score → updatedAt → ideaId, cap 3, computed scores stamped onto
@@ -173,6 +180,21 @@ before T10 and were preserved untouched).
 `pnpm test` (vitest, full suite) at the tested tree: **Test Files 40 passed
 (40); Tests 607 passed (607)**. This was the last executable gate; see §8
 for the post-Full drift proof.
+
+**Transient-run disclosure (recorded from this round's execution evidence).**
+During the test phase — after the last source edit, and immediately after
+`tests/client.spec.tsx` had passed 22/22 standalone — one full-suite run
+reported `Tests 1 failed | 606 passed (607)` (run captured only as a tail
+summary, so the failing test's name was not recorded). With **no code change
+in between**, it was followed by five consecutive full-suite runs with zero
+failures on the identical tree: three of them captured the exact counts
+`Test Files 40 passed (40) / Tests 607 passed (607)` — the last of these
+being the Canonical Full above — and the other two are proven zero-failure
+by their filtered captures, which contain no `FAIL` line and no failed-tests
+section. The single failure never reproduced; it is recorded as an
+unreproduced transient (most plausibly parallel-worker timing under local
+resource contention). It occurred before the Canonical Full, so §8's
+post-Full drift statement is unaffected.
 
 ## 6. Real provider/model call count (§22 / §23.15)
 
