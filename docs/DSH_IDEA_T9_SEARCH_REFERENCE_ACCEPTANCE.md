@@ -503,7 +503,7 @@ T9R2 is `READY_FOR_REVIEW` at `T9R2_TESTED_SHA`
 re-freeze T9 and does not constitute a T10 start; T9's acceptance status
 remains as recorded in §14 pending architecture review of this report.
 
-## 16. T9R3 repair round — composer search card theme readability (pending architecture review)
+## 16. T9R3 repair round — composer search card theme readability (accepted)
 
 Per `DSH_IDEA_T9R3_SEARCH_CARD_THEME_READABILITY_REPAIR`, the T9R3 round
 repairs exactly the defect disclosed in §15.4: the composer Idea search card
@@ -584,11 +584,26 @@ produced **zero diff** (no schema drift).
   the MCP probe artifacts (screenshot, snapshot dir) were removed from the
   repository root.
 
-### 16.4 Verdict (T9R3)
+### 16.4 Verdict (T9R3) — `DSH_IDEA_T9R3_ACCEPTED` / `DSH_IDEA_T9_REFROZEN`
 
 The §15.4 disclosure is resolved: the composer Idea search card now follows
-the theme in both palettes with readable text. T9R3 is `READY_FOR_REVIEW` at
-`T9R3_TESTED_SHA` (`4645121`), which supersedes `T9R2_TESTED_SHA`
-(`25db48c`) as the accepted executable candidate for the T9 scope. This
-round does **not** re-freeze T9 and does not start T10; T9's acceptance
-status remains pending architecture review of this report.
+the theme in both palettes with readable text. T9R3 passed architecture
+review, and this finalization converges the round's `READY_FOR_REVIEW`
+status into the accepted/refrozen verdict below. This finalization is
+documentation-only: it modifies no executable file, re-runs no acceptance,
+re-interprets no test result, and leaves every §1–§16.3 record above
+unchanged as the historical evidence of its own SHA.
+
+| Item | Value |
+| --- | --- |
+| Final status | `DSH_IDEA_T9R3_ACCEPTED` / `DSH_IDEA_T9_REFROZEN` |
+| `T9_ACCEPTED_EXECUTABLE_SHA` | `46451213641bf5beb6657b259f6033183ba23059` — `fix: make the idea search card follow the theme (T9R3)` (supersedes `T9R2_TESTED_SHA` `25db48c` as the accepted executable; every earlier §1–§15 record remains a true statement about its own SHA) |
+| `T9R3_EXECUTION_ACCEPTANCE_SHA` | `e725eb29a06512113209aa9eb588802517bac690` — `docs: record dsh-idea t9r3 acceptance` (the docs-only commit that recorded the T9R3 round) |
+| `FINAL_ACCEPTANCE_SHA` | this documentation-only finalization commit (SHA in git history and the execution report; the diff `T9_ACCEPTED_EXECUTABLE_SHA..HEAD` touches only `docs/`) |
+| `HARNESS_SHA` | `c291e7961a515f6d7af9304e7fd1d257929aef26` (unchanged) |
+| `DOMAIN` | `idea/v3` |
+| `POST_TESTED_EXECUTABLE_DRIFT` | `NONE` (every commit after the accepted executable SHA is docs-only) |
+| `T9R4_REQUIRED` | `NO` |
+
+T9 is re-frozen at the accepted executable SHA above; no further repair
+round is required, and T10 is not started here.
