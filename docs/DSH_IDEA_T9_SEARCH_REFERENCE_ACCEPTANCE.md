@@ -388,3 +388,117 @@ T9 scope is accepted at `T9R_TESTED_SHA`
 (`47b1894f19ad1b7969f3f82cb58f73e02a3f36fa`), which supersedes `4e220714` as
 the accepted executable baseline; the acceptance commit chain remains
 documentation-only after it.
+
+## 15. T9R2 repair round — UI consistency and detail readability (pending architecture review)
+
+Per `DSH_IDEA_T9R2_UI_CONSISTENCY_AND_DETAIL_READABILITY_REPAIR`, the T9R2
+round repaired eight UI defects (R1–R8) found in the delivered T9/T9R Ideas
+UI during acceptance review. This is **not** a new feature phase and **not**
+T10; it touches only presentation and shell-integration glue inside the
+already-delivered T9 Ideas surfaces. This section records the T9R2 round but
+**does not re-freeze T9** — the round ends `READY_FOR_REVIEW` and waits for
+architecture review.
+
+| Item | Value |
+| --- | --- |
+| `T9R2_BASELINE_SHA` | `c11fd57bd204412451b52c16f827ad20b34149ea` — `origin/main` at round start (T9/T9R accepted state) |
+| `T9R2_TESTED_SHA` | `25db48c954bcc87b58b665a6ac5dbb0224f8beee` — `fix: repair idea UI consistency and detail readability (T9R2)` |
+| `T9R2_ACCEPTANCE_SHA` | the documentation-only commit that carries this section (SHA in git history and the execution report; diff `T9R2_TESTED_SHA..T9R2_ACCEPTANCE_SHA` touches only `docs/`) |
+| Harness read-only SHA | `c291e7961a515f6d7af9304e7fd1d257929aef26` (unchanged) |
+| Domain version | `idea/v3` (unchanged; no schema, storage, or migration change) |
+
+### 15.1 The eight repairs (R1–R8)
+
+- **R1 — conversation Idea action icon**: the assistant Idea action button
+  previously reused a sun/brightness glyph; it now renders a semantically
+  correct lightbulb.
+- **R2 — consistent Settings nav glyph**: the Settings Ideas nav row uses the
+  **same shared icon source** — `src/client/icons.tsx` defines the lightbulb
+  geometry once (`IDEA_BULB_GLASS_PATH` + `IDEA_BULB_BASE_PATH`) and exports
+  both the React component (`IdeaLightbulbIcon`, used by the conversation
+  action and the `idea` command) and a DOM twin (`ideaLightbulbSvgElement`,
+  tagged `data-dsh-idea-icon="bulb"`, used by the nav adapter
+  `src/client/nav-icon.ts`, a MutationObserver that swaps only the exact-label
+  Ideas row and re-applies after shell re-renders). No second icon definition
+  exists.
+- **R3 — idle search border**: the Ideas library search box now has a visible
+  idle border (`1px solid var(--dsw-alias-border-l3, rgba(127,127,127,0.35))`,
+  focus deepens to l4); focus is no longer the only way to see the border.
+- **R4 — hover preview readability**: the Idea item hover preview card is
+  theme-aware — light surface (`var(--dsw-alias-bg-layer-1, #fff)` + l2
+  border + lv3 shadow) in the light theme, dark override kept under
+  `body[data-ds-dark-theme]`. Preview content semantics unchanged.
+- **R5 — compact back button**: the detail 返回列表 button sits in a
+  left-aligned flex row (`.dsh-idea-back-row`) and keeps its natural width
+  instead of stretching across the content area.
+- **R6 — action labels**: `继续讨论`→`讨论`, `永久删除`→`删除`; `编辑` and
+  `归档` unchanged. Display strings only — underlying action semantics,
+  and the §14-frozen delete-confirmation copy (`永久删除 Idea？` /
+  `永久删除`), are untouched.
+- **R7 — Settings re-entry reset**: entering a detail, switching to another
+  Settings section, and re-entering Ideas now lands on the initial list
+  (the section re-mounts and resets the read state on mount); the in-page
+  list → detail → back flow is unaffected.
+- **R8 — lightweight detail sections**: each detail field (核心想法 /
+  为什么值得保留 / 当前结论 / 可能价值 / 适用场景 / 待解决问题) renders in a
+  restrained bordered card (l3 border, 10px radius, light padding, stable
+  spacing). Field order, semantics, saved data, and the domain/schema are
+  unchanged.
+
+### 15.2 T9R2 scope freeze
+
+No Search ranking/weights/result semantics, Related retrieval/judge
+semantics, reference admission/exact-version semantics, Save Idea behavior,
+evolution/continuation semantics, lifecycle/archive/restore/delete
+semantics, storage schema, or domain version changed; no Harness-core, PAH,
+Memory, or Knowledge changes; no new features. `generate:typert` produced
+**zero diff** (no schema drift).
+
+### 15.3 T9R2 evidence
+
+- **Offline gates** at `T9R2_TESTED_SHA`: `generate:typert` (no drift),
+  `typecheck` (clean), `build` + `build:client` (clean), `git diff --check`
+  (clean), full test suite **516 passed** (17 new tests in
+  `tests/client-t9r2.spec.tsx` plus R6 label fallout updates in the
+  continue/evolution/lifecycle suites that preserve the frozen dialog copy).
+- **Isolated Playwright UI acceptance** (light theme, isolated `DSH_HOME`
+  with two seeded idea records and one deterministic model turn to
+  materialize an assistant message; real Harness shell at the read-only SHA;
+  24/24 records PASS, zero console/page errors, zero failed requests):
+  - R1: action svg has exactly the shared glass+base paths, no circle/sun
+    glyph.
+  - R2: Ideas nav row svg tagged `bulb`, same glass geometry, `width=16`.
+  - R3: idle border computed `1px solid rgba(0, 0, 0, 0.12)` (non-
+    transparent); focus deepens.
+  - R4: hover card computed `background rgb(255, 255, 255)`, border
+    `rgba(0, 0, 0, 0.1)`; title `rgb(15, 17, 21)` and core `rgb(97, 102,
+    107)` — dark-on-light by luminance, readable; card dismisses on unhover.
+  - R5: back button 86px wide inside a 564px library, left offset 0px.
+  - R6: action buttons read `编辑 | 讨论 | 归档 | 删除`; no `继续讨论` /
+    `永久删除` on any action button.
+  - R8: exactly six field cards in canonical order, all seeded field strings
+    render, and the preview card never uses the detail card class.
+  - R7: after switching to 模型 and back, Ideas lands on the list (2 rows),
+    previous detail gone; in-page list → detail → back still works.
+  - Zero console/page errors; zero failed requests.
+- **Runtime cleanup**: acceptance server killed by PID, port 3080 confirmed
+  closed, zero `bin.ts` nodes, zero `ms-playwright` chromium processes; the
+  token-bearing log/url files and the whole isolated home were deleted.
+
+### 15.4 Disclosure (R4-same-class observation)
+
+The composer's Idea search card (`.dsh-idea-search`, opened from the
+composer command menu) still uses a fixed dark surface (`#2C2C2E`) that does
+not adapt to the light theme — computed `background rgb(44, 44, 46)` under
+the light theme in the same acceptance run. This is the same defect class R4
+fixes for the hover preview card, but the composer search card is T9 Search
+surface whose styling was not listed in the R1–R8 scope, so T9R2 leaves it
+untouched under the scope freeze and discloses it here for architecture
+review.
+
+### 15.5 Verdict (T9R2)
+
+T9R2 is `READY_FOR_REVIEW` at `T9R2_TESTED_SHA`
+(`25db48c954bcc87b58b665a6ac5dbb0224f8beee`). This round does **not**
+re-freeze T9 and does not constitute a T10 start; T9's acceptance status
+remains as recorded in §14 pending architecture review of this report.
