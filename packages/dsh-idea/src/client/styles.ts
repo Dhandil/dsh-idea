@@ -158,12 +158,21 @@ const CSS = `
   box-sizing: border-box;
   width: 100%;
   padding: 6px 10px;
-  border: 1px solid var(--dsw-alias-line-secondary, transparent);
+  /* T9R2 R3: the idle state carries a visible border (the former token
+     resolved to transparent); focus only deepens it. */
+  border: 1px solid var(--dsw-alias-border-l3, rgba(127, 127, 127, 0.35));
   border-radius: 8px;
-  background: var(--dsw-alias-fill-secondary, transparent);
+  background: transparent;
   color: inherit;
   font-size: 13px;
   line-height: 20px;
+}
+.dsh-idea-library-search:focus {
+  border-color: var(--dsw-alias-border-l4, rgba(127, 127, 127, 0.55));
+}
+.dsh-idea-back-row {
+  display: flex;
+  justify-content: flex-start;
 }
 .dsh-idea-search-scope-current,
 .dsh-idea-search-scope-archived {
@@ -181,7 +190,10 @@ const CSS = `
 }
 /* The feature-owned hover card rides above the settings modal layer (its
    full-viewport mask, z-index 1000, blocked the primitive's z-100 card from
-   receiving clicks). Surface #2C2C2E in both themes, as in the primitive. */
+   receiving clicks). T9R2 R4: the surface follows the theme — light alias
+   (white) plus a hairline border in the light theme, the original dark
+   surface preserved under the dark theme — so the card's dark label-alias
+   text stays readable. */
 .dsh-idea-hover-root {
   position: relative;
   display: block;
@@ -192,9 +204,14 @@ const CSS = `
   box-sizing: border-box;
   width: 244px;
   padding: 12px 16px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
   border-radius: 12px;
-  background: #2C2C2E;
+  background: var(--dsw-alias-bg-layer-1, #fff);
   box-shadow: var(--dsw-shadow-lv3);
+}
+body[data-ds-dark-theme] .dsh-idea-hover-card {
+  border-color: transparent;
+  background: #2C2C2E;
 }
 .dsh-idea-preview-title {
   color: var(--dsw-alias-label-primary, inherit);
@@ -257,10 +274,18 @@ const CSS = `
   font-weight: 600;
   line-height: 24px;
 }
+/* T9R2 R8: each detail field reads as one lightweight bordered card —
+   restrained border, small radius, steady padding; the detail column's own
+   12px gap supplies the spacing between cards. Detail-only: the preview
+   card never uses this class. */
 .dsh-idea-detail-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l3, rgba(127, 127, 127, 0.35));
+  border-radius: 10px;
 }
 .dsh-idea-detail-label {
   color: var(--dsw-alias-label-tertiary);

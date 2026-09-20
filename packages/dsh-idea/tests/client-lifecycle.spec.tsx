@@ -486,7 +486,7 @@ describe('Ideas section: archive and restore', () => {
     const { surface } = await openDetail(face)
 
     expect(screen.queryByRole('button', { name: '编辑' })).toBeNull()
-    expect(screen.queryByRole('button', { name: '继续讨论' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '讨论' })).toBeNull()
     expect(screen.queryByRole('button', { name: '归档' })).toBeNull()
     expect(screen.queryByRole('button', { name: '生成演化提案' })).toBeNull()
     expect(document.querySelector('.dsh-idea-row-meta')?.textContent).toContain('已归档')
@@ -505,7 +505,7 @@ describe('Ideas section: permanent delete', () => {
   /** Open the detail and the delete confirmation. */
   async function openDialog(face: ReturnType<typeof faceWith>) {
     const { surface } = await openDetail(face)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '永久删除' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '删除' })) })
     return { surface, dialog: dialogOf() }
   }
 
@@ -525,7 +525,7 @@ describe('Ideas section: permanent delete', () => {
     expect(face.deleteIdea).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog')).toBeNull()
     // Back on the detail: only the detail's own delete button remains.
-    expect(screen.getByRole('button', { name: '永久删除' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '删除' })).toBeTruthy()
   })
 
   it('confirms at the expected version and exits to the list only after the Host settled', async () => {

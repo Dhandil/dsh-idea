@@ -161,7 +161,7 @@ async function openDiscussedDetail(face: ReturnType<typeof faceWith>) {
 /** Continue, then prepare, ending in the open proposal preview. */
 async function openProposalPreview(face: ReturnType<typeof faceWith>) {
   const seats = await openDiscussedDetail(face)
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
   await flush()
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: '生成演化提案' })) })
   await flush()
@@ -174,7 +174,7 @@ describe('Ideas section: evolution entry', () => {
     const { surface } = await openDiscussedDetail(face)
     expect(screen.queryByRole('button', { name: '生成演化提案' })).toBeNull()
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     await flush()
 
     expect(surface.state.getSnapshot().discussionId).toBe('idea_dis_1')
@@ -186,7 +186,7 @@ describe('Ideas section: evolution entry', () => {
     const gate = new Promise<void>((resolveGate) => { release = resolveGate })
     const face = faceWith({ prepareEvolution: () => gate.then(() => previewOf()) })
     const { surface } = await openDiscussedDetail(face)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     await flush()
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '生成演化提案' })) })
@@ -216,7 +216,7 @@ describe('Ideas section: evolution entry', () => {
       },
     })
     const { surface } = await openDiscussedDetail(face)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     await flush()
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '生成演化提案' })) })

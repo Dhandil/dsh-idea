@@ -78,12 +78,21 @@ export function IdeaSection({
 }: IdeaSectionProps): ReactNode {
   const state = useIdeaRead(view => view)
   useEffect(() => { load() }, [load])
+  // T9R2 R7: the shell unmounts this section on every settings navigation
+  // and modal close, while the root-scoped read surface keeps its state —
+  // so each fresh mount re-enters at the list, never inside a detail left
+  // over from a previous visit. In-page list→detail→back is untouched: no
+  // remount happens there. Empty deps are deliberate (a per-render identity
+  // would reset mid-detail).
+  useEffect(() => { closeDetail() }, [])
 
   if (state.detailId !== null) {
     const editing = state.edit.status !== 'idle' && state.edit.ideaId === state.detailId
     return (
       <div className="dsh-idea-library">
-        <Button variant="outline" onClick={closeDetail}>{t('read.back')}</Button>
+        <div className="dsh-idea-back-row">
+          <Button variant="outline" onClick={closeDetail}>{t('read.back')}</Button>
+        </div>
         {state.detailStatus === 'loading' && <p className="dsh-idea-state">{t('read.loading')}</p>}
         {state.detailStatus === 'error' && (
           <p className="dsh-idea-state">

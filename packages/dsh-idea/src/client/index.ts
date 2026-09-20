@@ -12,7 +12,6 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
-import { IconLightOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only seat pulls: the Context merges (ctx.remote / ctx.locale /
 // ctx.slots / ctx.commandUi / ctx.inputTriggers / ctx.conversation) and the
 // SlotMap entries the registrations type against.
@@ -40,6 +39,8 @@ import { IdeaAssistantActions } from './IdeaAssistantActions.tsx'
 import { IdeaRelatedOverlay } from './IdeaRelatedOverlay.tsx'
 import { IdeaSearchCard } from './IdeaSearchCard.tsx'
 import { IdeaSection } from './IdeaSection.tsx'
+import { IdeaLightbulbIcon } from './icons.tsx'
+import { installIdeaNavIcon } from './nav-icon.ts'
 import { en, zh } from './locales.ts'
 import { IdeaReadSurface } from './read-state.ts'
 import { RelatedIdeasSurface } from './related-state.ts'
@@ -71,6 +72,12 @@ function registerUi(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-idea: dictionaries')
 
   const t = ctx.locale.bind(NS)
+
+  // The Ideas nav row's glyph (T9R2 R2): the frozen shell hardcodes nav
+  // icons by section id (unknown = gear), so the plugin upgrades its own
+  // row to the same shared lightbulb the conversation action uses.
+  ctx.effect(() => installIdeaNavIcon(t('read.nav')), 'dsh-idea: settings nav icon')
+
   const sessions = ctx.sessions as unknown as ISessions
 
   const surfaces = new Map<SessionId, IdeaSaveSurface>()
@@ -216,7 +223,7 @@ function registerUi(ctx: ClientContext): void {
     name: 'idea',
     label: () => t('search.command'),
     description: () => t('search.commandDescription'),
-    icon: IconLightOutline16,
+    icon: IdeaLightbulbIcon,
     available: () => true,
     ui: {
       kind: 'action',

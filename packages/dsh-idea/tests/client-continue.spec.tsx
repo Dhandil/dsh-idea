@@ -129,9 +129,9 @@ async function openDetail(face: IdeaReadFace, openConversation?: (conversationId
 }
 
 describe('Ideas section: continue discussion', () => {
-  it('shows the 继续讨论 button on the detail page', async () => {
+  it('shows the 讨论 button on the detail page', async () => {
     await openDetail(faceWith())
-    expect(screen.getByRole('button', { name: '继续讨论' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '讨论' })).toBeTruthy()
   })
 
   it('enters the loading state, disables the button, and opens the conversation on success', async () => {
@@ -141,7 +141,7 @@ describe('Ideas section: continue discussion', () => {
     const openConversation = vi.fn(async () => {})
     await openDetail(face, openConversation)
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     const loading = screen.getByRole('button', { name: '正在开启讨论…' }) as HTMLButtonElement
     expect(loading.disabled).toBe(true)
 
@@ -149,7 +149,7 @@ describe('Ideas section: continue discussion', () => {
     await flush()
     expect(face.continueDiscussion).toHaveBeenCalledWith({ id: 'idea_1' })
     expect(openConversation).toHaveBeenCalledWith('session-new')
-    expect((screen.getByRole('button', { name: '继续讨论' }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole('button', { name: '讨论' }) as HTMLButtonElement).disabled).toBe(false)
     expect(screen.queryByText('继续讨论失败，请稍后重试')).toBeNull()
   })
 
@@ -159,7 +159,7 @@ describe('Ideas section: continue discussion', () => {
     const face = faceWith(() => gate.then(() => continueResult()))
     await openDetail(face)
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '正在开启讨论…' })) })
     await act(async () => { release?.() })
     await flush()
@@ -176,13 +176,13 @@ describe('Ideas section: continue discussion', () => {
     const openConversation = vi.fn(async () => {})
     await openDetail(face, openConversation)
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     await flush()
     expect(screen.getByText('继续讨论失败，请稍后重试')).toBeTruthy()
     expect(openConversation).not.toHaveBeenCalled()
 
     failing = false
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     await flush()
     expect(face.continueDiscussion).toHaveBeenCalledTimes(2)
     expect(openConversation).toHaveBeenCalledWith('session-new')
@@ -194,7 +194,7 @@ describe('Ideas section: continue discussion', () => {
     const openConversation = vi.fn(async () => { throw new Error('session list refused') })
     await openDetail(face, openConversation)
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     await flush()
     expect(openConversation).toHaveBeenCalledWith('session-new')
     expect(screen.getByText('继续讨论失败，请稍后重试')).toBeTruthy()
@@ -208,7 +208,7 @@ describe('Ideas section: continue discussion', () => {
     render(<IdeaSection {...sectionProps(surface)} />)
     await flush()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     expect(surface.state.getSnapshot().continueStatus).toBe('loading')
 
     await act(async () => { surface.open('idea_2') })
@@ -226,7 +226,7 @@ describe('Ideas section: continue discussion', () => {
     await flush()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     await flush()
 
     expect(prepareWorkspace).toHaveBeenCalledTimes(1)
@@ -246,7 +246,7 @@ describe('Ideas section: continue discussion', () => {
     await flush()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     await flush()
 
     expect(face.continueDiscussion).toHaveBeenCalledWith({ id: 'idea_1' })
@@ -263,7 +263,7 @@ describe('Ideas section: continue discussion', () => {
     await flush()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '继续讨论' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     await flush()
 
     expect(face.continueDiscussion).not.toHaveBeenCalled()

@@ -10,7 +10,8 @@
  */
 
 import { useCallback, useState } from 'react'
-import { IconLightOutline16, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IdeaLightbulbIcon } from './icons.tsx'
 import type { UnifiedActionProps } from './slots.ts'
 
 /**
@@ -58,7 +59,7 @@ export function IdeaAssistantActions({ messageId, prepare, findRelated, useIdea,
           aria-expanded={menuOpen}
           onClick={() => { setMenuOpen(open => !open) }}
         >
-          <IconLightOutline16 size={15} />
+          <IdeaLightbulbIcon size={15} />
         </button>
       )}
     />
