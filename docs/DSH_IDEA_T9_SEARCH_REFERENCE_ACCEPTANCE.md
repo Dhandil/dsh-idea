@@ -502,3 +502,93 @@ T9R2 is `READY_FOR_REVIEW` at `T9R2_TESTED_SHA`
 (`25db48c954bcc87b58b665a6ac5dbb0224f8beee`). This round does **not**
 re-freeze T9 and does not constitute a T10 start; T9's acceptance status
 remains as recorded in §14 pending architecture review of this report.
+
+## 16. T9R3 repair round — composer search card theme readability (pending architecture review)
+
+Per `DSH_IDEA_T9R3_SEARCH_CARD_THEME_READABILITY_REPAIR`, the T9R3 round
+repairs exactly the defect disclosed in §15.4: the composer Idea search card
+(`.dsh-idea-search`) kept a fixed `#2C2C2E` surface while its title/input/
+result text uses the current theme's label tokens — in the light theme those
+tokens are dark, producing a real dark-on-dark readability defect. This is
+**not** a new feature phase and **not** T10. This section supersedes §15:
+the accepted executable candidate for the T9 scope is no longer
+`T9R2_TESTED_SHA` but `T9R3_TESTED_SHA` (`4645121`). T9/T9R/T9R2 history and
+evidence above are preserved unchanged; every §1–§15 record remains a true
+statement about its own SHA. The round ends `READY_FOR_REVIEW` and waits for
+architecture review — the final re-freeze is not declared executor-side.
+
+| Item | Value |
+| --- | --- |
+| `T9R3_BASELINE_SHA` | `1ecb643d94fe9050eaa4a170cb9c7f7290f798e8` — `origin/main` at round start (T9R2 accepted state) |
+| `T9R3_TESTED_SHA` | `46451213641bf5beb6657b259f6033183ba23059` — `fix: make the idea search card follow the theme (T9R3)` |
+| `T9R3_ACCEPTANCE_SHA` | the documentation-only commit that carries this section (SHA in git history and the execution report; diff `T9R3_TESTED_SHA..T9R3_ACCEPTANCE_SHA` touches only `docs/`) |
+| Harness read-only SHA | `c291e7961a515f6d7af9304e7fd1d257929aef26` (unchanged) |
+| Domain version | `idea/v3` (unchanged; no schema, storage, or migration change) |
+
+### 16.1 The repair
+
+`.dsh-idea-search` replaces its fixed `background: #2C2C2E` with the **same
+theme-aware surface as the T9R2 R4 hover preview card**: light theme uses
+`var(--dsw-alias-bg-layer-1, #fff)` plus a light idle border
+(`1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1))`), and the dark
+theme keeps its dark surface via `body[data-ds-dark-theme] .dsh-idea-search
+{ border-color: transparent; background: #2C2C2E; }` — the same override
+pattern §15 introduced, so the token source is shared and deterministic.
+No size, search flow, Add behavior, ranking, result semantics, or
+product-semantic change; the card is not redesigned.
+
+### 16.2 T9R3 scope freeze
+
+No Search ranking/weights/result-limit semantics, Search request semantics,
+Add/reference semantics, Related, Save, lifecycle, exact-version reference,
+storage/schema/domain, or the accepted R1–R8 logic changed; no Harness-core,
+PAH, Memory, or Knowledge changes; no new features. `generate:typert`
+produced **zero diff** (no schema drift).
+
+### 16.3 T9R3 evidence
+
+- **Offline gates** at `T9R3_TESTED_SHA`: `generate:typert` (no drift),
+  `typecheck` (clean), `build` + `build:client` (clean), `git diff --check`
+  (clean), full test suite **521 passed / 36 files** (5 new source-level
+  stylesheet tests in `tests/client-t9r3.spec.tsx`: light surface is the
+  theme alias and not fixed dark, light idle border from the l2 alias, dark
+  override keeps `#2C2C2E` with a transparent border, token source identical
+  to the R4 hover card with exactly the two `body[data-ds-dark-theme]`
+  rules, and geometry/behavior-bearing properties unchanged).
+- **Isolated Playwright UI acceptance** (isolated `DSH_HOME`, two seeded
+  idea records, zero model calls; real Harness shell at the read-only SHA;
+  **22/22 records PASS**, zero console/page errors, zero failed requests).
+  The dark leg is switched through the **real Settings 外观 深色 control**
+  (not a synthetic attribute write), and the preference is restored to 浅色
+  at the end:
+  - Light: card `background rgb(255, 255, 255)` (no longer fixed dark),
+    border `1px solid rgba(0, 0, 0, 0.1)`; title/input/result
+    `rgb(15, 17, 21)` and core `rgb(97, 102, 107)` — dark-on-light by
+    luminance, readable; empty state `rgb(129, 133, 140)` readable.
+  - Light behavior: search input filters to the matching seeded idea
+    (1 row); row click selects, 添加 appends the reference chip
+    (`span[data-composer-chip="idea"]`, composer text `@T9R3A 搜索卡片
+    主题`) and closes the card — Add semantics unchanged.
+  - Dark: card keeps `background rgb(44, 44, 46)` = `#2C2C2E` with a
+    transparent border (no light ring); title/input/result
+    `rgb(249, 250, 251)` and core `rgb(207, 211, 214)` — light-on-dark,
+    readable; empty state `rgb(173, 178, 184)` readable; search input still
+    filters; the card closes via the close button.
+  - Zero console/page errors; zero failed requests.
+  - Playwright MCP (user-scope, connected in this session) was used for
+    auxiliary visual inspection only; all formal evidence comes from the
+    repeatable rig. No repository dependency was changed for MCP.
+- **Runtime cleanup**: acceptance server killed by PID, port 3080 confirmed
+  closed, zero `bin.ts` nodes, zero `ms-playwright` chromium processes; the
+  token-bearing log/url files and the whole isolated home were deleted, and
+  the MCP probe artifacts (screenshot, snapshot dir) were removed from the
+  repository root.
+
+### 16.4 Verdict (T9R3)
+
+The §15.4 disclosure is resolved: the composer Idea search card now follows
+the theme in both palettes with readable text. T9R3 is `READY_FOR_REVIEW` at
+`T9R3_TESTED_SHA` (`4645121`), which supersedes `T9R2_TESTED_SHA`
+(`25db48c`) as the accepted executable candidate for the T9 scope. This
+round does **not** re-freeze T9 and does not start T10; T9's acceptance
+status remains pending architecture review of this report.
