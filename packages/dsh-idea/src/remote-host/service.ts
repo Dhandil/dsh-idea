@@ -20,7 +20,10 @@
  * evolution proposal pipeline — prepare is a read-only proposal, commit is
  * the only durable write and stays subject to the domain's optimistic
  * version check — and `relatedFromMessage` carries the read-only Related
- * Ideas usefulness judgment. The browser may only ever submit a draft plus
+ * Ideas usefulness judgment. The T10 budget faces
+ * (`getResurfacingBudget`/`claimResurfacingBudget`) expose the conversation's
+ * durable one-surface resurfacing budget read and its atomic claim; the
+ * browser never writes storage. The browser may only ever submit a draft plus
  * a Host-owned reference; storage aggregates never cross the wire.
  * @module @dsh-external/dsh-idea/src/remote-host/service
  */
@@ -66,6 +69,9 @@ import type {
   IdeaPrepareRequest,
   IdeaRelatedRequest,
   IdeaRelatedResult,
+  IdeaResurfacingBudgetClaimResult,
+  IdeaResurfacingBudgetReadResult,
+  IdeaResurfacingBudgetRequest,
   IdeaResurfacingEvaluateRequest,
   IdeaResurfacingEvaluateResult,
   IdeaResurfacingJudgeRequest,
@@ -575,6 +581,29 @@ export class IdeaRemoteService extends TypertRemoteService {
       ...(judgment.ideaId !== undefined ? { ideaId: judgment.ideaId } : {}),
       dropped: judgment.dropped.map(entry => ({ ideaId: entry.ideaId, reason: entry.reason })),
     }
+  }
+
+  /**
+   * Read the conversation's durable one-surface resurfacing budget.
+   * Read-only delegation to the domain service: no writes, no model calls.
+   * A storage failure stays an error — the client fails closed.
+   */
+  @Remote
+  async getResurfacingBudget(request: IdeaResurfacingBudgetRequest): Promise<IdeaResurfacingBudgetReadResult> {
+    return this.ctx.ideaService.getResurfacingBudget(request.sessionId)
+  }
+
+  /**
+   * Atomically claim the conversation's one-surface resurfacing budget.
+   * Delegates to the domain service's per-conversation mutation tail, so
+   * concurrent same-Host claimants serialize and exactly one wins
+   * `CLAIMED`. No retries, no model calls; a storage failure stays an
+   * error — the client stays silent.
+   */
+  @Remote
+  async claimResurfacingBudget(request: IdeaResurfacingBudgetRequest): Promise<IdeaResurfacingBudgetClaimResult> {
+    const outcome = await this.ctx.ideaService.claimResurfacingBudget(request.sessionId)
+    return { outcome }
   }
 
   /**

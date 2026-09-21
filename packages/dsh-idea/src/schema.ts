@@ -21,6 +21,7 @@ import type {
   IdeaEvolutionEvent,
   IdeaHistorySummaryEntry,
   IdeaVersion,
+  ResurfacingBudget,
   SourceDiscussion,
   SourceDiscussionDraft,
 } from './types.ts'
@@ -422,3 +423,13 @@ export const ideaDiscussionSchema = z.object({
   createdAt: z.number().int().nonnegative(),
   context: ideaContinuationContextSchema,
 }) satisfies z.ZodType<IdeaDiscussion>
+
+/**
+ * One durable resurfacing-budget record over the `resurfacing_budgets`
+ * table, keyed by conversation id. Exactly the frozen durable fact: the
+ * consumed marker and nothing else — no idea identity, no timestamps, no
+ * evaluation residue.
+ */
+export const resurfacingBudgetSchema = z.object({
+  surfaceBudgetConsumed: z.literal(true),
+}) satisfies z.ZodType<ResurfacingBudget>

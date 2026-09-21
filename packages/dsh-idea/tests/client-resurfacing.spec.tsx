@@ -6,11 +6,16 @@
  * (replays and prepends never trigger), the deterministic gates (feature,
  * current-turn Idea activity, continuation-only silence), settlement and
  * revalidation races (newer user turn, composer revision, post-Judge
- * staleness), the one-suggestion surface budget consumed at surfacing and
- * kept after USER_CONTINUED, runtime identity suppression (referenced /
- * dismissed candidates never re-judged), user actions (reference success
- * and failure, dismiss), and the strip's zero/one-suggestion rendering.
- * All Host faces are scripted; no live Host, provider, or model call.
+ * staleness), the durable one-surface budget — read before any evaluation
+ * (fail-closed while pending or failed, retention of a completed turn
+ * admitted during the read) and consumed through an atomic Host claim
+ * after the Final Delivery Gate (CLAIMED surfaces, ALREADY_CONSUMED and
+ * any claim failure stay silent) — refresh/recreate against the durable
+ * fact, same-Host dual-controller single consumption, runtime identity
+ * suppression (referenced / dismissed candidates never re-judged), user
+ * actions (reference success and failure, dismiss), and the strip's
+ * zero/one-suggestion rendering. All Host faces are scripted; no live
+ * Host, provider, or model call.
  * @module tests/client-resurfacing.spec
  */
 
@@ -154,6 +159,8 @@ interface Rig {
   remote: {
     evaluateResurfacing: ReturnType<typeof vi.fn>
     judgeResurfacing: ReturnType<typeof vi.fn>
+    getResurfacingBudget: ReturnType<typeof vi.fn>
+    claimResurfacingBudget: ReturnType<typeof vi.fn>
   }
   input: { draftRev: number; occurrences: Array<{ source: string; ref: string }> }
   save: { preparingMessageId: string | null; modal: unknown; submitting: boolean }
@@ -164,6 +171,8 @@ interface Rig {
 function makeRig(over: {
   evaluate?: ReturnType<typeof vi.fn>
   judge?: ReturnType<typeof vi.fn>
+  getBudget?: ReturnType<typeof vi.fn>
+  claimBudget?: ReturnType<typeof vi.fn>
 } = {}): Rig {
   const window = new FakeWindow()
   const input = { draftRev: 0, occurrences: [] as Array<{ source: string; ref: string }> }
@@ -176,6 +185,14 @@ function makeRig(over: {
       value: { candidates: [candidateWire('idea_1', 'Alpha idea')], suppressed: [] },
     })),
     judgeResurfacing: over.judge ?? vi.fn(async () => surfaceVerdict('idea_1')),
+    getResurfacingBudget: over.getBudget ?? vi.fn(async () => ({
+      ok: true as const,
+      value: { consumed: false },
+    })),
+    claimResurfacingBudget: over.claimBudget ?? vi.fn(async () => ({
+      ok: true as const,
+      value: { outcome: 'CLAIMED' as const },
+    })),
   }
   const controller = new IdeaResurfacingController({
     sessionId: 'conversation-1',
@@ -498,6 +515,248 @@ describe('the one-suggestion surface budget', () => {
     await flush()
     expect(rig.remote.evaluateResurfacing).toHaveBeenCalledTimes(1)
     expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+})
+
+/** A stateful fake of the Host's durable budget facts, shared by controllers. */
+function makeBudgetHost() {
+  const consumed = new Set<string>()
+  const claims: string[] = []
+  return {
+    consumed,
+    claims,
+    getResurfacingBudget: vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      ok: true as const,
+      value: { consumed: consumed.has(sessionId) },
+    })),
+    claimResurfacingBudget: vi.fn(async ({ sessionId }: { sessionId: string }) => {
+      if (consumed.has(sessionId)) {
+        claims.push('ALREADY_CONSUMED')
+        return { ok: true as const, value: { outcome: 'ALREADY_CONSUMED' as const } }
+      }
+      consumed.add(sessionId)
+      claims.push('CLAIMED')
+      return { ok: true as const, value: { outcome: 'CLAIMED' as const } }
+    }),
+  }
+}
+
+describe('durable budget read before evaluation', () => {
+  it('disables resurfacing entirely when the budget is already consumed', async () => {
+    const rig = makeRig({
+      getBudget: vi.fn(async () => ({ ok: true as const, value: { consumed: true } })),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    expect(rig.remote.evaluateResurfacing).not.toHaveBeenCalled()
+    expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
+    expect(rig.remote.claimResurfacingBudget).not.toHaveBeenCalled()
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+
+  it('retains a completed turn admitted while the read is pending, evaluating only once free', async () => {
+    const budgetGate = deferred<unknown>()
+    const rig = makeRig({
+      getBudget: vi.fn(() => budgetGate.promise),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    // The durable read is unresolved: no evaluation may begin.
+    expect(rig.remote.evaluateResurfacing).not.toHaveBeenCalled()
+    expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+
+    budgetGate.resolve({ ok: true, value: { consumed: false } })
+    await flush()
+    expect(rig.remote.evaluateResurfacing).toHaveBeenCalledTimes(1)
+    expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+    expect(rig.controller.state.getSnapshot().suggestion!.ideaId).toBe('idea_1')
+  })
+
+  it('drops a retained turn invalidated by a newer user message while the read is pending', async () => {
+    const budgetGate = deferred<unknown>()
+    const rig = makeRig({
+      getBudget: vi.fn(() => budgetGate.promise),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    rig.window.append(userEntry('算了，换个话题。', 4))
+    budgetGate.resolve({ ok: true, value: { consumed: false } })
+    await flush()
+
+    expect(rig.remote.evaluateResurfacing).not.toHaveBeenCalled()
+    expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when the durable read reports an error', async () => {
+    const rig = makeRig({
+      getBudget: vi.fn(async () => ({ ok: false as const, error: { code: 'idea/unavailable' } })),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    expect(rig.remote.evaluateResurfacing).not.toHaveBeenCalled()
+    expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
+    expect(rig.remote.claimResurfacingBudget).not.toHaveBeenCalled()
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+
+  it('fails closed when the durable read rejects', async () => {
+    const rig = makeRig({
+      getBudget: vi.fn(async () => { throw new Error('transport lost') }),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    expect(rig.remote.evaluateResurfacing).not.toHaveBeenCalled()
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+})
+
+describe('claim before surface', () => {
+  it('surfaces only after the durable claim resolves CLAIMED', async () => {
+    const claimGate = deferred<unknown>()
+    const rig = makeRig({
+      claimBudget: vi.fn(() => claimGate.promise),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    // The Judge is positive but the durable claim is unresolved: silence.
+    expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+    expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+
+    claimGate.resolve({ ok: true, value: { outcome: 'CLAIMED' } })
+    await flush()
+    expect(rig.controller.state.getSnapshot().suggestion!.ideaId).toBe('idea_1')
+  })
+
+  it('stays silent on ALREADY_CONSUMED and suppresses for the controller lifetime', async () => {
+    const rig = makeRig({
+      claimBudget: vi.fn(async () => ({
+        ok: true as const,
+        value: { outcome: 'ALREADY_CONSUMED' as const },
+      })),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+
+    pushTurn(rig.window, 4, '塔防的方向哪个更好？', '各有取舍。')
+    await flush()
+    expect(rig.remote.evaluateResurfacing).toHaveBeenCalledTimes(1)
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+
+  it('stays silent when the claim rejects', async () => {
+    const rig = makeRig({
+      claimBudget: vi.fn(async () => { throw new Error('transport lost') }),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+    expect(rig.controller.state.getSnapshot().lastExpireReason).toBeNull()
+  })
+
+  it('stays silent on an ambiguous claim failure, and a later turn re-gates through the Host', async () => {
+    const claims = [
+      { ok: false as const, error: { code: 'gateway/unavailable' } },
+      { ok: true as const, value: { outcome: 'ALREADY_CONSUMED' as const } },
+    ]
+    const rig = makeRig({
+      claimBudget: vi.fn(async () => claims.shift()!),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+
+    // A later opportunity is a new evaluation, still gated by the Host's
+    // durable record — never an immediate retry of the lost response.
+    pushTurn(rig.window, 4, '塔防的方向哪个更好？', '各有取舍。')
+    await flush()
+    expect(rig.remote.evaluateResurfacing).toHaveBeenCalledTimes(2)
+    expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledTimes(2)
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+})
+
+describe('refresh / recreate against the durable fact', () => {
+  it('recreates silent: zero new evaluate, judge, and claim after a consumed budget', async () => {
+    const budget = makeBudgetHost()
+    const first = makeRig({
+      getBudget: budget.getResurfacingBudget,
+      claimBudget: budget.claimResurfacingBudget,
+    })
+    pushTurn(first.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    expect(first.controller.state.getSnapshot().suggestion!.ideaId).toBe('idea_1')
+    expect(budget.consumed.has('conversation-1')).toBe(true)
+
+    // Refresh: the ephemeral controller is destroyed and recreated for the
+    // same conversation against the same durable fact.
+    first.controller.dispose()
+    const second = makeRig({
+      getBudget: vi.fn((request: { sessionId: string }) => budget.getResurfacingBudget(request)),
+      claimBudget: vi.fn((request: { sessionId: string }) => budget.claimResurfacingBudget(request)),
+    })
+    pushTurn(second.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    expect(second.remote.evaluateResurfacing).not.toHaveBeenCalled()
+    expect(second.remote.judgeResurfacing).not.toHaveBeenCalled()
+    expect(second.remote.claimResurfacingBudget).not.toHaveBeenCalled()
+    expect(second.remote.getResurfacingBudget).toHaveBeenCalledTimes(1)
+    expect(second.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+})
+
+describe('same-Host dual controllers', () => {
+  it('lets exactly one of two controllers surface one conversation', async () => {
+    const budget = makeBudgetHost()
+    const judgeA = deferred<unknown>()
+    const judgeB = deferred<unknown>()
+    const a = makeRig({
+      getBudget: vi.fn((request: { sessionId: string }) => budget.getResurfacingBudget(request)),
+      claimBudget: vi.fn((request: { sessionId: string }) => budget.claimResurfacingBudget(request)),
+      judge: vi.fn(() => judgeA.promise),
+    })
+    const b = makeRig({
+      getBudget: vi.fn((request: { sessionId: string }) => budget.getResurfacingBudget(request)),
+      claimBudget: vi.fn((request: { sessionId: string }) => budget.claimResurfacingBudget(request)),
+      judge: vi.fn(() => judgeB.promise),
+    })
+    pushTurn(a.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    pushTurn(b.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    expect(a.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+    expect(b.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+
+    // Both reach the Final Delivery Gate and both claim; the shared Host
+    // tail lets exactly one win.
+    judgeA.resolve(surfaceVerdict('idea_1'))
+    judgeB.resolve(surfaceVerdict('idea_1'))
+    await flush()
+
+    expect(a.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
+    expect(b.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
+    expect([...budget.claims].sort()).toEqual(['ALREADY_CONSUMED', 'CLAIMED'])
+
+    const surfaced = [a, b].filter(rig => rig.controller.state.getSnapshot().suggestion !== null)
+    expect(surfaced).toHaveLength(1)
+    // The winner is consumed for life; the loser is silent for life.
+    const loser = surfaced[0] === a ? b : a
+    pushTurn(loser.window, 4, '塔防的方向哪个更好？', '各有取舍。')
+    pushTurn(surfaced[0]!.window, 4, '塔防的方向哪个更好？', '各有取舍。')
+    await flush()
+    expect(loser.controller.state.getSnapshot().suggestion).toBeNull()
+    expect(surfaced[0]!.remote.evaluateResurfacing).toHaveBeenCalledTimes(1)
+    expect(loser.remote.evaluateResurfacing).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -451,3 +451,21 @@ export interface IdeaResurfacingJudgeResult {
     reason: 'CANDIDATE_BECAME_INELIGIBLE' | 'CANDIDATE_VERSION_CHANGED'
   }[]
 }
+
+/** `idea.getResurfacingBudget` / `idea.claimResurfacingBudget` request. */
+export interface IdeaResurfacingBudgetRequest {
+  /** The conversation id the one-surface budget is keyed by. */
+  sessionId: string
+}
+
+/** `idea.getResurfacingBudget` result: the durable budget fact, read-only. */
+export interface IdeaResurfacingBudgetReadResult {
+  /** Whether the conversation's proactive-resurfacing surface budget is consumed. */
+  consumed: boolean
+}
+
+/** `idea.claimResurfacingBudget` result: the closed claim outcome. */
+export interface IdeaResurfacingBudgetClaimResult {
+  /** `CLAIMED` when this call durably consumed the budget; `ALREADY_CONSUMED` otherwise. */
+  outcome: 'CLAIMED' | 'ALREADY_CONSUMED'
+}

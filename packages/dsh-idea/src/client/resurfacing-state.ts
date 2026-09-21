@@ -2,9 +2,17 @@
  * The per-Conversation resurfacing controller (§4): the plugin-owned runtime
  * that turns eligible completed-turn triggers into at most one lightweight
  * suggestion above the composer. The controller is ephemeral by design —
- * trigger identity, composer revision, the pending pool, surfaced/referenced/
- * dismissed ids, and the one-suggestion surface budget all live here, never
- * in the Idea aggregate, and none of it is durable. Triggers come only from
+ * trigger identity, composer revision, the pending pool, and the
+ * surfaced/referenced/dismissed ids all live here, never in the Idea
+ * aggregate. The one-suggestion surface budget is the exception: it is the
+ * Host's durable `resurfacing_budgets` record, never runtime state. The
+ * controller loads that record before any evaluation may begin and fails
+ * closed while the read is pending or failed; a completed turn arriving
+ * during the read is retained as the minimum trigger state and evaluated
+ * only once the budget is known free. Consumption happens after the Final
+ * Delivery Gate through an atomic Host claim — CLAIMED publishes the
+ * suggestion, ALREADY_CONSUMED and any claim failure stay silent, and the
+ * UI never surfaces before the durable claim lands. Triggers come only from
  * the Session's incremental event feed (an appended durable `turn/end`
  * completed event); replays, prepended history, and live transient chunks
  * never trigger. Resurfacing is not context injection: until the user
@@ -25,7 +33,13 @@ import {
   RESURFACING_TURN_TEXT_LIMIT,
 } from '../resurfacing/types.ts'
 import type { ResurfacingSignal } from '../resurfacing/types.ts'
-import type { IdeaResurfacingCandidate, IdeaResurfacingEvaluateResult, IdeaResurfacingJudgeResult } from '../remote-host/types.ts'
+import type {
+  IdeaResurfacingBudgetClaimResult,
+  IdeaResurfacingBudgetReadResult,
+  IdeaResurfacingCandidate,
+  IdeaResurfacingEvaluateResult,
+  IdeaResurfacingJudgeResult,
+} from '../remote-host/types.ts'
 
 /** The client's view of one Host resurfacing verdict. */
 export interface ResurfaceSuggestion {
@@ -69,6 +83,18 @@ export interface ResurfacingRemoteFace {
     candidates: readonly { ideaId: string; evaluatedVersionId: string }[]
   }, signal?: AbortSignal): Promise<
     | { ok: true; value: IdeaResurfacingJudgeResult }
+    | { ok: false; error: { code: string } }
+  >
+  getResurfacingBudget(request: {
+    sessionId: string
+  }): Promise<
+    | { ok: true; value: IdeaResurfacingBudgetReadResult }
+    | { ok: false; error: { code: string } }
+  >
+  claimResurfacingBudget(request: {
+    sessionId: string
+  }): Promise<
+    | { ok: true; value: IdeaResurfacingBudgetClaimResult }
     | { ok: false; error: { code: string } }
   >
 }
@@ -270,11 +296,24 @@ export class IdeaResurfacingController {
   private judging = false
   private readonly abort = new AbortController()
 
-  /** Ephemeral per-conversation identity sets (§15) and the V1 budget. */
+  /** Ephemeral per-conversation identity sets (§15); the one-surface budget
+   * is not among them — it is the Host's durable record. */
   private readonly surfacedIds = new Set<string>()
   private readonly referencedIds = new Set<string>()
   private readonly dismissedIds = new Set<string>()
-  private budgetUsed = false
+  /**
+   * The durable one-surface budget state, loaded from the Host before any
+   * evaluation may begin. `loading` and `failed` block evaluation (fail
+   * closed); `consumed` suppresses evaluation for this controller's whole
+   * lifetime; `free` is normal T10 behavior. `free` never means "assume
+   * absent": it is only ever set from a successful Host read, and the Host
+   * claim re-gates every surface attempt.
+   */
+  private budgetState: 'loading' | 'free' | 'consumed' | 'failed' = 'loading'
+  /** The latest completed turn admitted while the budget read was pending
+   * (§9): retained as the minimum trigger state, evaluated only once the
+   * budget resolves free; dropped on consumed/failed and on user-moved-on. */
+  private retainedTurn: { turnEndSeq: number; turn: number } | undefined
 
   constructor(deps: {
     sessionId: string
@@ -291,6 +330,42 @@ export class IdeaResurfacingController {
     this.save = deps.save
     this.appendReference = deps.appendReference
     this.unsubscribe = this.events.subscribe(() => { this.handleWindowChange() })
+    void this.loadBudget(this.epoch)
+  }
+
+  /**
+   * Load the conversation's durable budget fact before any evaluation may
+   * begin (§6). Resolution is epoch-guarded: a disposed controller never
+   * mutates state. The read is authoritative — a transport failure is
+   * `failed` (never `free`), a consumed record disables resurfacing for
+   * this controller's lifetime, and a free record releases any turn
+   * retained while the read was pending.
+   */
+  private async loadBudget(epoch: number): Promise<void> {
+    let result: Awaited<ReturnType<ResurfacingRemoteFace['getResurfacingBudget']>> | undefined
+    try {
+      result = await this.remote.getResurfacingBudget({ sessionId: this.sessionId })
+    } catch {
+      result = undefined
+    }
+    if (epoch !== this.epoch) return
+    if (result === undefined || !result.ok) {
+      // Fail closed: an unknown budget is never a fresh budget.
+      this.budgetState = 'failed'
+      this.retainedTurn = undefined
+      return
+    }
+    if (result.value.consumed) {
+      this.budgetState = 'consumed'
+      this.retainedTurn = undefined
+      return
+    }
+    this.budgetState = 'free'
+    const retained = this.retainedTurn
+    this.retainedTurn = undefined
+    if (retained !== undefined) {
+      void this.beginEvaluation(retained.turnEndSeq, retained.turn)
+    }
   }
 
   /** Unsubscribe the feed and drop all ephemeral state; the strip empties. */
@@ -301,6 +376,7 @@ export class IdeaResurfacingController {
     this.unsubscribe = undefined
     this.trigger = undefined
     this.pending = undefined
+    this.retainedTurn = undefined
     this.evaluating = false
     this.judging = false
     this.state.update((draft) => {
@@ -382,6 +458,13 @@ export class IdeaResurfacingController {
    * invalidated (TRIGGER_TURN_NO_LONGER_CURRENT).
    */
   private onUserMovedOn(userSeq: number): void {
+    if (this.budgetState === 'loading') {
+      // Any user message appended after the retained turn/end is a newer
+      // turn: existing T10 semantics invalidate the trigger immediately,
+      // even before the budget read resolves.
+      this.retainedTurn = undefined
+      return
+    }
     const snapshot = this.state.getSnapshot()
     if (snapshot.suggestion !== null) {
       // §13.4: the user continued; the budget stays consumed either way.
@@ -405,6 +488,12 @@ export class IdeaResurfacingController {
   private onCompletedTurn(turnEndSeq: number, turn: number): void {
     if (turnEndSeq <= this.lastHandledTurnEndSeq) return
     this.lastHandledTurnEndSeq = turnEndSeq
+    if (this.budgetState === 'loading') {
+      // §9: retain only the minimum trigger state; the durable read gates
+      // any evaluation, so nothing runs until the budget is known.
+      this.retainedTurn = { turnEndSeq, turn }
+      return
+    }
     void this.beginEvaluation(turnEndSeq, turn)
   }
 
@@ -413,7 +502,7 @@ export class IdeaResurfacingController {
     const epoch = this.epoch
     if (!RESURFACING_FEATURE_ENABLED) return
     if (this.state.getSnapshot().suggestion !== null) return
-    if (this.budgetUsed) return
+    if (this.budgetState !== 'free') return
     if (this.evaluating || this.judging) return
     if (this.trigger !== undefined || this.pending !== undefined) return
 
@@ -553,7 +642,7 @@ export class IdeaResurfacingController {
     if (hasNewerUserMessage(this.events.getSnapshot().entries, pending.trigger.userSeq)) return
     if (this.input.getSnapshot().draftRev !== pending.trigger.draftRev) return
     if (this.state.getSnapshot().suggestion !== null) return
-    if (this.budgetUsed) return
+    if (this.budgetState !== 'free') return
     if (
       this.referencedIds.has(judgment.ideaId)
       || this.dismissedIds.has(judgment.ideaId)
@@ -563,6 +652,51 @@ export class IdeaResurfacingController {
     }
     const evaluated = pending.candidates.find(candidate => candidate.ideaId === judgment.ideaId)
     if (evaluated === undefined) return
+
+    // Durable claim before any UI surface: the gate has passed, so the
+    // budget is consumed on the Host first. The judging flag stays held (no
+    // await crossed since it was cleared) so no new evaluation can begin
+    // inside the claim window.
+    this.judging = true
+    let claim: Awaited<ReturnType<ResurfacingRemoteFace['claimResurfacingBudget']>> | undefined
+    try {
+      // Deliberately not abortable: a short Host call whose abort would not
+      // un-consume a budget the Host may already have committed.
+      claim = await this.remote.claimResurfacingBudget({ sessionId: this.sessionId })
+    } catch {
+      claim = undefined
+    }
+    this.judging = false
+    if (epoch !== this.epoch) return
+    if (claim === undefined || !claim.ok) {
+      // Ambiguous failure: silence now, no immediate retry. The budget
+      // state is deliberately left unchanged — the Host's durable record
+      // re-gates any future opportunity, so no duplicate surface is
+      // possible, and a later recreation discovers the durable fact if the
+      // claim landed.
+      return
+    }
+    // The durable fact is decided either way; local suppression is for life.
+    this.budgetState = 'consumed'
+    if (claim.value.outcome !== 'CLAIMED') {
+      // ALREADY_CONSUMED: another client won the budget; silence.
+      return
+    }
+
+    // Re-check the cheap gate conditions across the claim await. A
+    // correct-but-late suggestion is invalid even though the budget is now
+    // durably consumed — claim-without-surface is the allowed safe loss,
+    // never surface-without-claim.
+    if (this.state.getSnapshot().suggestion !== null) return
+    if (hasNewerUserMessage(this.events.getSnapshot().entries, pending.trigger.userSeq)) return
+    if (this.input.getSnapshot().draftRev !== pending.trigger.draftRev) return
+    if (
+      this.referencedIds.has(judgment.ideaId)
+      || this.dismissedIds.has(judgment.ideaId)
+      || this.surfacedIds.has(judgment.ideaId)
+    ) {
+      return
+    }
 
     const suggestion: ResurfaceSuggestion = {
       ideaId: evaluated.ideaId,
@@ -576,7 +710,6 @@ export class IdeaResurfacingController {
       judgeReason: judgment.reason,
     }
     this.surfacedIds.add(suggestion.ideaId)
-    this.budgetUsed = true
     this.state.update((draft) => {
       draft.suggestion = suggestion
       draft.lastExpireReason = null

@@ -23,7 +23,12 @@
  * mutation's whole turn — authoritative reads, checks, awaits, writes —
  * completes before the next mutation for the same idea begins, so a delete
  * admitted while an earlier mutation is in flight observes that mutation's
- * settled result instead of racing past it. All operations are
+ * settled result instead of racing past it. The one-surface
+ * proactive-resurfacing budget of a conversation is a durable read plus an
+ * atomic claim over the additive `resurfacing_budgets` table: the claim's
+ * test-and-set runs inside a per-conversation mutation tail keyed by
+ * conversation id, so concurrent same-Host claimants serialize and exactly
+ * one wins. All operations are
  * user-triggered — no automatic detection or background writes exist here.
  * @module @dsh-external/dsh-idea/src/service
  */
@@ -53,6 +58,7 @@ import type {
   IdeaHistorySummaryEntry,
   IdeaVersion,
   ListIdeasOptions,
+  ResurfacingBudget,
   SourceDiscussion,
   SourceDiscussionDraft,
 } from './types.ts'
@@ -94,8 +100,9 @@ function sameIdeaDraft(a: IdeaDraft, b: IdeaDraft): boolean {
 
 /**
  * The Idea domain service. Opens the `idea` domain at init and keeps the
- * aggregate table as its single durable surface; the caller of `open` owns
- * the domain handle, released through the service's own effect disposer.
+ * ideas, discussions, and resurfacing-budget tables as its durable surfaces;
+ * the caller of `open` owns the domain handle, released through the
+ * service's own effect disposer.
  */
 export class IdeaService extends Service {
   static inject = ['storageDomain']
@@ -108,6 +115,10 @@ export class IdeaService extends Service {
   private readonly mutationTails = new Map<IdeaId, Promise<void>>()
   /** Process-local permanent-delete guard: ideas with a delete admitted. */
   private readonly deleting = new Set<IdeaId>()
+  private resurfacingBudgets?: KvTable<string, ResurfacingBudget>
+  /** Per-conversation budget-claim tails: one conversation's claims serialize
+   * behind each other; different conversations never share a slot. */
+  private readonly budgetTails = new Map<string, Promise<void>>()
 
   constructor(ctx: Context) {
     super(ctx, 'ideaService')
@@ -118,6 +129,7 @@ export class IdeaService extends Service {
     this.ctx.effect(() => () => domain.close(), 'idea.domainClose')
     this.table = domain.table('ideas')
     this.discussions = domain.table('discussions')
+    this.resurfacingBudgets = domain.table('resurfacing_budgets')
   }
 
   /**
@@ -447,6 +459,25 @@ export class IdeaService extends Service {
   }
 
   /**
+   * Per-conversation mutation tail for budget claims, the same shape as the
+   * per-Idea lifecycle tail: one claim's whole read-check-write turn is
+   * serialized behind the previous one for the same conversation, so the
+   * claim is an atomic same-Host test-and-set. The tail always settles, so
+   * one rejected claim never poisons later ones; an idle entry is removed
+   * once it is the settled entry, keeping the map bounded.
+   */
+  private enqueueBudgetClaim<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
+    const tail = this.budgetTails.get(sessionId) ?? Promise.resolve()
+    const started = tail.then(operation, operation)
+    const settled = started.then(() => undefined, () => undefined)
+    this.budgetTails.set(sessionId, settled)
+    void settled.then(() => {
+      if (this.budgetTails.get(sessionId) === settled) this.budgetTails.delete(sessionId)
+    })
+    return started
+  }
+
+  /**
    * Commit the next linear version of an Idea atomically: append one source
    * snapshot, one version (ordinal = previous + 1, carrying the given
    * reason), and one evolution event linking from the superseded version;
@@ -656,6 +687,41 @@ export class IdeaService extends Service {
   }
 
   /**
+   * Read the durable one-surface proactive-resurfacing budget of one
+   * conversation, synchronously from memory over the `resurfacing_budgets`
+   * table. Pure read: no writes, no model calls.
+   * @param sessionId - The conversation id the budget is keyed by.
+   * @returns whether that conversation's surface budget is consumed.
+   */
+  getResurfacingBudget(sessionId: string): { consumed: boolean } {
+    return { consumed: this.budgetRecords.get(sessionId) !== undefined }
+  }
+
+  /**
+   * Atomically claim the conversation's one proactive-resurfacing surface
+   * budget. The test-and-set runs inside the conversation's
+   * per-conversation mutation tail, so concurrent same-Host claimants for
+   * one session serialize: exactly the first observes the absent record and
+   * wins `CLAIMED`; every later claimant observes the settled record and
+   * gets `ALREADY_CONSUMED`. Different conversations' tails are
+   * independent. An ordinary storage failure propagates — no retries, no
+   * model calls — and a failed claim never poisons the tail for later
+   * claims.
+   * @param sessionId - The conversation id the budget is keyed by.
+   * @returns `CLAIMED` when this call durably consumed the budget,
+   * `ALREADY_CONSUMED` when it was already consumed.
+   */
+  async claimResurfacingBudget(sessionId: string): Promise<'CLAIMED' | 'ALREADY_CONSUMED'> {
+    return await this.enqueueBudgetClaim(sessionId, async () => {
+      if (this.budgetRecords.get(sessionId) !== undefined) {
+        return 'ALREADY_CONSUMED'
+      }
+      await this.budgetRecords.put(sessionId, { surfaceBudgetConsumed: true })
+      return 'CLAIMED'
+    })
+  }
+
+  /**
    * One optimistic single-record update on the domain's write chain. The
    * expectation is compared inside the update transform, which runs before
    * any backend write: a mismatch throws out of the transform, so neither
@@ -698,6 +764,13 @@ export class IdeaService extends Service {
       throw new Error('idea service is not initialized')
     }
     return this.discussions
+  }
+
+  private get budgetRecords(): KvTable<string, ResurfacingBudget> {
+    if (this.resurfacingBudgets === undefined) {
+      throw new Error('idea service is not initialized')
+    }
+    return this.resurfacingBudgets
   }
 
   /**

@@ -188,12 +188,14 @@ describe('client plugin mount', () => {
     expect(contribution.package).toBe('@dsh-external/dsh-idea')
     expect(contribution.descriptors?.map(d => d.id).sort()).toEqual([
       '@dsh-external/dsh-idea#idea/archive',
+      '@dsh-external/dsh-idea#idea/claimResurfacingBudget',
       '@dsh-external/dsh-idea#idea/commitEvolution',
       '@dsh-external/dsh-idea#idea/continueDiscussion',
       '@dsh-external/dsh-idea#idea/create',
       '@dsh-external/dsh-idea#idea/deleteIdea',
       '@dsh-external/dsh-idea#idea/evaluateResurfacing',
       '@dsh-external/dsh-idea#idea/get',
+      '@dsh-external/dsh-idea#idea/getResurfacingBudget',
       '@dsh-external/dsh-idea#idea/getVersion',
       '@dsh-external/dsh-idea#idea/getVersions',
       '@dsh-external/dsh-idea#idea/judgeResurfacing',

@@ -208,6 +208,18 @@ export interface IdeaAggregate {
   evolutionEvents: readonly IdeaEvolutionEvent[]
 }
 
+/**
+ * The durable one-surface resurfacing budget fact of one conversation, keyed
+ * by its SessionId over the `resurfacing_budgets` table. It records only that
+ * the conversation's single proactive resurfacing surface has been consumed
+ * — never which idea surfaced, never any candidate, score, or evaluation
+ * state. Deliberately minimal: a capability-consumption fact, not a history
+ * subsystem.
+ */
+export interface ResurfacingBudget {
+  surfaceBudgetConsumed: true
+}
+
 /** Prepared semantic input for one Idea version. No model calls in V1 T1. */
 export interface IdeaDraft {
   title: string
