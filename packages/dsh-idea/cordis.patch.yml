@@ -13,5 +13,9 @@
       name: '@dsh-external/dsh-idea/related'
     - id: dsh-idea-resurfacing
       name: '@dsh-external/dsh-idea/resurfacing'
+    - id: dsh-idea-semantic
+      name: '@dsh-external/dsh-idea/semantic'
+      config:
+        enabled: false
     - id: dsh-idea-reference
       name: '@dsh-external/dsh-idea/reference'

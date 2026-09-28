@@ -31,6 +31,9 @@ async function remoteHarness() {
     evaluate: () => { throw new Error('evolution never evaluates resurfacing') },
     judge: () => { throw new Error('evolution never judges resurfacing') },
   } as never)
+  env.ctx.provide('ideaSemantic', {
+    semanticResurfacingCandidates: async () => { throw new Error('evolution never runs semantic retrieval') },
+  } as never)
   await env.ctx.plugin(IdeaRelatedService)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, idea: env.ctx.idea }

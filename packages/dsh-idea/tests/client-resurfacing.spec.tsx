@@ -16,6 +16,14 @@
  * actions (reference success and failure, dismiss), and the strip's
  * zero/one-suggestion rendering. All Host faces are scripted; no live
  * Host, provider, or model call.
+ *
+ * The T11 block covers the hybrid orchestration: the semantic branch starts
+ * only after the budget is known free and the detector admits; both branches
+ * run concurrently on the same bounded context; either branch's failure
+ * degrades to the other; fusion feeds the unchanged Judge a provenance-free
+ * pool; composer edits, newer user messages, and disposal abort the
+ * in-flight semantic request; and the durable claim gates semantic-origin
+ * suggestions exactly as it gates lexical ones.
  * @module tests/client-resurfacing.spec
  */
 
@@ -146,6 +154,18 @@ const surfaceVerdict = (id: string) => ({
   value: { outcome: 'surface' as const, reason: 'ADDS_DECISION_VALUE', ideaId: id, dropped: [] },
 })
 
+/** One semantic-branch candidate as the Host remote projects it (T11). */
+const semanticWire = (id: string, title: string, semanticRank: number) => ({
+  ideaId: id,
+  evaluatedVersionId: `idea_ver_${id}`,
+  title,
+  core: `Core of ${title}`,
+  possibleValue: `Value of ${title}`,
+  useWhen: [`When ${title} applies`],
+  currentConclusion: `Conclusion of ${title}`,
+  semanticRank,
+})
+
 /** A deferred promise for gating one remote call. */
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -161,8 +181,11 @@ interface Rig {
     judgeResurfacing: ReturnType<typeof vi.fn>
     getResurfacingBudget: ReturnType<typeof vi.fn>
     claimResurfacingBudget: ReturnType<typeof vi.fn>
+    semanticResurfacingCandidates: ReturnType<typeof vi.fn>
   }
   input: { draftRev: number; occurrences: Array<{ source: string; ref: string }> }
+  /** Fire the input subscription the controller registered (T11 seam). */
+  notifyInput: () => void
   save: { preparingMessageId: string | null; modal: unknown; submitting: boolean }
   appended: IdeaReferenceDescriptor[]
   appendOk: { value: boolean }
@@ -173,9 +196,11 @@ function makeRig(over: {
   judge?: ReturnType<typeof vi.fn>
   getBudget?: ReturnType<typeof vi.fn>
   claimBudget?: ReturnType<typeof vi.fn>
+  semantic?: ReturnType<typeof vi.fn>
 } = {}): Rig {
   const window = new FakeWindow()
   const input = { draftRev: 0, occurrences: [] as Array<{ source: string; ref: string }> }
+  const inputListeners = new Set<() => void>()
   const save = { preparingMessageId: null, modal: null, submitting: false }
   const appended: IdeaReferenceDescriptor[] = []
   const appendOk = { value: true }
@@ -193,12 +218,24 @@ function makeRig(over: {
       ok: true as const,
       value: { outcome: 'CLAIMED' as const },
     })),
+    // T11 default: the semantic branch degrades to empty, so every
+    // pre-T11 test exercises lexical-only semantics through the fusion.
+    semanticResurfacingCandidates: over.semantic ?? vi.fn(async () => ({
+      ok: true as const,
+      value: { candidates: [] },
+    })),
   }
   const controller = new IdeaResurfacingController({
     sessionId: 'conversation-1',
     remote: remote as unknown as ResurfacingRemoteFace,
     events: window,
-    input: { getSnapshot: () => input } as unknown as ResurfacingInputFace,
+    input: {
+      getSnapshot: () => input,
+      subscribe: (fn: () => void) => {
+        inputListeners.add(fn)
+        return () => { inputListeners.delete(fn) }
+      },
+    } as unknown as ResurfacingInputFace,
     save: { getSnapshot: () => save } as unknown as ResurfacingSaveFace,
     appendReference: (descriptor) => {
       appended.push(descriptor)
@@ -206,7 +243,16 @@ function makeRig(over: {
     },
   })
   pendings.push(() => controller.dispose())
-  return { controller, window, remote, input, save, appended, appendOk }
+  return {
+    controller,
+    window,
+    remote,
+    input,
+    notifyInput: () => { for (const listener of [...inputListeners]) listener() },
+    save,
+    appended,
+    appendOk,
+  }
 }
 
 /** One complete admitted turn: user question, Assistant reply, turn/end. */
@@ -903,5 +949,251 @@ describe('the strip component', () => {
     fireEvent.click(screen.getByText('忽略'))
     expect(screen.queryByText('引用')).toBeNull()
     expect(rig.controller.state.getSnapshot().lastExpireReason).toBe('DISMISSED')
+  })
+})
+
+describe('T11 hybrid retrieval orchestration', () => {
+  it('starts the semantic branch only after the budget is known free and the detector admits', async () => {
+    const budgetGate = deferred<unknown>()
+    const rig = makeRig({
+      getBudget: vi.fn(() => budgetGate.promise),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    // The durable read is unresolved: neither branch may start.
+    expect(rig.remote.evaluateResurfacing).not.toHaveBeenCalled()
+    expect(rig.remote.semanticResurfacingCandidates).not.toHaveBeenCalled()
+
+    budgetGate.resolve({ ok: true, value: { consumed: false } })
+    await flush()
+    expect(rig.remote.evaluateResurfacing).toHaveBeenCalledTimes(1)
+    expect(rig.remote.semanticResurfacingCandidates).toHaveBeenCalledTimes(1)
+
+    // A detector-rejected turn never pays the semantic call either.
+    pushTurn(rig.window, 4, '继续', '好的，我们继续。')
+    await flush()
+    expect(rig.remote.semanticResurfacingCandidates).toHaveBeenCalledTimes(1)
+
+    // A consumed budget never reaches the semantic remote either.
+    const consumedRig = makeRig({
+      getBudget: vi.fn(async () => ({ ok: true as const, value: { consumed: true } })),
+    })
+    pushTurn(consumedRig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    expect(consumedRig.remote.semanticResurfacingCandidates).not.toHaveBeenCalled()
+
+    const failedRig = makeRig({
+      getBudget: vi.fn(async () => ({ ok: false as const, error: { code: 'idea/unavailable' } })),
+    })
+    pushTurn(failedRig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    expect(failedRig.remote.semanticResurfacingCandidates).not.toHaveBeenCalled()
+  })
+
+  it('calls the semantic branch with the same bounded context and a fresh abort signal', async () => {
+    let capturedSignal: AbortSignal | undefined
+    const rig = makeRig({
+      semantic: vi.fn((_request: unknown, signal?: AbortSignal) => {
+        capturedSignal = signal
+        return Promise.resolve({ ok: true as const, value: { candidates: [] } })
+      }),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    expect(capturedSignal).toBeInstanceOf(AbortSignal)
+    expect(capturedSignal!.aborted).toBe(false)
+    const semanticRequest = rig.remote.semanticResurfacingCandidates.mock.calls[0]![0]
+    const evaluateRequest = rig.remote.evaluateResurfacing.mock.calls[0]![0]
+    expect(semanticRequest).toEqual(evaluateRequest)
+    expect(semanticRequest.currentTurn).toContain('塔防')
+  })
+
+  it('proceeds lexical-only when the semantic branch rejects', async () => {
+    const rig = makeRig({
+      semantic: vi.fn(async () => { throw new Error('transport lost') }),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+    expect(rig.controller.state.getSnapshot().suggestion!.ideaId).toBe('idea_1')
+  })
+
+  it('judges semantic-only candidates when the lexical branch is empty, and still claims first', async () => {
+    const rig = makeRig({
+      evaluate: vi.fn(async () => ({ ok: true as const, value: { candidates: [], suppressed: [] } })),
+      semantic: vi.fn(async () => ({
+        ok: true as const,
+        value: { candidates: [semanticWire('idea_9', 'Semantic hit', 1)] },
+      })),
+      judge: vi.fn(async (request: { candidates: Array<{ ideaId: string }> }) =>
+        surfaceVerdict(request.candidates[0]!.ideaId)),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+    // The Final Delivery Gate and durable claim bind a semantic-origin
+    // suggestion exactly as a lexical one.
+    expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
+    const suggestion = rig.controller.state.getSnapshot().suggestion
+    expect(suggestion!.ideaId).toBe('idea_9')
+    expect(suggestion!.title).toBe('Semantic hit')
+    expect(suggestion!.reference.ideaId).toBe('idea_9')
+
+    const consumedRig = makeRig({
+      evaluate: vi.fn(async () => ({ ok: true as const, value: { candidates: [], suppressed: [] } })),
+      semantic: vi.fn(async () => ({
+        ok: true as const,
+        value: { candidates: [semanticWire('idea_9', 'Semantic hit', 1)] },
+      })),
+      judge: vi.fn(async (request: { candidates: Array<{ ideaId: string }> }) =>
+        surfaceVerdict(request.candidates[0]!.ideaId)),
+      claimBudget: vi.fn(async () => ({
+        ok: true as const,
+        value: { outcome: 'ALREADY_CONSUMED' as const },
+      })),
+    })
+    pushTurn(consumedRig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    expect(consumedRig.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+
+  it('fuses both branches and sends the Judge a provenance-free pool in fusion order', async () => {
+    const rig = makeRig({
+      evaluate: vi.fn(async () => ({
+        ok: true as const,
+        value: {
+          candidates: [candidateWire('idea_1', 'Alpha'), candidateWire('idea_2', 'Beta')],
+          suppressed: [],
+        },
+      })),
+      semantic: vi.fn(async () => ({
+        ok: true as const,
+        value: { candidates: [semanticWire('idea_2', 'Beta', 1), semanticWire('idea_3', 'Gamma', 2)] },
+      })),
+      judge: vi.fn(async (request: { candidates: Array<{ ideaId: string }> }) =>
+        surfaceVerdict(request.candidates[0]!.ideaId)),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    // RRF: idea_2 (both branches) fuses first, then the two single-branch
+    // candidates in contribution order.
+    const request = rig.remote.judgeResurfacing.mock.calls[0]![0]
+    expect(request.candidates.map((entry: { ideaId: string }) => entry.ideaId))
+      .toEqual(['idea_2', 'idea_1', 'idea_3'])
+    for (const entry of request.candidates) {
+      expect(Object.keys(entry).sort()).toEqual(['evaluatedVersionId', 'ideaId'])
+    }
+    const requestText = JSON.stringify(request)
+    expect(requestText).not.toContain('semanticRank')
+    expect(requestText).not.toContain('fusedScore')
+    expect(requestText).not.toContain('presentInLexical')
+    expect(requestText).not.toContain('score')
+    // The dual-branch winner surfaces through the unchanged downstream.
+    expect(rig.controller.state.getSnapshot().suggestion!.ideaId).toBe('idea_2')
+  })
+
+  it('aborts the in-flight semantic request when the composer changes', async () => {
+    let capturedSignal: AbortSignal | undefined
+    const semanticGate = deferred<unknown>()
+    const rig = makeRig({
+      semantic: vi.fn((_request: unknown, signal?: AbortSignal) => {
+        capturedSignal = signal
+        return semanticGate.promise as never
+      }),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    expect(capturedSignal).toBeDefined()
+
+    rig.input.draftRev += 1
+    rig.notifyInput()
+    expect(capturedSignal!.aborted).toBe(true)
+
+    semanticGate.resolve({ ok: true, value: { candidates: [semanticWire('idea_9', 'Late', 1)] } })
+    await flush()
+    // The stale handling still expires the whole opportunity.
+    expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+
+  it('aborts the in-flight semantic request when a newer user message arrives', async () => {
+    let capturedSignal: AbortSignal | undefined
+    const semanticGate = deferred<unknown>()
+    const rig = makeRig({
+      semantic: vi.fn((_request: unknown, signal?: AbortSignal) => {
+        capturedSignal = signal
+        return semanticGate.promise as never
+      }),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    rig.window.append(userEntry('算了，换个话题。', 4))
+    await flush()
+    expect(capturedSignal!.aborted).toBe(true)
+
+    semanticGate.resolve({ ok: true, value: { candidates: [semanticWire('idea_9', 'Late', 1)] } })
+    await flush()
+    expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
+    expect(rig.controller.state.getSnapshot().lastExpireReason).toBe('TRIGGER_TURN_NO_LONGER_CURRENT')
+  })
+
+  it('aborts the in-flight semantic request on dispose', async () => {
+    let capturedSignal: AbortSignal | undefined
+    const semanticGate = deferred<unknown>()
+    const rig = makeRig({
+      semantic: vi.fn((_request: unknown, signal?: AbortSignal) => {
+        capturedSignal = signal
+        return semanticGate.promise as never
+      }),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    rig.controller.dispose()
+    expect(capturedSignal!.aborted).toBe(true)
+
+    semanticGate.resolve({ ok: true, value: { candidates: [] } })
+    await flush()
+    expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
+  })
+
+  it('single winner among dual controllers even when both run the semantic branch', async () => {
+    const budget = makeBudgetHost()
+    const semanticShared = vi.fn(async () => ({
+      ok: true as const,
+      value: { candidates: [semanticWire('idea_9', 'Shared semantic hit', 1)] },
+    }))
+    const judgeA = deferred<unknown>()
+    const judgeB = deferred<unknown>()
+    const make = (judge: () => Promise<unknown>) => makeRig({
+      getBudget: vi.fn((request: { sessionId: string }) => budget.getResurfacingBudget(request)),
+      claimBudget: vi.fn((request: { sessionId: string }) => budget.claimResurfacingBudget(request)),
+      evaluate: vi.fn(async () => ({ ok: true as const, value: { candidates: [], suppressed: [] } })),
+      semantic: semanticShared,
+      judge: vi.fn(judge),
+    })
+    const a = make(() => judgeA.promise)
+    const b = make(() => judgeB.promise)
+    pushTurn(a.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    pushTurn(b.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    expect(a.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+    expect(b.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+
+    judgeA.resolve(surfaceVerdict('idea_9'))
+    judgeB.resolve(surfaceVerdict('idea_9'))
+    await flush()
+
+    expect(a.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
+    expect(b.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
+    expect([...budget.claims].sort()).toEqual(['ALREADY_CONSUMED', 'CLAIMED'])
+    const surfaced = [a, b].filter(rig => rig.controller.state.getSnapshot().suggestion !== null)
+    expect(surfaced).toHaveLength(1)
+    expect(surfaced[0]!.controller.state.getSnapshot().suggestion!.ideaId).toBe('idea_9')
   })
 })

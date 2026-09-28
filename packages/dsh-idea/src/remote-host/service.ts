@@ -46,6 +46,7 @@ import type {
   SourceDiscussionDraft,
 } from '../types.ts'
 import { remoteDomainError, remoteEvolutionError, remotePreparationError } from './errors.ts'
+import { EmbeddingCancelledError } from '../semantic/provider.ts'
 import type { ResurfacingMediumAtomicSignal, ResurfacingSignalType } from '../resurfacing/types.ts'
 import type {
   IdeaArchiveRequest,
@@ -79,6 +80,8 @@ import type {
   IdeaRestoreRequest,
   IdeaSearchRequest,
   IdeaSearchResult,
+  IdeaSemanticResurfacingCandidatesRequest,
+  IdeaSemanticResurfacingCandidatesResult,
   IdeaSummary,
   IdeaVersionDetail,
   IdeaVersionGetRequest,
@@ -98,7 +101,7 @@ type CommitEntry =
   | { kind: 'committed'; result: IdeaCreateResult }
 
 export class IdeaRemoteService extends TypertRemoteService {
-  static inject = ['ideaService', 'ideaPreparations', 'ideaEvolutions', 'ideaRelated', 'ideaResurfacing']
+  static inject = ['ideaService', 'ideaPreparations', 'ideaEvolutions', 'ideaRelated', 'ideaResurfacing', 'ideaSemantic']
 
   /** Commit state per preparationId; entries live for the process lifetime. */
   private readonly commits = new Map<IdeaPreparationId, CommitEntry>()
@@ -591,6 +594,31 @@ export class IdeaRemoteService extends TypertRemoteService {
   @Remote
   async getResurfacingBudget(request: IdeaResurfacingBudgetRequest): Promise<IdeaResurfacingBudgetReadResult> {
     return this.ctx.ideaService.getResurfacingBudget(request.sessionId)
+  }
+
+  /**
+   * The semantic branch of hybrid resurfacing retrieval. Delegation to the
+   * semantic service: candidate-local canonical validation, at most one
+   * query embedding, exact scan. Every ordinary semantic failure degrades
+   * to an empty result here — never a product error, never a budget
+   * touch — while caller cancellation preserves `gateway/cancelled`.
+   */
+  @Remote
+  async semanticResurfacingCandidates(
+    request: IdeaSemanticResurfacingCandidatesRequest,
+    signal?: AbortSignal,
+  ): Promise<IdeaSemanticResurfacingCandidatesResult> {
+    if (signal?.aborted) {
+      throw new RemoteError('gateway/cancelled', 'idea semantic resurfacing was cancelled', {})
+    }
+    try {
+      return await this.ctx.ideaSemantic.semanticResurfacingCandidates(request, signal)
+    } catch (error) {
+      if (error instanceof EmbeddingCancelledError || signal?.aborted) {
+        throw new RemoteError('gateway/cancelled', 'idea semantic resurfacing was cancelled', {})
+      }
+      return { candidates: [] }
+    }
   }
 
   /**

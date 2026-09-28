@@ -43,7 +43,7 @@ describe('built package contents', () => {
 
 describe('consumer resolution smoke', () => {
   it('resolves every consumer entry point into lib/', () => {
-    for (const subpath of ['.', '/preparation', '/remote-host', '/typert', '/remote', '/client']) {
+    for (const subpath of ['.', '/preparation', '/remote-host', '/typert', '/remote', '/client', '/semantic']) {
       const resolved = resolveExport(subpath)
       expect(relative(libDir, resolved), subpath).not.toMatch(/^\.\./)
     }

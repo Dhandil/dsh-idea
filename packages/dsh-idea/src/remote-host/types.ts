@@ -469,3 +469,48 @@ export interface IdeaResurfacingBudgetClaimResult {
   /** `CLAIMED` when this call durably consumed the budget; `ALREADY_CONSUMED` otherwise. */
   outcome: 'CLAIMED' | 'ALREADY_CONSUMED'
 }
+
+/**
+ * `idea.semanticResurfacingCandidates` request: the same bounded visible
+ * context the lexical evaluation receives — the triggering turn plus the
+ * small recent visible window. The triggering Assistant reply is never part
+ * of this input.
+ */
+export interface IdeaSemanticResurfacingCandidatesRequest {
+  /** The Session the completed turn lives in. */
+  sessionId: string
+  /** The completed user turn text the detector admitted (client-bounded). */
+  currentTurn: string
+  /** A small bounded recent visible context. */
+  recentContext: readonly {
+    role: 'user' | 'assistant'
+    text: string
+  }[]
+}
+
+/**
+ * One candidate of the semantic branch: the exact indexed version projected
+ * with the same business fields the lexical wire candidate carries, plus
+ * its 1-based semantic rank. No vector, similarity, content hash, profile,
+ * or provider material ever crosses this boundary.
+ */
+export interface IdeaSemanticResurfacingCandidate {
+  ideaId: string
+  evaluatedVersionId: string
+  title: string
+  core: string
+  possibleValue: string
+  useWhen: readonly string[]
+  currentConclusion: string
+  semanticRank: number
+}
+
+/**
+ * `idea.semanticResurfacingCandidates` result. Empty on every degradation
+ * path (feature disabled, no usable index, credential missing, provider
+ * failure, invalid response) — an empty semantic branch never surfaces as a
+ * product error and never touches the lexical branch or the durable budget.
+ */
+export interface IdeaSemanticResurfacingCandidatesResult {
+  candidates: readonly IdeaSemanticResurfacingCandidate[]
+}

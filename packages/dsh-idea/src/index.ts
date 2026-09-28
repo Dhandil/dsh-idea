@@ -35,8 +35,17 @@ export type {
   IdeaDetail,
   IdeaGetRequest,
   IdeaPrepareRequest,
+  IdeaSemanticResurfacingCandidate,
+  IdeaSemanticResurfacingCandidatesRequest,
+  IdeaSemanticResurfacingCandidatesResult,
   IdeaSummary,
 } from './remote-host/types.ts'
+export {
+  fuseHybridCandidates,
+  FINAL_JUDGE_POOL_LIMIT,
+  RRF_K,
+} from './resurfacing/hybrid.ts'
+export { candidateOf } from './resurfacing/candidate.ts'
 export { IdeaId, IdeaVersionId, IdeaDiscussionId, SourceDiscussionId, EvolutionProposalId } from './types.ts'
 export type {
   CapturedMessage,

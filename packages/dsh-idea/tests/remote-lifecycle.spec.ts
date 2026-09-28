@@ -37,6 +37,9 @@ async function readHarness() {
     evaluate: () => { throw new Error('lifecycle tests never evaluate resurfacing') },
     judge: () => { throw new Error('lifecycle tests never judge resurfacing') },
   } as never)
+  env.ctx.provide('ideaSemantic', {
+    semanticResurfacingCandidates: async () => { throw new Error('lifecycle tests never run semantic retrieval') },
+  } as never)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, idea: env.ctx.idea }
 }

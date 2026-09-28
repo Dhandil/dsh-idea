@@ -36,10 +36,11 @@ import type { ResurfacingSignal } from '../resurfacing/types.ts'
 import type {
   IdeaResurfacingBudgetClaimResult,
   IdeaResurfacingBudgetReadResult,
-  IdeaResurfacingCandidate,
   IdeaResurfacingEvaluateResult,
   IdeaResurfacingJudgeResult,
+  IdeaSemanticResurfacingCandidatesResult,
 } from '../remote-host/types.ts'
+import { FINAL_JUDGE_POOL_LIMIT, fuseHybridCandidates } from '../resurfacing/hybrid.ts'
 
 /** The client's view of one Host resurfacing verdict. */
 export interface ResurfaceSuggestion {
@@ -91,6 +92,14 @@ export interface ResurfacingRemoteFace {
     | { ok: true; value: IdeaResurfacingBudgetReadResult }
     | { ok: false; error: { code: string } }
   >
+  semanticResurfacingCandidates(request: {
+    sessionId: string
+    currentTurn: string
+    recentContext: readonly { role: 'user' | 'assistant'; text: string }[]
+  }, signal?: AbortSignal): Promise<
+    | { ok: true; value: IdeaSemanticResurfacingCandidatesResult }
+    | { ok: false; error: { code: string } }
+  >
   claimResurfacingBudget(request: {
     sessionId: string
   }): Promise<
@@ -126,12 +135,14 @@ export interface ResurfacingEventWindowFace {
   subscribe(fn: () => void): () => void
 }
 
-/** Minimal structural face of the composer state (draft revision + chips). */
+/** Minimal structural face of the composer state (draft revision + chips).
+ * T11 extends it with the already-public snapshot-store subscription seam. */
 export interface ResurfacingInputFace {
   getSnapshot(): {
     draftRev: number
     occurrences: readonly { source: string; ref: string }[]
   }
+  subscribe(fn: () => void): () => void
 }
 
 /** Minimal structural face of the Save Idea surface (explicit flow evidence). */
@@ -150,10 +161,30 @@ interface Trigger {
   draftRev: number
 }
 
+/**
+ * The business fields both retrieval branches produce for one evaluated
+ * idea (T11): after hybrid fusion the Judge request and the suggestion
+ * build need exactly these — never branch provenance, ranks, or scores.
+ */
+interface PoolCandidate {
+  ideaId: string
+  evaluatedVersionId: string
+  title: string
+  core: string
+  possibleValue: string
+  useWhen: readonly string[]
+  currentConclusion: string
+}
+
 interface PendingPool {
   trigger: Trigger
   signals: readonly ResurfacingSignal[]
-  candidates: readonly IdeaResurfacingCandidate[]
+  candidates: readonly PoolCandidate[]
+}
+
+/** The hybrid fusion dedupe key (same identity hybrid.ts fuses on). */
+function poolKey(candidate: { ideaId: string; evaluatedVersionId: string }): string {
+  return `${candidate.ideaId} ${candidate.evaluatedVersionId}`
 }
 
 const IDLE: ResurfaceUiState = {
@@ -289,12 +320,17 @@ export class IdeaResurfacingController {
 
   private epoch = 0
   private unsubscribe: (() => void) | undefined
+  private unsubscribeInput: (() => void) | undefined
   private lastHandledTurnEndSeq = -1
   private trigger: Trigger | undefined
   private pending: PendingPool | undefined
   private evaluating = false
   private judging = false
   private readonly abort = new AbortController()
+  /** Per-evaluation semantic branch abort (T11): NOT the lifetime judge
+   * abort — the semantic retrieval request is cancellable independently of
+   * the Judge round trip. */
+  private semanticAbort: AbortController | undefined
 
   /** Ephemeral per-conversation identity sets (§15); the one-surface budget
    * is not among them — it is the Host's durable record. */
@@ -330,6 +366,7 @@ export class IdeaResurfacingController {
     this.save = deps.save
     this.appendReference = deps.appendReference
     this.unsubscribe = this.events.subscribe(() => { this.handleWindowChange() })
+    this.unsubscribeInput = this.input.subscribe(() => { this.handleInputChange() })
     void this.loadBudget(this.epoch)
   }
 
@@ -372,8 +409,12 @@ export class IdeaResurfacingController {
   dispose(): void {
     this.epoch += 1
     this.abort.abort()
+    this.semanticAbort?.abort()
+    this.semanticAbort = undefined
     this.unsubscribe?.()
     this.unsubscribe = undefined
+    this.unsubscribeInput?.()
+    this.unsubscribeInput = undefined
     this.trigger = undefined
     this.pending = undefined
     this.retainedTurn = undefined
@@ -423,6 +464,21 @@ export class IdeaResurfacingController {
     })
   }
 
+  /**
+   * Composer changes only protect the semantic branch (T11): a draft edit
+   * after trigger capture aborts the in-flight semantic request. The stale
+   * handling itself is unchanged — revalidation and the Final Delivery Gate
+   * still expire the whole opportunity; cancellation is additional
+   * protection for the paid embedding call, never the correctness basis.
+   */
+  private handleInputChange(): void {
+    const controller = this.semanticAbort
+    if (controller === undefined) return
+    const anchorRev = this.pending?.trigger.draftRev ?? this.trigger?.draftRev
+    if (anchorRev === undefined) return
+    if (this.input.getSnapshot().draftRev !== anchorRev) controller.abort()
+  }
+
   private handleWindowChange(): void {
     if (this.unsubscribe === undefined) return
     const window = this.events.getSnapshot()
@@ -458,6 +514,9 @@ export class IdeaResurfacingController {
    * invalidated (TRIGGER_TURN_NO_LONGER_CURRENT).
    */
   private onUserMovedOn(userSeq: number): void {
+    // A newer human message invalidates the trigger anchor (T11): abort the
+    // in-flight semantic request immediately; a no-op when none is running.
+    this.semanticAbort?.abort()
     if (this.budgetState === 'loading') {
       // Any user message appended after the retained turn/end is a newer
       // turn: existing T10 semantics invalidate the trigger immediately,
@@ -531,47 +590,103 @@ export class IdeaResurfacingController {
     }
     this.evaluating = true
     const signals = detection.signals
+    const semanticAbort = new AbortController()
+    this.semanticAbort = semanticAbort
 
-    let result: Awaited<ReturnType<ResurfacingRemoteFace['evaluateResurfacing']>> | undefined
-    try {
-      result = await this.remote.evaluateResurfacing({
-        sessionId: this.sessionId,
-        currentTurn: context.currentTurn.slice(0, RESURFACING_TURN_TEXT_LIMIT),
-        recentContext: context.recentContext,
-      })
-    } catch {
-      result = undefined
+    // T11 hybrid retrieval: after the durable budget is known free and the
+    // detector admits, both branches start concurrently against the same
+    // bounded context; neither branch's failure or stop blocks the other.
+    const request = {
+      sessionId: this.sessionId,
+      currentTurn: context.currentTurn.slice(0, RESURFACING_TURN_TEXT_LIMIT),
+      recentContext: context.recentContext,
     }
+    const [lexicalCandidates, semanticCandidates] = await Promise.all([
+      this.evaluateLexical(request),
+      this.evaluateSemantic(request, semanticAbort.signal),
+    ])
+    if (this.semanticAbort === semanticAbort) this.semanticAbort = undefined
+
     const stale = epoch !== this.epoch
       || this.trigger === undefined
       || this.trigger.turnEndSeq !== turnEndSeq
     this.evaluating = false
     if (stale) return
-    if (result === undefined || !result.ok) {
-      this.trigger = undefined
-      return
-    }
-    if (result.value.stop !== undefined || result.value.candidates.length === 0) {
-      this.trigger = undefined
-      return
-    }
 
-    // Client-side deterministic runtime suppression (§8): canonical identity
-    // only — composer chips, and this conversation's referenced / surfaced /
-    // dismissed sets.
+    // Fusion first — pure RRF over both branches (branch provenance, ranks,
+    // and scores never leave this function) — then the existing T10
+    // deterministic suppression, then the judge-pool cap.
+    const fused = fuseHybridCandidates(lexicalCandidates, semanticCandidates)
+    if (fused.length === 0) {
+      this.trigger = undefined
+      return
+    }
+    const lexicalById = new Map(lexicalCandidates.map(candidate => [poolKey(candidate), candidate]))
+    const semanticById = new Map(semanticCandidates.map(candidate => [poolKey(candidate), candidate]))
     const pins = ideaPinsOf(this.input.getSnapshot().occurrences)
-    const candidates = result.value.candidates
+    const candidates = fused
+      .map(entry => lexicalById.get(poolKey(entry)) ?? semanticById.get(poolKey(entry)))
+      .filter((candidate): candidate is PoolCandidate => candidate !== undefined)
       .filter(candidate => !pins.has(candidate.ideaId))
       .filter(candidate => !this.referencedIds.has(candidate.ideaId))
       .filter(candidate => !this.surfacedIds.has(candidate.ideaId))
       .filter(candidate => !this.dismissedIds.has(candidate.ideaId))
-      .slice(0, 3)
+      .slice(0, FINAL_JUDGE_POOL_LIMIT)
     if (candidates.length === 0) {
       this.trigger = undefined
       return
     }
     this.pending = { trigger: this.trigger, signals, candidates }
     this.tryProceedToJudge()
+  }
+
+  /** The existing T10 lexical branch; never throws (any failure → no
+   * lexical candidates, leaving the evaluation to the semantic branch). */
+  private async evaluateLexical(request: {
+    sessionId: string
+    currentTurn: string
+    recentContext: readonly { role: 'user' | 'assistant'; text: string }[]
+  }): Promise<PoolCandidate[]> {
+    try {
+      const result = await this.remote.evaluateResurfacing(request)
+      if (!result.ok || result.value.stop !== undefined) return []
+      return result.value.candidates.map(candidate => ({
+        ideaId: candidate.ideaId,
+        evaluatedVersionId: candidate.evaluatedVersionId,
+        title: candidate.title,
+        core: candidate.core,
+        possibleValue: candidate.possibleValue,
+        useWhen: candidate.useWhen,
+        currentConclusion: candidate.currentConclusion,
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  /** The new T11 semantic branch; never throws — every degradation path
+   * (failure, cancellation, suppression host-side) arrives as no candidates
+   * and the evaluation falls back to lexical-only semantics. */
+  private async evaluateSemantic(request: {
+    sessionId: string
+    currentTurn: string
+    recentContext: readonly { role: 'user' | 'assistant'; text: string }[]
+  }, signal?: AbortSignal): Promise<PoolCandidate[]> {
+    try {
+      const result = await this.remote.semanticResurfacingCandidates(request, signal)
+      if (!result.ok) return []
+      return result.value.candidates.map(candidate => ({
+        ideaId: candidate.ideaId,
+        evaluatedVersionId: candidate.evaluatedVersionId,
+        title: candidate.title,
+        core: candidate.core,
+        possibleValue: candidate.possibleValue,
+        useWhen: candidate.useWhen,
+        currentConclusion: candidate.currentConclusion,
+      }))
+    } catch {
+      return []
+    }
   }
 
   /**

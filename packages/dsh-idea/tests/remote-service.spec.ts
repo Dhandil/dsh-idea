@@ -96,6 +96,9 @@ async function fullHarness() {
   await env.ctx.plugin(IdeaEvolutionService)
   await env.ctx.plugin(IdeaRelatedService)
   await env.ctx.plugin(IdeaResurfacingService)
+  env.ctx.provide('ideaSemantic', {
+    semanticResurfacingCandidates: async () => { throw new Error('this suite never runs semantic retrieval') },
+  } as never)
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, llm }
 }
@@ -148,6 +151,9 @@ function stubHarness(overrides: {
     ctx.provide('ideaResurfacing', {
       evaluate: vi.fn(async () => { throw new Error('this suite never evaluates resurfacing') }),
       judge: vi.fn(async () => { throw new Error('this suite never judges resurfacing') }),
+    } as never)
+    ctx.provide('ideaSemantic', {
+      semanticResurfacingCandidates: vi.fn(async () => { throw new Error('this suite never runs semantic retrieval') }),
     } as never)
     await ctx.plugin(IdeaRemoteService)
     return { ctx, idea: ctx.idea, create, resolve, prepareFromMessage }
@@ -358,18 +364,20 @@ describe('generated contributions', () => {
       '@dsh-external/dsh-idea#idea/relatedFromMessage',
       '@dsh-external/dsh-idea#idea/restore',
       '@dsh-external/dsh-idea#idea/search',
+      '@dsh-external/dsh-idea#idea/semanticResurfacingCandidates',
     ])
     for (const descriptor of descriptors) {
       expect(descriptor.result?.mode).toBe('strict')
       // The save/evolution proposal flights and the client-abortable search
-      // are cancellable; the other synchronous reads and the durable commit
-      // are not.
+      // and semantic retrieval are cancellable; the other synchronous reads
+      // and the durable commit are not.
       const cancellable = descriptor.id.endsWith('#idea/create')
         || descriptor.id.endsWith('#idea/prepareFromMessage')
         || descriptor.id.endsWith('#idea/prepareEvolution')
         || descriptor.id.endsWith('#idea/relatedFromMessage')
         || descriptor.id.endsWith('#idea/judgeResurfacing')
         || descriptor.id.endsWith('#idea/search')
+        || descriptor.id.endsWith('#idea/semanticResurfacingCandidates')
       expect(descriptor.cancellation, descriptor.id).toEqual(cancellable ? { parameter: 'signal' } : undefined)
     }
   })

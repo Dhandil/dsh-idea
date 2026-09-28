@@ -20,6 +20,7 @@ const LINKS = [
   ['@deepseek-ai/dsh-storage', 'packages/storage/storage'],
   ['@deepseek-ai/dsh-storage-json', 'packages/storage/storage-json'],
   ['@deepseek-ai/dsh-storage-domain', 'packages/storage/storage-domain'],
+  ['@deepseek-ai/dsh-credentials', 'packages/credentials/credentials'],
   ['@deepseek-ai/dsh-invariants', 'packages/runtime-diagnostics/invariants'],
   ['@deepseek-ai/dsh-session', 'packages/core/session'],
   ['@deepseek-ai/dsh-session-query', 'packages/session-query/session-query'],
