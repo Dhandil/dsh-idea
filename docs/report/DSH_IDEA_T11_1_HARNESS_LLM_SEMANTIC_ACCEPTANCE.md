@@ -59,7 +59,9 @@ First two Full runs failed only in the pre-existing T11 spec `tests/semantic-ind
 
 ## Remote verification (§38)
 
-Recorded after push — see the "Remote verification" addendum below.
+- Docs-only acceptance commit: `fe028f0c6e6be5ad698aef66e458e0d24bf3e75c`
+- After push: `HEAD` = `origin/main` = `fe028f0c6e6be5ad698aef66e458e0d24bf3e75c` (equality verified via `git fetch` + `git rev-parse`)
+- `T11_1_TESTED_EXECUTABLE_SHA..HEAD` = `1afd6f0..fe028f0` — docs-only: exactly one file, `docs/report/DSH_IDEA_T11_1_HARNESS_LLM_SEMANTIC_ACCEPTANCE.md` (+68), zero executable change.
 
 ## Harness / working tree
 
