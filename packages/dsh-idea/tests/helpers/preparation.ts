@@ -173,6 +173,11 @@ export class FakeLlm {
     })())
   }
 
+  /** Full control over one scripted stream (mid-stream mutations in tests). */
+  enqueueScript(script: () => AsyncIterable<StreamChunk>): void {
+    this.queue.push(script)
+  }
+
   /** Yields `before`, aborts the controller, then yields `after`. */
   enqueueAbort(controller: AbortController, before: StreamChunk, after: StreamChunk): void {
     this.queue.push(() => (async function* () {

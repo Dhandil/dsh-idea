@@ -14,6 +14,18 @@ import type { IdeaId, IdeaVersionId } from '../types.ts'
 /** Frozen format version of the deterministic semantic document. */
 export const IDEA_SEMANTIC_DOCUMENT_VERSION = 1
 
+/** The closed set of semantic backend modes (T11.1). */
+export const SEMANTIC_MODES = ['llm', 'embedding', 'off'] as const
+
+/** Which semantic backend one service instance runs. */
+export type SemanticMode = (typeof SEMANTIC_MODES)[number]
+
+/**
+ * Longest serialized candidate payload one Harness-LLM selector call may
+ * carry, matching the already-tested Related Ideas one-call envelope.
+ */
+export const SEMANTIC_SELECTOR_PAYLOAD_LIMIT = 48_000
+
 /** Frozen L2-normalization generation of every persisted vector. */
 export const SEMANTIC_NORMALIZATION_VERSION = 'l2-v1'
 

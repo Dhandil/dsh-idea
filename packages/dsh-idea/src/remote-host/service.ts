@@ -599,9 +599,10 @@ export class IdeaRemoteService extends TypertRemoteService {
   /**
    * The semantic branch of hybrid resurfacing retrieval. Delegation to the
    * semantic service: candidate-local canonical validation, at most one
-   * query embedding, exact scan. Every ordinary semantic failure degrades
-   * to an empty result here — never a product error, never a budget
-   * touch — while caller cancellation preserves `gateway/cancelled`.
+   * query embedding (embedding mode) or one Session-model selector call
+   * (llm mode). Every ordinary semantic failure degrades to an empty result
+   * here — never a product error, never a budget touch — while caller
+   * cancellation from either backend preserves `gateway/cancelled`.
    */
   @Remote
   async semanticResurfacingCandidates(
@@ -614,7 +615,10 @@ export class IdeaRemoteService extends TypertRemoteService {
     try {
       return await this.ctx.ideaSemantic.semanticResurfacingCandidates(request, signal)
     } catch (error) {
-      if (error instanceof EmbeddingCancelledError || signal?.aborted) {
+      const cancelled = error instanceof EmbeddingCancelledError
+        || (error instanceof IdeaPreparationError && error.code === 'request-cancelled')
+        || signal?.aborted
+      if (cancelled) {
         throw new RemoteError('gateway/cancelled', 'idea semantic resurfacing was cancelled', {})
       }
       return { candidates: [] }

@@ -1,41 +1,52 @@
 /**
- * The semantic Host service (`ctx.ideaSemantic`): the disposable derived
- * embedding index over `idea_semantic/v1` and the semantic branch of hybrid
- * resurfacing retrieval. Indexing is a background accelerator: a
- * synchronous identity-only `domain/changed` listener coalesces Idea
- * identities into a pending map (never a FIFO queue, never built from
- * `change.value`), and a concurrency-1 worker re-reads canonical state,
- * batches documents through the provider, and re-checks canonical state
- * again before each persist (post-I/O stale guard — a late stale result is
- * dropped, never relabeled). Startup reconciliation fills or refreshes the
- * index for active Ideas; that is the only recovery path for missed events,
- * crashes, and provider failures — no polling, no query-time repair. The
- * retrieval operation validates every record candidate-locally against
- * canonical state, pays for exactly one query embedding only when eligible
- * records exist, scans vectors exactly, and degrades to an empty result on
- * every ordinary failure while preserving caller cancellation. It never
- * mutates Ideas and never touches the durable resurfacing budget. While
- * `enabled` is false the service mounts inert: zero provider calls, zero
- * reconciliation, T10 byte-identical.
+ * The semantic Host service (`ctx.ideaSemantic`): one of three frozen
+ * backends behind the semantic branch of hybrid resurfacing retrieval.
+ * `llm` (the default) uses the current Harness Session's model route as a
+ * semantic candidate selector: it lazily resolves the LLM-side services, or
+ * returns empty when any is absent; the selector answers only semantic
+ * relation — never usefulness-now, which stays the separate T10 Judge's job
+ * — over the canonical current-version corpus, with strict output parsing
+ * and per-candidate canonical revalidation after the call. `embedding` keeps
+ * the accepted T11 disposable derived index over `idea_semantic/v1`:
+ * indexing is a background accelerator where a synchronous identity-only
+ * `domain/changed` listener coalesces Idea identities into a pending map
+ * (never a FIFO queue, never built from `change.value`), and a
+ * concurrency-1 worker re-reads canonical state, batches documents through
+ * the provider, and re-checks canonical state again before each persist
+ * (post-I/O stale guard — a late stale result is dropped, never relabeled).
+ * `off` is fully inert. Every branch validates candidate-locally against
+ * canonical state and degrades to an empty result on every ordinary failure
+ * while preserving caller cancellation as cancellation. It never mutates
+ * Ideas and never touches the durable resurfacing budget.
  * @module @dsh-external/dsh-idea/src/semantic/service
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-agent-default-model'
+import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { DomainChanged } from '@deepseek-ai/dsh-storage-domain'
 import type { IdeaAggregate, IdeaVersionId } from '../types.ts'
 import { IdeaId } from '../types.ts'
 import { ideaDomainSpec } from '../spec.ts'
+import { IdeaPreparationError } from '../preparation/errors.ts'
+import { checkCancelled, extractModelText, resolveModelRoute } from '../preparation/pipeline.ts'
 import { candidateOf } from '../resurfacing/candidate.ts'
 import type { ResurfacingCandidate } from '../resurfacing/types.ts'
-import type { IdeaSemanticResurfacingCandidatesRequest, IdeaSemanticResurfacingCandidatesResult } from '../remote-host/types.ts'
+import type { IdeaSemanticResurfacingCandidate, IdeaSemanticResurfacingCandidatesRequest, IdeaSemanticResurfacingCandidatesResult } from '../remote-host/types.ts'
 import { buildSemanticDocument, hashSemanticDocument, semanticContentHash } from './document.ts'
 import { resolveEmbeddingProfile } from './profile.ts'
 import { resolveSemanticConfig, SemanticConfig } from './config.ts'
 import type { ResolvedSemanticConfig, SemanticPluginConfig } from './config.ts'
 import { buildSemanticQueryText, boundSemanticQueryInput, selectSemanticTopK } from './retrieval.ts'
 import type { SemanticScoredRecord } from './retrieval.ts'
+import { parseSelectorIdeaIds } from './selector-parser.ts'
+import { buildSelectorPrompt } from './selector-prompt.ts'
+import { extractSelectorQueryFeatures, projectSelectorCandidates, selectSelectorPool } from './selector-retrieval.ts'
 import { OpenAICompatibleEmbeddingProvider } from './openai-compatible.ts'
 import { EmbeddingCancelledError } from './provider.ts'
 import type { IdeaEmbeddingProvider } from './provider.ts'
@@ -73,11 +84,11 @@ type IndexTarget =
   }
 
 /**
- * The Idea semantic service. Owns the semantic domain handle, the static
- * embedding profile, the provider adapter, the coalescing pending map, the
- * worker, startup reconciliation, and the semantic exact-scan retrieval —
- * and nothing else: Idea business writes and resurfacing-budget claims
- * stay with their own services.
+ * The Idea semantic service. Owns the semantic backend mode, the embedding
+ * profile/provider/index when in `embedding` mode, the coalescing pending
+ * map, the worker, startup reconciliation, the semantic exact-scan
+ * retrieval, and the Harness-LLM selector — and nothing else: Idea business
+ * writes and resurfacing-budget claims stay with their own services.
  */
 export class IdeaSemanticService extends Service {
   static inject = ['ideaService', 'storageDomain']
@@ -96,7 +107,7 @@ export class IdeaSemanticService extends Service {
   constructor(ctx: Context, config: SemanticPluginConfig) {
     super(ctx, 'ideaSemantic')
     this.config = resolveSemanticConfig(config ?? {})
-    if (this.config.enabled) {
+    if (this.config.mode === 'embedding') {
       this.profile = resolveEmbeddingProfile({
         adapter: SEMANTIC_ADAPTER,
         baseURL: this.config.baseURL,
@@ -121,7 +132,7 @@ export class IdeaSemanticService extends Service {
     this.ctx.effect(() => () => domain.close(), 'ideaSemantic.domainClose')
     this.embeddings = domain.table('embeddings')
     this.ctx.on('domain/changed', change => this.onDomainChanged(change))
-    if (this.config.enabled) this.reconcileAtStartup()
+    if (this.config.mode === 'embedding') this.reconcileAtStartup()
   }
 
   /**
@@ -131,7 +142,7 @@ export class IdeaSemanticService extends Service {
    * throws, or mutates anything authoritative.
    */
   private onDomainChanged(change: DomainChanged): void {
-    if (!this.config.enabled) return
+    if (this.config.mode !== 'embedding') return
     if (change.domain !== ideaDomainSpec.name || change.table !== 'ideas') return
     this.pending.set(IdeaId(change.key), true)
     this.scheduleWorker()
@@ -271,8 +282,8 @@ export class IdeaSemanticService extends Service {
   }
 
   /**
-   * Startup reconciliation (enabled only): enumerate active Ideas, build
-   * the current document/hash, and reuse an exactly-valid record or
+   * Startup reconciliation (embedding mode only): enumerate active Ideas,
+   * build the current document/hash, and reuse an exactly-valid record or
    * coalesce the identity into pending work. Provider work proceeds
    * asynchronously and never blocks readiness; this runs once per process —
    * there is no polling and no query-time repair.
@@ -303,20 +314,40 @@ export class IdeaSemanticService extends Service {
   }
 
   /**
-   * The semantic branch of hybrid resurfacing retrieval. Every record is
-   * validated candidate-locally against canonical state before any provider
-   * work; with no eligible records the operation returns empty without
-   * paying for a query embedding. One bounded query embedding is requested,
-   * scanned exactly against eligible vectors, and ranked deterministically.
-   * Every ordinary failure degrades to an empty result (lexical continues
-   * untouched, budget untouched); only caller cancellation propagates.
+   * The semantic branch of hybrid resurfacing retrieval, dispatched by the
+   * frozen backend mode. Only caller cancellation propagates out of the
+   * dispatcher; every ordinary failure degrades to an empty result (lexical
+   * continues untouched, budget untouched).
    */
   async semanticResurfacingCandidates(
     request: IdeaSemanticResurfacingCandidatesRequest,
     signal?: AbortSignal,
   ): Promise<IdeaSemanticResurfacingCandidatesResult> {
-    if (signal?.aborted) throw new EmbeddingCancelledError()
-    if (!this.config.enabled || !this.profile || !this.provider || !this.embeddings) {
+    if (signal?.aborted) {
+      if (this.config.mode === 'llm') {
+        throw new IdeaPreparationError('request-cancelled', 'idea preparation was cancelled')
+      }
+      throw new EmbeddingCancelledError()
+    }
+    if (this.config.mode === 'off') return { candidates: [] }
+    if (this.config.mode === 'embedding') {
+      return this.semanticResurfacingViaEmbedding(request, signal)
+    }
+    return this.semanticResurfacingViaLlm(request, signal)
+  }
+
+  /**
+   * The accepted T11 embedding branch, unchanged. Every record is validated
+   * candidate-locally against canonical state before any provider work;
+   * with no eligible records the operation returns empty without paying for
+   * a query embedding. One bounded query embedding is requested, scanned
+   * exactly against eligible vectors, and ranked deterministically.
+   */
+  private async semanticResurfacingViaEmbedding(
+    request: IdeaSemanticResurfacingCandidatesRequest,
+    signal?: AbortSignal,
+  ): Promise<IdeaSemanticResurfacingCandidatesResult> {
+    if (!this.profile || !this.provider || !this.embeddings) {
       return { candidates: [] }
     }
 
@@ -389,5 +420,130 @@ export class IdeaSemanticService extends Service {
         }
       }),
     }
+  }
+
+  /**
+   * The Harness-LLM selector branch: the canonical current-version corpus is
+   * built with candidate-local exclusions, the frozen broad pool bounds the
+   * selector input, and exactly one Session-model call ranks semantic
+   * relatedness. Every ordinary failure — missing lazy service, unservable
+   * route, stream failure, non-success finish, malformed output — degrades
+   * to an empty result; only cancellation propagates.
+   */
+  private async semanticResurfacingViaLlm(
+    request: IdeaSemanticResurfacingCandidatesRequest,
+    signal?: AbortSignal,
+  ): Promise<IdeaSemanticResurfacingCandidatesResult> {
+    const sessionQuery = this.ctx.get('sessionQuery')
+    const agentDefaultModel = this.ctx.get('agentDefaultModel')
+    const llm = this.ctx.get('llm')
+    if (sessionQuery === undefined || agentDefaultModel === undefined || llm === undefined) {
+      return { candidates: [] }
+    }
+
+    const sessionId = request.sessionId
+    const bounded = boundSemanticQueryInput(request.currentTurn, request.recentContext)
+    const discussionIdeaId = this.ctx.ideaService.findDiscussionByConversationId(sessionId)?.ideaId
+    const corpus: ResurfacingCandidate[] = []
+    for (const view of this.ctx.ideaService.list()) {
+      try {
+        if (view.idea.status !== 'active') continue
+        const aggregate = this.ctx.ideaService.get(view.idea.ideaId)
+        if (aggregate === undefined || aggregate.idea.status !== 'active') continue
+        if (discussionIdeaId !== undefined && discussionIdeaId === view.idea.ideaId) continue
+        if (aggregate.sourceDiscussions.some(discussion => discussion.sessionId === sessionId)) continue
+        corpus.push(candidateOf(view, aggregate, sessionId))
+      } catch {
+        // Deleted between list and get: the Idea is gone candidate-locally.
+        continue
+      }
+    }
+    if (corpus.length === 0) return { candidates: [] }
+
+    const features = extractSelectorQueryFeatures(
+      buildSemanticQueryText(bounded.currentTurn, bounded.recentContext),
+    )
+    const pool = selectSelectorPool(corpus, features)
+    if (pool.length === 0) return { candidates: [] }
+
+    try {
+      checkCancelled(signal)
+      const route = await resolveModelRoute(sessionQuery, agentDefaultModel, sessionId, signal)
+      checkCancelled(signal)
+      const prompt = buildSelectorPrompt({
+        currentTurn: bounded.currentTurn,
+        recentContext: bounded.recentContext,
+        candidates: projectSelectorCandidates(pool),
+      })
+      const options: GenerateOptions = {
+        provider: route.provider,
+        model: route.model,
+        ...(route.reasoningEffort !== undefined ? { reasoningEffort: ReasoningEffortId(route.reasoningEffort) } : {}),
+        messages: [createUserMessage({
+          content: [{ type: 'text', text: prompt.user }],
+          source: { kind: 'plugin', plugin: 'dsh-idea' },
+        })],
+        system: prompt.system,
+        sessionId: SessionId(sessionId),
+        ...(signal !== undefined ? { signal } : {}),
+      }
+      const text = await extractModelText(llm, options, sessionId, signal)
+      checkCancelled(signal)
+
+      const selected = parseSelectorIdeaIds(text, new Set(pool.map(candidate => candidate.ideaId)))
+      return { candidates: this.revalidateSelectorPicks(selected, pool, sessionId) }
+    } catch (error) {
+      if (error instanceof IdeaPreparationError && error.code === 'request-cancelled') throw error
+      if (signal?.aborted) {
+        throw new IdeaPreparationError('request-cancelled', 'idea preparation was cancelled', { cause: error })
+      }
+      this.ctx.logger.warn(`idea semantic selector degraded: ${errorMessage(error)}`)
+      return { candidates: [] }
+    }
+  }
+
+  /**
+   * Post-selector canonical revalidation: every model-selected id is
+   * re-read from canonical state and dropped individually when missing,
+   * inactive, no longer on its pinned version, discussion-descendant
+   * excluded, or provenance-excluded; a stale pin is never remapped to a
+   * newer version, and valid siblings survive. Model order is preserved and
+   * every projected field comes from canonical data.
+   */
+  private revalidateSelectorPicks(
+    selected: readonly string[],
+    pool: readonly ResurfacingCandidate[],
+    sessionId: string,
+  ): IdeaSemanticResurfacingCandidatesResult['candidates'] {
+    const poolById = new Map(pool.map(candidate => [candidate.ideaId as string, candidate]))
+    const discussionIdeaId = this.ctx.ideaService.findDiscussionByConversationId(sessionId)?.ideaId
+    const candidates: IdeaSemanticResurfacingCandidate[] = []
+    for (const ideaId of selected) {
+      const pinned = poolById.get(ideaId)
+      if (pinned === undefined) continue
+      try {
+        const aggregate = this.ctx.ideaService.get(IdeaId(ideaId))
+        if (aggregate === undefined || aggregate.idea.status !== 'active') continue
+        if (aggregate.idea.currentVersionId !== pinned.evaluatedVersionId) continue
+        if (discussionIdeaId !== undefined && discussionIdeaId === aggregate.idea.ideaId) continue
+        if (aggregate.sourceDiscussions.some(discussion => discussion.sessionId === sessionId)) continue
+        const currentVersion = aggregate.versions.find(version => version.versionId === aggregate.idea.currentVersionId)
+        if (currentVersion === undefined) continue
+        candidates.push({
+          ideaId: pinned.ideaId,
+          evaluatedVersionId: pinned.evaluatedVersionId,
+          title: currentVersion.draft.title,
+          core: currentVersion.draft.core,
+          possibleValue: currentVersion.draft.possibleValue,
+          useWhen: [...currentVersion.draft.useWhen],
+          currentConclusion: currentVersion.draft.currentConclusion,
+          semanticRank: candidates.length + 1,
+        })
+      } catch {
+        // Candidate-local revalidation: one unreadable Idea drops alone.
+        continue
+      }
+    }
+    return candidates
   }
 }

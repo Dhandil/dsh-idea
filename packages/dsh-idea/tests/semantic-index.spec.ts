@@ -36,10 +36,19 @@ import { cleanup, draft, harness, sourceDraft } from './helpers/harness.ts'
 afterEach(closeServers)
 afterEach(cleanup)
 
-/** Index-quiescence for one root: wait for a record then let in-flight work settle. */
+/**
+ * Index-quiescence for one root: wait for a record whose contentHash stays
+ * stable across a settle interval, so a coalesced latest-wins write in
+ * flight under worker/load timing cannot be observed mid-flight.
+ */
 async function settle(root: string, ideaId: string): Promise<void> {
-  await until(async () => await storedEmbedding(root, ideaId) !== undefined)
-  await sleep(30)
+  await until(async () => {
+    const first = await storedEmbedding(root, ideaId)
+    if (first === undefined) return false
+    await sleep(50)
+    const second = await storedEmbedding(root, ideaId)
+    return second !== undefined && second.contentHash === first.contentHash
+  }, 5_000)
 }
 
 describe('inert mounting', () => {
@@ -258,7 +267,7 @@ describe('startup reconciliation', () => {
       await mountSemantic(second, server)
       await until(async () =>
         (await storedEmbedding(root, aggregate.idea.ideaId))!.contentHash
-        === hashSemanticDocument(buildSemanticDocument(draft())))
+        === hashSemanticDocument(buildSemanticDocument(draft())), 10_000)
       expect(server.requests.length).toBeGreaterThanOrEqual(2)
     } finally {
       await dropRoot(root)
@@ -278,7 +287,7 @@ describe('startup reconciliation', () => {
 
       const second = await harness(root)
       await mountSemantic(second, server)
-      await until(async () => await embeddingExists(root, aggregate.idea.ideaId))
+      await until(async () => await embeddingExists(root, aggregate.idea.ideaId), 10_000)
     } finally {
       await dropRoot(root)
     }

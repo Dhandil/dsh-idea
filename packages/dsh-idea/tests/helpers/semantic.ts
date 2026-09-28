@@ -11,9 +11,11 @@ import { createServer, type RequestListener } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AddressInfo } from 'node:net'
+import type { Context } from '@deepseek-ai/cordis'
 import { harness } from './harness.ts'
 import IdeaSemanticService from '../../src/semantic/index.ts'
-import type { SemanticEmbeddingRecord } from '../../src/semantic/types.ts'
+import type { SemanticEmbeddingRecord, SemanticMode } from '../../src/semantic/types.ts'
+import { FakeAgentDefaultModel, FakeLlm, FakeSessionQuery } from './preparation.ts'
 
 /**
  * The stored embedding record for one idea, read straight off the durable
@@ -128,6 +130,8 @@ export async function closeServers(): Promise<void> {
 }
 
 export interface SemanticHarnessOptions {
+  /** Explicit backend mode; wins over the legacy `enabled` flag. */
+  mode?: SemanticMode
   enabled?: boolean
   dimensions?: number
   /** Set to simulate an unconfigured credential (resolve yields undefined). */
@@ -135,6 +139,7 @@ export interface SemanticHarnessOptions {
   /** Reuse an existing durable root (persistence/reconciliation tests). */
   root?: string
   config?: Partial<{
+    mode: SemanticMode
     enabled: boolean
     baseURL: string
     model: string
@@ -161,7 +166,7 @@ export async function mountSemantic(
       : { value: 'test-key', source: 'test' },
   } as never)
   await env.ctx.plugin(IdeaSemanticService, {
-    enabled: options.enabled ?? true,
+    ...(options.mode !== undefined ? { mode: options.mode } : { enabled: options.enabled ?? true }),
     baseURL: server.url,
     model: 'fake-model',
     expectedDimensions: options.dimensions ?? 4,
@@ -193,3 +198,46 @@ export async function until(predicate: () => boolean | Promise<boolean>, timeout
 
 /** A plain delay, for racing provider timeouts and cancellations. */
 export const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
+
+type LlmSemanticBase = Awaited<ReturnType<typeof harness>> & { server: FakeEmbeddingServer }
+
+/**
+ * The llm-mode semantic harness: the real IdeaSemanticService mounted with
+ * `mode: 'llm'` over the real storage stack, with the three LLM-side seams
+ * provided as scripted fakes and the credential seam stubbed. A fake
+ * loopback embedding server stays mounted in the config solely so isolation
+ * tests can assert it receives zero requests.
+ */
+export async function llmSemanticHarness(
+  options: Pick<SemanticHarnessOptions, 'root' | 'noApiKey'> & {
+    config?: SemanticHarnessOptions['config']
+  } = {},
+): Promise<LlmSemanticBase & {
+  sessionQuery: FakeSessionQuery
+  agentDefaultModel: FakeAgentDefaultModel
+  llm: FakeLlm
+}> {
+  const server = await fakeEmbeddingServer()
+  servers.push(server)
+  const sessionQuery = new FakeSessionQuery()
+  const agentDefaultModel = new FakeAgentDefaultModel()
+  const llm = new FakeLlm()
+  const env: Awaited<ReturnType<typeof harness>> = await harness(options.root)
+  const ctx: Context = env.ctx
+  ctx.provide('sessionQuery', sessionQuery as never)
+  ctx.provide('agentDefaultModel', agentDefaultModel as never)
+  ctx.provide('llm', llm as never)
+  ctx.provide('credentials', {
+    resolve: async () => options.noApiKey === true
+      ? undefined
+      : { value: 'test-key', source: 'test' },
+  } as never)
+  await ctx.plugin(IdeaSemanticService, {
+    mode: 'llm',
+    baseURL: server.url,
+    model: 'fake-model',
+    expectedDimensions: 4,
+    ...options.config,
+  })
+  return { ...env, server, sessionQuery, agentDefaultModel, llm }
+}

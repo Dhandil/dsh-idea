@@ -16,6 +16,6 @@
     - id: dsh-idea-semantic
       name: '@dsh-external/dsh-idea/semantic'
       config:
-        enabled: false
+        mode: llm
     - id: dsh-idea-reference
       name: '@dsh-external/dsh-idea/reference'

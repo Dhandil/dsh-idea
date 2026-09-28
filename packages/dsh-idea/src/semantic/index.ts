@@ -14,9 +14,11 @@ export { SemanticConfig, resolveSemanticConfig, SemanticConfigError } from './co
 export type { SemanticPluginConfig, ResolvedSemanticConfig, SemanticConfigRejection } from './config.ts'
 export {
   IDEA_SEMANTIC_DOCUMENT_VERSION,
+  SEMANTIC_MODES,
   SEMANTIC_NORMALIZATION_VERSION,
   SEMANTIC_ADAPTER,
   SEMANTIC_TOP_K,
+  SEMANTIC_SELECTOR_PAYLOAD_LIMIT,
   SEMANTIC_DIMENSIONS_MAX,
   SEMANTIC_TIMEOUT_MS_MAX,
   SEMANTIC_BATCH_SIZE_MAX,
@@ -24,7 +26,7 @@ export {
   SEMANTIC_TIMEOUT_MS_DEFAULT,
   SEMANTIC_BATCH_SIZE_DEFAULT,
 } from './types.ts'
-export type { SemanticEmbeddingRecord, EmbeddingProfile, ResolvedEmbeddingProfile } from './types.ts'
+export type { SemanticMode, SemanticEmbeddingRecord, EmbeddingProfile, ResolvedEmbeddingProfile } from './types.ts'
 export { semanticEmbeddingRecordSchema } from './schema.ts'
 export { ideaSemanticDomainSpec } from './spec.ts'
 export { buildSemanticDocument, hashSemanticDocument, semanticContentHash } from './document.ts'
@@ -42,5 +44,15 @@ export {
   selectSemanticTopK,
 } from './retrieval.ts'
 export type { SemanticScoredRecord } from './retrieval.ts'
+export {
+  extractSelectorQueryFeatures,
+  scoreSelectorCandidate,
+  selectSelectorPool,
+  projectSelectorCandidates,
+} from './selector-retrieval.ts'
+export type { SelectorCandidateProjection } from './selector-retrieval.ts'
+export { SELECTOR_SYSTEM_PROMPT, buildSelectorPrompt } from './selector-prompt.ts'
+export type { SelectorPrompt } from './selector-prompt.ts'
+export { parseSelectorIdeaIds } from './selector-parser.ts'
 
 export default IdeaSemanticService
