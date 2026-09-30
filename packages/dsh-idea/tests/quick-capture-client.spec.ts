@@ -34,6 +34,9 @@ interface MockOnceStub {
   mockImplementationOnce: (impl: () => Promise<unknown>) => MockOnceStub
 }
 
+/** Drain pending microtasks/macrotasks so fire-and-forget flows settle. */
+const flush = async (): Promise<void> => { await new Promise(resolve => setTimeout(resolve, 20)) }
+
 const quickRig = () => {
   const prepareQuickCapture = vi.fn(async () => ({ ok: true as const, value: preview('1') }))
   const onPreview = vi.fn()
@@ -245,7 +248,7 @@ describe('IdeaSaveSurface — quick commit (R6) and preview handoff (R1)', () =>
     expect(create.mock.calls.every(call => (call[0] as { preparationId: string }).preparationId === 'prep_1')).toBe(true)
   })
 
-  it('refuses the commit while busy, without dropping anything', async () => {
+  it('R10: a busy surface is `busy` — not attempted, no create call, nothing dropped', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
     const { surface, create } = saveRig()
@@ -254,7 +257,7 @@ describe('IdeaSaveSurface — quick commit (R6) and preview handoff (R1)', () =>
       return { ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } }
     })
     surface.openQuickPreview(preview('1'))
-    expect(await surface.commitQuickPreview(preview('2'))).toBe('failed')
+    expect(await surface.commitQuickPreview(preview('2'))).toBe('busy')
     expect(create).toHaveBeenCalledTimes(0)
     release()
     await vi.waitFor(() => expect(surface.state.getSnapshot().submitting).toBe(false))
@@ -547,6 +550,108 @@ describe('IdeaQuickCaptureSurface — R9 pendingUnclear recovery lifecycle', () 
     surface.saveDirect()
     await vi.waitFor(() => expect(surface.state.getSnapshot().text).toBe(''))
     expect(surface.state.getSnapshot().open).toBe(false)
+  })
+})
+
+describe('IdeaQuickCaptureSurface — R10 busy never destroys the pending recovery', () => {
+  type CreateOk = { ok: true; value: { ideaId: string; currentVersionId: string; status: 'active'; title: string; createdAt: number } }
+  type CreateFail = { ok: false; error: { code: string } }
+
+  const busyRig = () => {
+    const prepareQuickCapture = vi.fn(async () => ({ ok: true as const, value: preview('1') }))
+    // The base create persists a transport failure: every unmocked attempt is
+    // an UNCLEAR outcome, so pendingUnclear semantics stay deterministic.
+    const create = vi.fn((_request: { preparationId: string; draft: unknown }): Promise<CreateOk | CreateFail> => {
+      throw new Error('carrier down')
+    })
+    const save = new IdeaSaveSurface(
+      { create, prepareFromMessage: vi.fn(), prepareQuickCapture: vi.fn() } as unknown as ConstructorParameters<typeof IdeaSaveSurface>[0],
+      'session-1',
+    )
+    const surface = new IdeaQuickCaptureSurface(
+      { prepareQuickCapture } as unknown as ConstructorParameters<typeof IdeaQuickCaptureSurface>[0],
+      'session-1',
+      {
+        onPreview: p => save.openQuickPreview(p),
+        onCommit: p => save.commitQuickPreview(p),
+      },
+    )
+    return { surface, save, prepareQuickCapture, create }
+  }
+
+  it('R10: unclear → other modal busy → the retry is not attempted and the original id is preserved', async () => {
+    const { surface, save, prepareQuickCapture, create } = busyRig()
+    // The first commit's outcome is unclear (two same-id create calls).
+    surface.open()
+    surface.setText('原文')
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().failure).toBe('commit-failed'))
+    expect(create).toHaveBeenCalledTimes(2)
+
+    // An unrelated AI preview modal occupies the save surface: the retry is
+    // NOT attempted (no create call) and nothing is lost.
+    save.openQuickPreview(preview('2'))
+    surface.saveDirect()
+    await flush()
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(surface.state.getSnapshot().text).toBe('原文')
+
+    // Once the busy surface clears, the retry runs with the ORIGINAL id.
+    create.mockImplementationOnce(async () => ({ ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } }))
+    save.cancel()
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().text).toBe(''))
+    expect(prepareQuickCapture).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledTimes(3)
+    expect(create.mock.calls.every(call => (call[0] as { preparationId: string }).preparationId === 'prep_1')).toBe(true)
+  })
+
+  it('R10: a first direct save bounced by busy keeps the note and commits later on the SAME id', async () => {
+    const { surface, save, prepareQuickCapture, create } = busyRig()
+    // An unrelated modal occupies the save surface BEFORE the first save.
+    save.openQuickPreview(preview('2'))
+    surface.open()
+    surface.setText('第一次的想法')
+    surface.saveDirect()
+    await flush()
+    // The prepare ran, but the commit was never attempted.
+    expect(prepareQuickCapture).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledTimes(0)
+    expect(surface.state.getSnapshot().text).toBe('第一次的想法')
+
+    // The busy surface clears: the retry commits the SAME preparation id —
+    // no re-prepare, so no duplicate-creation risk.
+    create.mockImplementationOnce(async () => ({ ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } }))
+    save.cancel()
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().text).toBe(''))
+    expect(prepareQuickCapture).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledTimes(1)
+    expect((create.mock.calls[0] as [{ preparationId: string }])[0].preparationId).toBe('prep_1')
+    expect(save.state.getSnapshot().modal).toBeNull()
+  })
+
+  it('R10: a double activation during the busy bounce still cannot fire a concurrent commit', async () => {
+    const { surface, save, create } = busyRig()
+    // Unclear first commit, then a busy bounce.
+    surface.open()
+    surface.setText('原文')
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().failure).toBe('commit-failed'))
+    expect(create).toHaveBeenCalledTimes(2)
+    save.openQuickPreview(preview('2'))
+    surface.saveDirect()
+    surface.saveDirect()
+    await flush()
+    // Both activations during the busy bounce are no-ops (not attempted).
+    expect(create).toHaveBeenCalledTimes(2)
+
+    save.cancel()
+    create.mockImplementationOnce(async () => ({ ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } }))
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().text).toBe(''))
+    expect(create).toHaveBeenCalledTimes(3)
+    expect(create.mock.calls.every(call => (call[0] as { preparationId: string }).preparationId === 'prep_1')).toBe(true)
   })
 })
 

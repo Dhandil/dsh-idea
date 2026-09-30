@@ -260,9 +260,12 @@ export class IdeaQuickCaptureSurface {
   }
 
   /**
-   * Apply one direct-commit outcome (R8): success consumes the note; an
+   * Apply one direct-commit outcome (R8/R10): success consumes the note; an
    * UNCLEAR outcome keeps the note and remembers the SAME preparation id for
-   * the retry; a definitive failure clears the stale id (the Host reset the
+   * the retry; a BUSY outcome means nothing was attempted — the prepared
+   * proposal (and any existing pendingUnclear) stays exactly as it was, so
+   * the same-id retry remains the only recovery and no duplicate creation is
+   * possible; a definitive failure clears the stale id (the Host reset the
    * preparation) while keeping the note for a fresh prepare.
    */
   private applyCommitOutcome(preview: QuickCapturePreview, outcome: QuickCommitOutcome): void {
@@ -271,7 +274,17 @@ export class IdeaQuickCaptureSurface {
       this.state.update((current) => { Object.assign(current, CLOSED) })
       return
     }
-    this.pendingUnclear = outcome === 'unclear' ? preview : null
+    if (outcome === 'failed') {
+      this.pendingUnclear = null
+    } else if (this.pendingUnclear === null && (outcome === 'unclear' || outcome === 'busy')) {
+      // `unclear`: the same-id recovery is born. `busy`: the preparation was
+      // already registered but the commit never left — keeping it here makes
+      // the later retry commit the SAME id, so no duplicate creation is
+      // possible (T12.2 R10).
+      this.pendingUnclear = preview
+    }
+    // 'busy': nothing was attempted — the lifecycle is untouched apart from
+    // the visible failure notice; the note and any pending id survive.
     this.state.update((current) => {
       current.preparing = 'none'
       current.failure = 'commit-failed'

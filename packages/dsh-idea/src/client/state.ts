@@ -90,10 +90,15 @@ export const durableFrom = (draft: EditableIdeaDraft): IdeaDraft => ({
   openQuestions: listItemsOf(draft.openQuestionsText),
 })
 
-/** The outcome of one quick-commit attempt (T12.2 R6/R8): `unclear` means
- * the transport died before the Host's answer was known — recovery may only
- * retry with the SAME preparation id, never a re-prepared one. */
-export type QuickCommitOutcome = 'success' | 'failed' | 'unclear'
+/** The outcome of one quick-commit attempt (T12.2 R6/R8/R10):
+ * - `success`: the Host committed the preparation;
+ * - `failed`: a DEFINITIVE Host answer (`idea/*` failure) — the Host reset
+ *   the preparation, so only a fresh prepare may recover;
+ * - `unclear`: the answer is unknown (thrown carrier or `gateway/*`) —
+ *   recovery may only retry with the SAME preparation id;
+ * - `busy`: the commit was NOT attempted (this surface was busy) — nothing
+ *   is known or changed, and any prepared proposal stays exactly as it was. */
+export type QuickCommitOutcome = 'success' | 'failed' | 'unclear' | 'busy'
 
 /** Whether the required fields have content after trim. Motivation may be
  * empty since T12 (D1): every save surface gates on title + core only. */
@@ -331,9 +336,11 @@ export class IdeaSaveSurface {
    * covers a busy surface (the caller must keep the user's note visible).
    */
   commitQuickPreview(preview: QuickCapturePreview): Promise<QuickCommitOutcome> {
-    if (this.submitInFlight) return Promise.resolve('failed')
+    // R10: a busy surface means the commit is NOT attempted — distinct from
+    // a definitive Host failure, so the caller never treats it as one.
+    if (this.submitInFlight) return Promise.resolve('busy')
     const { preparingMessageId, modal } = this.state.getSnapshot()
-    if (preparingMessageId !== null || modal !== null) return Promise.resolve('failed')
+    if (preparingMessageId !== null || modal !== null) return Promise.resolve('busy')
     this.submitInFlight = true
     this.state.update((current) => {
       current.submitting = true
