@@ -4,7 +4,7 @@
 - Date: 2026-09-29
 - Accepted baseline: `b9e73781b8bf6ed5c6ab30c4b50e952b877f5858` (= `origin/main`); Harness `ddefc45fbc7f8e46dd73185e68295696d1297887` read-only, tracked diff zero throughout.
 - Architecture authority: `docs/architectue/DSH_IDEA_T12_QUICK_CAPTURE_ARCHITECTURE_FREEZE.md` (D1/D2/D3 frozen) implementing the accepted `DSH_IDEA_T12_1_QUICK_CAPTURE_PREFLIGHT.md`.
-- **Tested executable (this task): implementation commit `5b2351500679c7c1675b8c24c051aad3b8334619`** (the exact code state of HEAD `b9e7378…` + rebuilt `lib/`, host `tsc` build 13:02 / client bundle 13:29, whose lib mtimes are unchanged across the Canonical Full and remain unchanged since). Committed as `5b23515` before this docs-only addendum; every verification gate in this report ran against this code state.
+- **Tested executable (this task, after the architecture-review repair): commit `a5f0ae2dad34621f8dcf9a8373527668c9892c1e`**. The initial implementation commit was `5b2351500679c7c1675b8c24c051aad3b8334619`; the architecture review returned REPAIR REQUIRED (R1–R5 below), and every gate in §3 was re-run to green against the repaired code state whose lib mtimes are unchanged since the final Canonical Full (no post-Full rebuild).
 
 ## 1. What was implemented
 
@@ -51,6 +51,18 @@
 - Harness：tracked diff = 0。
 - 未运行真实 Provider、未进入 T13。
 
-## 5. Verdict
+## 5. Architecture Review Repair (T12.2 R1–R5, 2026-09-30)
 
-`T12_2_QUICK_CAPTURE_IMPLEMENTED — ALL_GATES_GREEN`：冻结决策 D1/D2/D3 全部按冻结语义落地；Focused 21/21、回归 797/797、Static Gates 全绿、Canonical Full 恰好一次最终全绿、Full 后零 drift。本报告为 T12.2 终态：未提交、未推送，停止等待架构审核。
+The architecture review returned `REPAIR REQUIRED` on the initial implementation commit `5b23515`; D1/D2/D3 stayed frozen and only the following was repaired:
+
+- **R1 — card close / quick-capture coordination**: the card's close (× / Escape / outside / injected verb) and the Add path now share the quick-capture lifecycle (close clears the idle form; a successful Add closes it too). Closing the card while a prepare is in flight **cancels** the prepare (abort silences the async result), so a closed card can never be followed by a late preview. A refused preview handoff (save surface busy) no longer silently drops the note: the form stays open with the verbatim text and a visible `handoff-failed` notice. `openQuickPreview` now returns a handoff boolean.
+- **R2 — title derivation**: the first non-empty line is trimmed then capped at `titleMax`, so an over-long first line truncates the title instead of rejecting a note whose `core` is valid.
+- **R3 — shared Host input gate**: the note-length gate (≤ `fieldMax`) runs in `prepareQuickCapture` before the mode branch — `ai` rejects an over-bounds note with **zero** provider calls (regression-tested).
+- **R4 — direct save auto-commit**: clicking 直接保存 now runs Preparation → commit on the SAME preparation id automatically (no confirmation step, no preview modal). AI organize still shows the editable preview for user confirmation. An unclear commit outcome is retried only with the original preparation id (at most one retry; the Host commit machine dedups), never re-prepared. Refusals while the save surface is busy resolve `false` and the quick form keeps the note.
+- **R5 — registry assertions restored**: `preparation-registry.spec` re-asserts the precise per-entry `sessionId`/model identity for capacity/expiry (no kind-only downgrade).
+
+Repair verification (same binding order): Focused (quick-capture host 13 + client 15 + card 3 + registry/preparation/remote suites) → full regression **52 files / 807 tests, all green** → scope audit (10 files: 9 modified + 1 new test, all inside `packages/dsh-idea/`) → static gates (typecheck, host build, client build) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 52 / 807 all green**, with zero executable drift after it. The Harness repository's own suite was not run (R1 established the Canonical Full scope).
+
+## 6. Verdict
+
+`T12_2_QUICK_CAPTURE_IMPLEMENTED — ALL_GATES_GREEN (REPAIR APPLIED)`：冻结决策 D1/D2/D3 语义不变；R1–R5 修复完成并全部重验。最终 Tested executable = Repair commit `a5f0ae2dad34621f8dcf9a8373527668c9892c1e`。等待架构复审。
