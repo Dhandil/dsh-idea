@@ -96,6 +96,19 @@ describe('quick-capture preparation (direct)', () => {
     await expect(env.idea.prepareQuickCapture(quickRequest({ text: 'x'.repeat(20_001) })))
       .rejects.toMatchObject({ code: 'idea/invalid-quick-capture-input' })
   })
+
+  it('caps an over-long first line at titleMax instead of rejecting a valid core (R2)', async () => {
+    const env = await fullHarness()
+    const longLine = '长'.repeat(300)
+    const result = await env.idea.prepareQuickCapture(quickRequest({
+      text: `${longLine}\n正文的其余部分`,
+    }))
+    expect(result.draft.title).toHaveLength(200)
+    expect(result.draft.core).toBe(`${longLine}\n正文的其余部分`)
+    // The proposal commits: a truncated title never blocks the save.
+    const saved = await env.idea.create({ preparationId: result.preparationId, draft: result.draft })
+    expect(saved.status).toBe('active')
+  })
 })
 
 describe('quick-capture preparation (ai)', () => {

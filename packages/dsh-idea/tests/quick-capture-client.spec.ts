@@ -1,12 +1,13 @@
 /**
- * T12 Quick Capture — client-surface focused tests (T12.2 repair): the
- * quick-capture form surface (open/close, text edits, direct auto-commit
+ * T12 Quick Capture — client-surface focused tests (T12.2 second repair):
+ * the quick-capture form surface (open/close, text edits, direct auto-commit
  * through the same preparation id, the AI handoff contract, failure kinds
- * preserving the note, in-flight re-entry, and close-cancels-in-flight so a
- * closed card is never followed by a late preview), the Save Idea surface's
- * quick-commit path (same-id retry on unclear outcomes, busy refusal), the
- * preview handoff boolean, and the relaxed required-fields gate (D1). All
- * remote faces are scripted; no live Host, provider, or model call.
+ * preserving the note, in-flight re-entry, and the phase-aware close:
+ * preparing cancels, committing only hides and preserves), the Save Idea
+ * surface's quick-commit path (structured-failure state restoration, same-id
+ * retry on unclear outcomes, busy refusal), the preview handoff boolean, the
+ * stale-task/AbortController race guard, and the relaxed required-fields
+ * gate (D1). All remote faces are scripted; no live Host/provider call.
  * @module tests/quick-capture-client.spec
  */
 
@@ -28,6 +29,11 @@ const preview = (id: string): QuickCapturePreview => ({
   },
 })
 
+/** Chainable one-shot stub over a scripted vi.fn (keeps mock chaining typed). */
+interface MockOnceStub {
+  mockImplementationOnce: (impl: () => Promise<unknown>) => MockOnceStub
+}
+
 const quickRig = () => {
   const prepareQuickCapture = vi.fn(async () => ({ ok: true as const, value: preview('1') }))
   const onPreview = vi.fn()
@@ -43,14 +49,15 @@ const quickRig = () => {
 describe('IdeaQuickCaptureSurface — direct auto-commit (R4)', () => {
   it('hands the prepared proposal to the same-id commit with no preview step', async () => {
     const { surface, prepareQuickCapture, onPreview, onCommit } = quickRig()
-    onCommit.mockResolvedValue(true)
+    onCommit.mockResolvedValue('success')
     surface.open()
     surface.setText('我的想法')
     surface.saveDirect()
     await vi.waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1))
     expect(onCommit).toHaveBeenCalledWith(preview('1'))
     expect(onPreview).not.toHaveBeenCalled()
-    expect((prepareQuickCapture.mock.calls[0] as unknown as [{ mode: string }])[0].mode).toBe('direct')
+    const call = (prepareQuickCapture.mock.calls[0] as unknown as [{ mode: string }])[0]
+    expect(call.mode).toBe('direct')
     const snapshot = surface.state.getSnapshot()
     expect(snapshot.open).toBe(false)
     expect(snapshot.text).toBe('')
@@ -59,7 +66,7 @@ describe('IdeaQuickCaptureSurface — direct auto-commit (R4)', () => {
 
   it('a failed auto-commit keeps the note with a visible commit failure', async () => {
     const { surface, onCommit } = quickRig()
-    onCommit.mockResolvedValue(false)
+    onCommit.mockResolvedValue('failed')
     surface.open()
     surface.setText('原文要保留')
     surface.saveDirect()
@@ -79,7 +86,8 @@ describe('IdeaQuickCaptureSurface — AI handoff contract (R1)', () => {
     await vi.waitFor(() => expect(onPreview).toHaveBeenCalledTimes(1))
     expect(onPreview).toHaveBeenCalledWith(preview('1'))
     expect(onCommit).not.toHaveBeenCalled()
-    expect((prepareQuickCapture.mock.calls[0] as unknown as [{ mode: string }])[0].mode).toBe('ai')
+    const call = (prepareQuickCapture.mock.calls[0] as unknown as [{ mode: string }])[0]
+    expect(call.mode).toBe('ai')
     expect(surface.state.getSnapshot().open).toBe(false)
   })
 
@@ -99,10 +107,11 @@ describe('IdeaQuickCaptureSurface — AI handoff contract (R1)', () => {
 
   it('an AI prepare failure preserves the note and direct save stays available', async () => {
     const { surface, prepareQuickCapture, onPreview, onCommit } = quickRig()
-    ;(prepareQuickCapture as ReturnType<typeof vi.fn>)
-      .mockImplementationOnce(async () => ({ ok: false as const, error: { code: 'idea/model-failed' } }))
+    const mock: { mockImplementationOnce: (impl: () => Promise<unknown>) => MockOnceStub } =
+      prepareQuickCapture as unknown as MockOnceStub
+    mock.mockImplementationOnce(async () => ({ ok: false as const, error: { code: 'idea/model-failed' } }))
       .mockImplementationOnce(async () => ({ ok: true as const, value: preview('1') }))
-    onCommit.mockResolvedValue(true)
+    onCommit.mockResolvedValue('success')
     surface.open()
     surface.setText('原文要保留')
     surface.organize()
@@ -122,7 +131,9 @@ describe('IdeaQuickCaptureSurface — close coordination (R1)', () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
     const { surface, prepareQuickCapture, onPreview, onCommit } = quickRig()
-    prepareQuickCapture.mockImplementationOnce(async () => {
+    const mock: { mockImplementationOnce: (impl: () => Promise<unknown>) => MockOnceStub } =
+      prepareQuickCapture as unknown as MockOnceStub
+    mock.mockImplementationOnce(async () => {
       await gate
       return { ok: true as const, value: preview('1') }
     })
@@ -155,8 +166,10 @@ describe('IdeaQuickCaptureSurface — close coordination (R1)', () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
     const { surface, prepareQuickCapture, onCommit } = quickRig()
-    onCommit.mockResolvedValue(true)
-    prepareQuickCapture.mockImplementationOnce(async () => {
+    onCommit.mockResolvedValue('success')
+    const mock: { mockImplementationOnce: (impl: () => Promise<unknown>) => MockOnceStub } =
+      prepareQuickCapture as unknown as MockOnceStub
+    mock.mockImplementationOnce(async () => {
       await gate
       return { ok: true as const, value: preview('1') }
     })
@@ -180,7 +193,7 @@ describe('IdeaQuickCaptureSurface — close coordination (R1)', () => {
   })
 })
 
-describe('IdeaSaveSurface — quick commit (R4) and preview handoff (R1)', () => {
+describe('IdeaSaveSurface — quick commit (R6) and preview handoff (R1)', () => {
   const saveRig = () => {
     const create = vi.fn()
     const surface = new IdeaSaveSurface(
@@ -193,30 +206,43 @@ describe('IdeaSaveSurface — quick commit (R4) and preview handoff (R1)', () =>
   it('commits the prepared draft verbatim on the same preparation id', async () => {
     const { surface, create } = saveRig()
     create.mockResolvedValue({ ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } })
-    const committed = await surface.commitQuickPreview(preview('1'))
-    expect(committed).toBe(true)
+    const outcome = await surface.commitQuickPreview(preview('1'))
+    expect(outcome).toBe('success')
     expect(create).toHaveBeenCalledTimes(1)
     expect(create.mock.calls[0]?.[0]).toMatchObject({ preparationId: 'prep_1', draft: preview('1').draft })
     expect(surface.state.getSnapshot().toastSeq).toBe(1)
+  })
+
+  it('R6: a structured Remote failure fully restores submitting and the in-flight flag', async () => {
+    const { surface, create } = saveRig()
+    create.mockResolvedValue({ ok: false as const, error: { code: 'idea/storage-failed' } })
+    const outcome = await surface.commitQuickPreview(preview('1'))
+    expect(outcome).toBe('failed')
+    expect(create).toHaveBeenCalledTimes(1)
+    // The observable state must be fully restored, and a follow-up commit
+    // must be accepted (the in-flight flag is not stuck).
+    expect(surface.state.getSnapshot().submitting).toBe(false)
+    create.mockResolvedValue({ ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } })
+    expect(await surface.commitQuickPreview(preview('1'))).toBe('success')
+  })
+
+  it('R6: a thrown unclear outcome also fully restores the observable state', async () => {
+    const { surface, create } = saveRig()
+    create.mockImplementation(async () => { throw new Error('carrier down') })
+    expect(await surface.commitQuickPreview(preview('1'))).toBe('unclear')
+    expect(surface.state.getSnapshot().submitting).toBe(false)
+    expect(await surface.commitQuickPreview(preview('1'))).toBe('unclear')
+    expect(create).toHaveBeenCalledTimes(4)
+    expect(create.mock.calls.every(call => (call[0] as { preparationId: string }).preparationId === 'prep_1')).toBe(true)
   })
 
   it('an unclear outcome retries once with the SAME preparation id', async () => {
     const { surface, create } = saveRig()
     create.mockImplementationOnce(async () => { throw new Error('carrier down') })
       .mockImplementationOnce(async () => ({ ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } }))
-    const committed = await surface.commitQuickPreview(preview('1'))
-    expect(committed).toBe(true)
+    expect(await surface.commitQuickPreview(preview('1'))).toBe('success')
     expect(create).toHaveBeenCalledTimes(2)
-    expect(create.mock.calls.every(call => call[0].preparationId === 'prep_1')).toBe(true)
-  })
-
-  it('persistent unclear outcomes resolve false after exhausting the same-id retry', async () => {
-    const { surface, create } = saveRig()
-    create.mockImplementation(async () => { throw new Error('carrier down') })
-    const committed = await surface.commitQuickPreview(preview('1'))
-    expect(committed).toBe(false)
-    expect(create).toHaveBeenCalledTimes(2)
-    expect(create.mock.calls.every(call => call[0].preparationId === 'prep_1')).toBe(true)
+    expect(create.mock.calls.every(call => (call[0] as { preparationId: string }).preparationId === 'prep_1')).toBe(true)
   })
 
   it('refuses the commit while busy, without dropping anything', async () => {
@@ -228,8 +254,7 @@ describe('IdeaSaveSurface — quick commit (R4) and preview handoff (R1)', () =>
       return { ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } }
     })
     surface.openQuickPreview(preview('1'))
-    const busy = await surface.commitQuickPreview(preview('2'))
-    expect(busy).toBe(false)
+    expect(await surface.commitQuickPreview(preview('2'))).toBe('failed')
     expect(create).toHaveBeenCalledTimes(0)
     release()
     await vi.waitFor(() => expect(surface.state.getSnapshot().submitting).toBe(false))
@@ -251,6 +276,151 @@ describe('IdeaSaveSurface — quick commit (R4) and preview handoff (R1)', () =>
     surface.cancel()
     expect(surface.state.getSnapshot().modal).toBeNull()
     expect(surface.openQuickPreview(preview('4'))).toBe(true)
+  })
+})
+
+describe('IdeaQuickCaptureSurface — R7 commit is not cancellable, R8 same-id recovery and races', () => {
+  const quickRigWithSave = () => {
+    const prepareQuickCapture = vi.fn(async () => ({ ok: true as const, value: preview('1') }))
+    const create = vi.fn()
+    const save = new IdeaSaveSurface(
+      { create, prepareFromMessage: vi.fn(), prepareQuickCapture: vi.fn() } as unknown as ConstructorParameters<typeof IdeaSaveSurface>[0],
+      'session-1',
+    )
+    const surface = new IdeaQuickCaptureSurface(
+      { prepareQuickCapture } as unknown as ConstructorParameters<typeof IdeaQuickCaptureSurface>[0],
+      'session-1',
+      {
+        onPreview: p => save.openQuickPreview(p),
+        onCommit: p => save.commitQuickPreview(p),
+      },
+    )
+    return { surface, save, prepareQuickCapture, create }
+  }
+
+  it('R7: closing during the commit hides the form but preserves the note; failure is recoverable', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const { surface, save, create } = quickRigWithSave()
+    const mock = create as unknown as {
+      mockImplementationOnce: (impl: () => Promise<unknown>) => unknown
+    }
+    mock.mockImplementationOnce(async () => {
+      await gate
+      return { ok: false as const, error: { code: 'idea/storage-failed' } }
+    })
+    surface.open()
+    surface.setText('原文要保留')
+    surface.saveDirect()
+    await vi.waitFor(() => expect(save.state.getSnapshot().submitting).toBe(true))
+
+    // The card closes (Escape/outside/×) while the commit is in flight.
+    surface.close()
+    expect(surface.state.getSnapshot().open).toBe(false)
+    expect(surface.state.getSnapshot().text).toBe('原文要保留')
+
+    // The commit settles as a definitive failure: the note stays recoverable.
+    release()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().failure).toBe('commit-failed'))
+    expect(surface.state.getSnapshot().text).toBe('原文要保留')
+    // Reopening the card shows the form with the note again.
+    surface.open()
+    expect(surface.state.getSnapshot().open).toBe(true)
+    expect(surface.state.getSnapshot().text).toBe('原文要保留')
+  })
+
+  it('R7: a commit that succeeds after the card closed consumes the note cleanly', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const { surface, save, create } = quickRigWithSave()
+    const mock = create as unknown as {
+      mockImplementationOnce: (impl: () => Promise<unknown>) => unknown
+    }
+    mock.mockImplementationOnce(async () => {
+      await gate
+      return { ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } }
+    })
+    surface.open()
+    surface.setText('原文')
+    surface.saveDirect()
+    await vi.waitFor(() => expect(save.state.getSnapshot().submitting).toBe(true))
+    surface.close()
+    release()
+    // The commit settles as a success: the note is consumed cleanly.
+    await vi.waitFor(() => expect(surface.state.getSnapshot().text).toBe(''))
+    expect(surface.state.getSnapshot().failure).toBeNull()
+    expect(save.state.getSnapshot().modal).toBeNull()
+  })
+
+  it('R8: recovery after an unclear commit retries the SAME id, never a re-prepare', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const { surface, save, prepareQuickCapture, create } = quickRigWithSave()
+    const mock = create as unknown as {
+      mockImplementationOnce: (impl: () => Promise<unknown>) => unknown
+    }
+    mock.mockImplementationOnce(async () => {
+      await gate
+      throw new Error('carrier down')
+    })
+    surface.open()
+    surface.setText('原文')
+    surface.saveDirect()
+    await vi.waitFor(() => expect(save.state.getSnapshot().submitting).toBe(true))
+    release()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().failure).toBe('commit-failed'))
+
+    // The user clicks 直接保存 again: the commit retries with the ORIGINAL
+    // preparation id — prepareQuickCapture is NOT called again.
+    mock.mockImplementationOnce(async () => ({ ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } }))
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().text).toBe(''))
+    expect(prepareQuickCapture).toHaveBeenCalledTimes(1)
+    expect(create.mock.calls.every(call => (call[0] as { preparationId: string }).preparationId === 'prep_1')).toBe(true)
+  })
+
+  it('R8: a close → reopen → new task race never lets the stale finally clobber the new task', async () => {
+    let releaseA!: () => void
+    const gateA = new Promise<void>((resolve) => { releaseA = resolve })
+    let releaseB!: () => void
+    const gateB = new Promise<void>((resolve) => { releaseB = resolve })
+    const { surface, save, prepareQuickCapture, create } = quickRigWithSave()
+    const mock: { mockImplementationOnce: (impl: () => Promise<unknown>) => MockOnceStub } =
+      prepareQuickCapture as unknown as MockOnceStub
+    mock.mockImplementationOnce(async () => {
+      await gateA
+      return { ok: true as const, value: preview('1') }
+    }).mockImplementationOnce(async () => {
+      await gateB
+      return { ok: true as const, value: preview('1') }
+    })
+    create.mockResolvedValue({ ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } })
+
+    // Task A: a direct-save prepare parked on the gate.
+    surface.open()
+    surface.setText('第一份原文')
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().preparing).toBe('direct'))
+
+    // Close (cancels A while still parked), reopen, start task B — A's
+    // finally has not run yet: this is the deterministic race window.
+    surface.close()
+    surface.open()
+    surface.setText('第二份原文')
+    surface.saveDirect()
+    expect(prepareQuickCapture).toHaveBeenCalledTimes(2)
+
+    // A's finally now runs: it must not clobber B's controller or state.
+    releaseA()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(surface.state.getSnapshot().preparing).toBe('direct')
+    expect(surface.state.getSnapshot().text).toBe('第二份原文')
+
+    // B completes normally and consumes B's note only.
+    releaseB()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().text).toBe(''))
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(save.state.getSnapshot().failure).toBeNull()
   })
 })
 

@@ -15,6 +15,7 @@
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { QuickCapturePreview } from '../preparation/types.ts'
+import type { QuickCommitOutcome } from './state.ts'
 
 /** The quick-capture prepare lifecycle marker. */
 export type QuickCapturePreparing = 'none' | 'direct' | 'ai'
@@ -64,17 +65,18 @@ export interface IdeaQuickCaptureCallbacks {
   onPreview: (preview: QuickCapturePreview) => boolean
   /**
    * Direct auto-commit: run Preparation → commit on the SAME preparation id
-   * without a confirmation step. Resolves `true` on success; `false` on
-   * failure or when the save surface is busy (note stays visible).
+   * without a confirmation step. Resolves with the commit outcome (R6):
+   * `'unclear'` outcomes may only ever be recovered through the SAME
+   * preparation id (R8) — never through a re-prepared one.
    */
-  onCommit: (preview: QuickCapturePreview) => Promise<boolean>
+  onCommit: (preview: QuickCapturePreview) => Promise<QuickCommitOutcome>
 }
 
 /**
  * One Session's Quick Capture surface: opens above the search input and
  * prepares a proposal (direct or AI). Double activations while a prepare is
- * in flight are no-ops; closing cancels the in-flight prepare; disposing
- * aborts it.
+ * in flight are no-ops; closing cancels the in-flight prepare while a commit
+ * in flight is not cancellable (T12.2 R7); disposing aborts it.
  */
 export class IdeaQuickCaptureSurface {
   /** Observable interaction state; the card component selects slices of it. */
@@ -82,6 +84,13 @@ export class IdeaQuickCaptureSurface {
 
   private prepareAbort: AbortController | undefined
   private prepareInFlight = false
+  /** A direct-save commit is in flight: not cancellable (T12.2 R7). */
+  private commitInFlight = false
+  /**
+   * A quick-commit whose outcome was unclear (R8): recovery retries the
+   * commit with this SAME preparation id; any other outcome clears it.
+   */
+  private pendingUnclear: QuickCapturePreview | null = null
 
   constructor(
     private readonly remote: IdeaQuickCaptureFace,
@@ -101,28 +110,57 @@ export class IdeaQuickCaptureSurface {
   }
 
   /**
-   * Hide the capture form and clear the note. While a prepare is in flight
-   * this **cancels** it: the async result is silenced, so a closed card is
-   * never followed by a late preview (T12.2 R1).
+   * Phase-aware close (T12.2 R7):
+   * - idle: clear the form, zero side effects;
+   * - preparing: **cancel** the prepare (the async result is silenced, so a
+   *   closed card is never followed by a late preview — R1);
+   * - committing: a commit is NOT cancellable — the form merely hides while
+   *   the note and the pending outcome are preserved, so the user is never
+   *   misled into thinking the save was cancelled and the note stays
+   *   recoverable whichever way the commit settles.
    */
   close(): void {
+    if (this.commitInFlight) {
+      this.state.update((current) => { current.open = false })
+      return
+    }
     this.prepareAbort?.abort()
     this.prepareAbort = undefined
     this.prepareInFlight = false
+    this.pendingUnclear = null
     this.state.update((current) => { Object.assign(current, CLOSED) })
   }
 
   /** Apply one text edit to the open form. */
   setText(text: string): void {
-    if (this.prepareInFlight) return
+    if (this.prepareInFlight || this.commitInFlight) return
     this.state.update((draft) => {
       draft.text = text
       draft.failure = null
     })
   }
 
-  /** Prepare the deterministic direct-save proposal, then auto-commit it. */
+  /**
+   * Prepare the deterministic direct-save proposal, then auto-commit it.
+   * When a previous commit's outcome was unclear (R8), the retry runs the
+   * commit with the ORIGINAL preparation id — a new preparation is never
+   * minted to recover an unclear commit.
+   */
   saveDirect(): void {
+    const { open } = this.state.getSnapshot()
+    if (!open || this.prepareInFlight || this.commitInFlight) return
+    if (this.pendingUnclear !== null) {
+      const pending = this.pendingUnclear
+      this.state.update((draft) => {
+        draft.preparing = 'direct'
+        draft.failure = null
+      })
+      void this.callbacks.onCommit(pending).then((outcome) => {
+        this.commitInFlight = false
+        this.applyCommitOutcome(pending, outcome)
+      })
+      return
+    }
     this.runPrepare('direct')
   }
 
@@ -133,7 +171,7 @@ export class IdeaQuickCaptureSurface {
 
   private runPrepare(mode: 'direct' | 'ai'): void {
     const { text, preparing, open } = this.state.getSnapshot()
-    if (!open || this.prepareInFlight || preparing !== 'none') return
+    if (!open || this.prepareInFlight || this.commitInFlight || preparing !== 'none') return
     if (!IdeaQuickCaptureSurface.canSave(text)) return
     this.prepareInFlight = true
     const controller = new AbortController()
@@ -164,8 +202,13 @@ export class IdeaQuickCaptureSurface {
       // stays and direct save remains available (T12 requirement 8).
       failed = true
     } finally {
-      this.prepareInFlight = false
-      this.prepareAbort = undefined
+      // R8 ownership guard: a stale task's finally must never clobber a
+      // newer task's AbortController or lifecycle state (close → reopen →
+      // new task races).
+      if (this.prepareAbort === controller) {
+        this.prepareInFlight = false
+        this.prepareAbort = undefined
+      }
     }
     // Aborted (card closed/unmount) reads as silence: the form was cleared
     // by close(), and no preview or failure may surface afterwards.
@@ -173,17 +216,14 @@ export class IdeaQuickCaptureSurface {
 
     if (preview !== null && mode === 'direct') {
       // R4: direct save auto-commits through the SAME preparation id — no
-      // confirmation step, no preview modal.
-      const committed = await this.callbacks.onCommit(preview)
+      // confirmation step, no preview modal. The commit is not cancellable
+      // (R7): commitInFlight is set synchronously with the aborted check, so
+      // a close cannot interleave between the two.
       if (controller.signal.aborted) return
-      if (committed) {
-        this.state.update((current) => { Object.assign(current, CLOSED) })
-        return
-      }
-      this.state.update((current) => {
-        current.preparing = 'none'
-        current.failure = 'commit-failed'
-      })
+      this.commitInFlight = true
+      const outcome = await this.callbacks.onCommit(preview)
+      this.commitInFlight = false
+      this.applyCommitOutcome(preview, outcome)
       return
     }
 
@@ -206,6 +246,25 @@ export class IdeaQuickCaptureSurface {
       current.preparing = 'none'
       // The verbatim note is preserved on failure (T12 requirement 8).
       current.failure = failed ? 'prepare-failed' : null
+    })
+  }
+
+  /**
+   * Apply one direct-commit outcome (R8): success consumes the note; an
+   * UNCLEAR outcome keeps the note and remembers the SAME preparation id for
+   * the retry; a definitive failure clears the stale id (the Host reset the
+   * preparation) while keeping the note for a fresh prepare.
+   */
+  private applyCommitOutcome(preview: QuickCapturePreview, outcome: QuickCommitOutcome): void {
+    if (outcome === 'success') {
+      this.pendingUnclear = null
+      this.state.update((current) => { Object.assign(current, CLOSED) })
+      return
+    }
+    this.pendingUnclear = outcome === 'unclear' ? preview : null
+    this.state.update((current) => {
+      current.preparing = 'none'
+      current.failure = 'commit-failed'
     })
   }
 

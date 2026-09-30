@@ -194,13 +194,14 @@ export class IdeaPreparationService extends Service {
 
   /** The deterministic direct-save draft: verbatim core, derived title. */
   private directQuickCaptureDraft(normalized: string): IdeaDraft {
-    // Deterministic title: the first non-empty line, capped to the title
-    // bound; the complete note rides `core` verbatim. Normalization and
-    // bounding run through the same schema the commit will validate — an
-    // over-long note or title is rejected here, before any registry entry.
+    // Deterministic title (T12.2 R2): the first non-empty line, trimmed and
+    // capped to the title bound — an over-long first line truncates the
+    // title instead of rejecting a note whose `core` is perfectly valid.
+    // The complete note rides `core` verbatim. Normalization and bounding
+    // run through the same schema the commit will validate.
     const firstLine = normalized.split('\n').find(line => line.trim().length > 0) ?? normalized
     const result = ideaDraftSchema.safeParse({
-      title: firstLine,
+      title: firstLine.trim().slice(0, IDEA_LIMITS.titleMax),
       core: normalized,
       motivation: '',
       currentConclusion: '',

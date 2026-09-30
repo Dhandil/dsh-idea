@@ -90,6 +90,11 @@ export const durableFrom = (draft: EditableIdeaDraft): IdeaDraft => ({
   openQuestions: listItemsOf(draft.openQuestionsText),
 })
 
+/** The outcome of one quick-commit attempt (T12.2 R6/R8): `unclear` means
+ * the transport died before the Host's answer was known — recovery may only
+ * retry with the SAME preparation id, never a re-prepared one. */
+export type QuickCommitOutcome = 'success' | 'failed' | 'unclear'
+
 /** Whether the required fields have content after trim. Motivation may be
  * empty since T12 (D1): every save surface gates on title + core only. */
 export const requiredPresent = (draft: EditableIdeaDraft): boolean =>
@@ -322,14 +327,13 @@ export class IdeaSaveSurface {
    * SAME preparation id. An unclear (thrown) outcome is retried once with
    * that id — the Host commit machine dedups, so a retry never double-writes
    * — and a retry is the only recovery ever attempted (never a re-prepare).
-   * @returns a promise resolving `true` on success; `false` when this
-   * surface was busy (the caller must keep the user's note visible) or when
-   * the commit failed after the same-id retry.
+   * @returns a promise resolving with the commit outcome; `'failed'` also
+   * covers a busy surface (the caller must keep the user's note visible).
    */
-  commitQuickPreview(preview: QuickCapturePreview): Promise<boolean> {
-    if (this.submitInFlight) return Promise.resolve(false)
+  commitQuickPreview(preview: QuickCapturePreview): Promise<QuickCommitOutcome> {
+    if (this.submitInFlight) return Promise.resolve('failed')
     const { preparingMessageId, modal } = this.state.getSnapshot()
-    if (preparingMessageId !== null || modal !== null) return Promise.resolve(false)
+    if (preparingMessageId !== null || modal !== null) return Promise.resolve('failed')
     this.submitInFlight = true
     this.state.update((current) => {
       current.submitting = true
@@ -338,7 +342,7 @@ export class IdeaSaveSurface {
     return this.runQuickCommit(preview)
   }
 
-  private async runQuickCommit(preview: QuickCapturePreview): Promise<boolean> {
+  private async runQuickCommit(preview: QuickCapturePreview): Promise<QuickCommitOutcome> {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const result = await this.remote.create({
@@ -347,21 +351,27 @@ export class IdeaSaveSurface {
           // browser never re-edits a direct-save proposal).
           draft: preview.draft,
         })
+        // R6: every exit path fully restores both the in-flight flag and the
+        // observable submitting state — a structured Remote failure is a
+        // definitive answer, never a stuck spinner.
         this.submitInFlight = false
-        if (!result.ok) return false
+        if (!result.ok) {
+          this.state.update((current) => { current.submitting = false })
+          return 'failed'
+        }
         this.state.update((current) => {
           current.submitting = false
           current.toastSeq += 1
         })
-        return true
+        return 'success'
       } catch {
         // Unclear outcome: the modal machinery is not involved; the same-id
-        // retry below is the only recovery (T12.2 R4).
+        // retry below is the only recovery (T12.2 R4/R8).
       }
     }
     this.submitInFlight = false
     this.state.update((current) => { current.submitting = false })
-    return false
+    return 'unclear'
   }
 
   /** Abort any in-flight prepare and reset to the closed state. */
