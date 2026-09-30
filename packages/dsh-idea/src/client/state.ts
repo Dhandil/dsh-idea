@@ -352,10 +352,18 @@ export class IdeaSaveSurface {
           draft: preview.draft,
         })
         // R6: every exit path fully restores both the in-flight flag and the
-        // observable submitting state — a structured Remote failure is a
-        // definitive answer, never a stuck spinner.
+        // observable submitting state — never a stuck spinner.
         this.submitInFlight = false
         if (!result.ok) {
+          // R9: a Gateway/transport-class structured failure means the
+          // Host's answer is UNKNOWN — the request may or may not have
+          // landed — so it is classified `unclear` (same-id recovery only),
+          // never as a definitive failure. Only plugin-owned `idea/*` codes
+          // are definitive: the Host answered and reset the preparation.
+          if (result.error.code.startsWith('gateway/')) {
+            this.state.update((current) => { current.submitting = false })
+            return 'unclear'
+          }
           this.state.update((current) => { current.submitting = false })
           return 'failed'
         }

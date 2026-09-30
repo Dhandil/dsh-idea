@@ -424,6 +424,132 @@ describe('IdeaQuickCaptureSurface — R7 commit is not cancellable, R8 same-id r
   })
 })
 
+describe('IdeaQuickCaptureSurface — R9 pendingUnclear recovery lifecycle', () => {
+  const unclearRig = () => {
+    const rig = quickRig()
+    // The first commit's outcome is unclear (thrown carrier error).
+    const create = vi.fn()
+    const save = new IdeaSaveSurface(
+      { create, prepareFromMessage: vi.fn(), prepareQuickCapture: vi.fn() } as unknown as ConstructorParameters<typeof IdeaSaveSurface>[0],
+      'session-1',
+    )
+    rig.surface.dispose()
+    const surface = new IdeaQuickCaptureSurface(
+      { prepareQuickCapture: rig.prepareQuickCapture } as unknown as ConstructorParameters<typeof IdeaQuickCaptureSurface>[0],
+      'session-1',
+      {
+        onPreview: p => save.openQuickPreview(p),
+        onCommit: p => save.commitQuickPreview(p),
+      },
+    )
+    return { ...rig, surface, save, create }
+  }
+
+  it('R9-4: a structured Gateway-class failure is classified unclear, not failed', async () => {
+    const create = vi.fn()
+    const surface = new IdeaSaveSurface(
+      { create, prepareFromMessage: vi.fn(), prepareQuickCapture: vi.fn() } as unknown as ConstructorParameters<typeof IdeaSaveSurface>[0],
+      'session-1',
+    )
+    create.mockResolvedValueOnce({ ok: false as const, error: { code: 'gateway/internal' } })
+    expect(await surface.commitQuickPreview(preview('1'))).toBe('unclear')
+    // A plugin-owned code stays a definitive failure.
+    create.mockResolvedValueOnce({ ok: false as const, error: { code: 'idea/storage-failed' } })
+    expect(await surface.commitQuickPreview(preview('1'))).toBe('failed')
+  })
+
+  it('R9-1/R9-2: unclear → close → reopen → the same-id retry works, no concurrent duplicates', async () => {
+    const rig = unclearRig()
+    const { surface, prepareQuickCapture, create } = rig
+    const mock = create as unknown as {
+      mockImplementationOnce: (impl: () => Promise<unknown>) => unknown
+    }
+    mock.mockImplementationOnce(async () => { throw new Error('carrier down') })
+    surface.open()
+    surface.setText('原文')
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().failure).toBe('commit-failed'))
+
+    // Closing the card with an unresolved pendingUnclear preserves the note.
+    surface.close()
+    expect(surface.state.getSnapshot()).toMatchObject({ open: false, text: '原文' })
+    surface.open()
+    expect(surface.state.getSnapshot()).toMatchObject({ open: true, text: '原文', failure: 'commit-failed' })
+
+    // The manual retry enters commitInFlight synchronously: a double
+    // activation cannot fire a concurrent duplicate commit.
+    mock.mockImplementationOnce(async () => {
+      await new Promise(resolve => setTimeout(resolve, 30))
+      return { ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } }
+    })
+    surface.saveDirect()
+    expect(surface.state.getSnapshot().preparing).toBe('direct')
+    surface.saveDirect()
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().text).toBe(''))
+    expect(prepareQuickCapture).toHaveBeenCalledTimes(1)
+    expect(create.mock.calls.every(call => (call[0] as { preparationId: string }).preparationId === 'prep_1')).toBe(true)
+  })
+
+  it('R9-3: an unresolved pendingUnclear cannot be bypassed by editing or AI organize', async () => {
+    const { surface, prepareQuickCapture, create } = unclearRig()
+    const mock = create as unknown as {
+      mockImplementationOnce: (impl: () => Promise<unknown>) => unknown
+    }
+    mock.mockImplementationOnce(async () => { throw new Error('carrier down') })
+    surface.open()
+    surface.setText('原文')
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().failure).toBe('commit-failed'))
+    // Editing the note is refused while the recovery is pending.
+    surface.setText('试图改写')
+    expect(surface.state.getSnapshot().text).toBe('原文')
+    // AI organize is refused too: no new preparation may bypass the recovery.
+    surface.organize()
+    expect(prepareQuickCapture).toHaveBeenCalledTimes(1)
+    // The unclear commit's same-id retry ran (2 create calls, one id).
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(create.mock.calls.every(call => (call[0] as { preparationId: string }).preparationId === 'prep_1')).toBe(true)
+  })
+
+  it('R9-5: a retry in flight survives close; success and failure both recover', async () => {
+    const { surface, create } = unclearRig()
+    const mock = create as unknown as {
+      mockImplementationOnce: (impl: () => Promise<unknown>) => unknown
+    }
+    // First commit: unclear.
+    mock.mockImplementationOnce(async () => { throw new Error('carrier down') })
+    surface.open()
+    surface.setText('原文')
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().failure).toBe('commit-failed'))
+
+    // Retry in flight, gated; the card closes during it.
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    mock.mockImplementationOnce(async () => {
+      await gate
+      return { ok: false as const, error: { code: 'idea/storage-failed' } }
+    })
+    surface.open()
+    surface.saveDirect()
+    expect(surface.state.getSnapshot().preparing).toBe('direct')
+    surface.close()
+    expect(surface.state.getSnapshot().text).toBe('原文')
+    release()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().failure).toBe('commit-failed'))
+    surface.open()
+    expect(surface.state.getSnapshot().text).toBe('原文')
+
+    // A later retry succeeds: the note is finally consumed.
+    mock.mockImplementationOnce(async () => ({ ok: true as const, value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'active' as const, title: 't', createdAt: 1 } }))
+    surface.open()
+    surface.saveDirect()
+    await vi.waitFor(() => expect(surface.state.getSnapshot().text).toBe(''))
+    expect(surface.state.getSnapshot().open).toBe(false)
+  })
+})
+
 describe('relaxed required-fields gate (D1)', () => {
   it('title and core gate every save surface; an empty motivation passes', () => {
     expect(requiredPresent({

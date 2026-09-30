@@ -120,20 +120,23 @@ export class IdeaQuickCaptureSurface {
    *   recoverable whichever way the commit settles.
    */
   close(): void {
-    if (this.commitInFlight) {
+    // R9: an unresolved pendingUnclear survives the close — the note and the
+    // original preparation id are preserved so the recovery stays possible
+    // after reopening; only a fully resolved lifecycle clears them.
+    if (this.commitInFlight || this.pendingUnclear !== null) {
       this.state.update((current) => { current.open = false })
       return
     }
     this.prepareAbort?.abort()
     this.prepareAbort = undefined
     this.prepareInFlight = false
-    this.pendingUnclear = null
     this.state.update((current) => { Object.assign(current, CLOSED) })
   }
 
-  /** Apply one text edit to the open form. */
+  /** Apply one text edit to the open form. R9: an unresolved
+   * pendingUnclear cannot be bypassed by editing the note. */
   setText(text: string): void {
-    if (this.prepareInFlight || this.commitInFlight) return
+    if (this.prepareInFlight || this.commitInFlight || this.pendingUnclear !== null) return
     this.state.update((draft) => {
       draft.text = text
       draft.failure = null
@@ -150,7 +153,12 @@ export class IdeaQuickCaptureSurface {
     const { open } = this.state.getSnapshot()
     if (!open || this.prepareInFlight || this.commitInFlight) return
     if (this.pendingUnclear !== null) {
+      // R9: the same-id retry enters commitInFlight synchronously, so a
+      // double activation can never fire a concurrent duplicate commit and
+      // a close during the retry only hides the form (the note and the
+      // original preparation id stay recoverable).
       const pending = this.pendingUnclear
+      this.commitInFlight = true
       this.state.update((draft) => {
         draft.preparing = 'direct'
         draft.failure = null
@@ -164,8 +172,10 @@ export class IdeaQuickCaptureSurface {
     this.runPrepare('direct')
   }
 
-  /** Prepare the AI-organized proposal and hand over its editable preview. */
+  /** Prepare the AI-organized proposal and hand over its editable preview.
+   * R9: an unresolved pendingUnclear cannot be bypassed by a re-preparation. */
   organize(): void {
+    if (this.pendingUnclear !== null) return
     this.runPrepare('ai')
   }
 
