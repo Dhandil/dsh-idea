@@ -37,6 +37,26 @@ export interface IdeaCreateRequest {
   draft: IdeaDraft
 }
 
+/** The two quick-capture prepare modes (T12): deterministic or one AI call. */
+export type IdeaQuickCaptureMode = 'direct' | 'ai'
+
+/** `idea.prepareQuickCapture` request: the user's own note and the mode. */
+export interface IdeaPrepareQuickCaptureRequest {
+  /** The conversation the capture was written in (the AI route's context). */
+  sessionId: string
+  /** The user's raw note. Verbatim `core`; never a captured discussion. */
+  text: string
+  /** `direct` makes zero model calls; `ai` makes exactly one. */
+  mode: IdeaQuickCaptureMode
+}
+
+/** `idea.prepareQuickCapture` result: the proposal behind its preparation id. */
+export interface IdeaPrepareQuickCaptureResult {
+  preparationId: IdeaPreparationId
+  /** The prepared draft; `motivation` may be empty (T12 D1). */
+  draft: IdeaDraft
+}
+
 /** `idea.create` result: the durable Idea identity the commit produced. */
 export interface IdeaCreateResult {
   ideaId: IdeaId

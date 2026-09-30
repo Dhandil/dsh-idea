@@ -27,6 +27,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'idea/model-failed': {}
     /** The model produced no usable draft. */
     'idea/invalid-model-output': {}
+    /** The quick-capture note is empty or does not fit the Idea bounds (T12). */
+    'idea/invalid-quick-capture-input': {}
     /** The preparation id is unknown or expired. */
     'idea/preparation-not-found': {}
     /** The edited draft failed validation; `issues` carries codec output when one produced it. */
@@ -62,6 +64,7 @@ export const IDEA_REMOTE_ERROR_CODES = [
   'idea/model-unavailable',
   'idea/model-failed',
   'idea/invalid-model-output',
+  'idea/invalid-quick-capture-input',
   'idea/preparation-not-found',
   'idea/invalid-draft',
   'idea/storage-failed',
@@ -98,6 +101,9 @@ export function remotePreparationError(error: unknown): RemoteError | undefined 
   }
   if (error.code === 'preparation-not-found') {
     return new RemoteError('idea/preparation-not-found', 'this idea preview has expired', {})
+  }
+  if (error.code === 'invalid-quick-capture-input') {
+    return new RemoteError('idea/invalid-quick-capture-input', error.message, {}, { cause: error })
   }
   if (DIRECT_PREPARATION_CODES.includes(error.code)) {
     return new RemoteError(`idea/${error.code}` as IdeaRemoteErrorCode, error.message, {}, { cause: error })

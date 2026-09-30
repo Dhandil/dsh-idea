@@ -1,10 +1,13 @@
 /**
  * The Session's floating Idea search card on the composer overlay seat:
- * a search input (blank = the current library by recency), Host-ranked
- * results with single selection, and one primary Add action that attaches
- * the selected Idea's canonical pinned reference to the draft. Closing —
- * via ×, outside click, or Escape — has zero side effects: the draft, the
- * conversation, and the model are untouched, and Add never submits.
+ * a quick-capture entry above the search input (T12 — a note saved directly
+ * or AI-organized into an editable proposal, both through the Host's
+ * idempotent preparation/commit machine), a search input (blank = the
+ * current library by recency), Host-ranked results with single selection,
+ * and one primary Add action that attaches the selected Idea's canonical
+ * pinned reference to the draft. Closing — via ×, outside click, or Escape
+ * — has zero side effects: the draft, the conversation, and the model are
+ * untouched, and Add never submits.
  * @module @dsh-external/dsh-idea/client/IdeaSearchCard
  */
 
@@ -14,12 +17,13 @@ import type { SearchCardProps } from './slots.ts'
 
 /**
  * The Session's Idea search card.
- * @param props - the injected verbs, the shared search state hook, and the
- * locale seat.
+ * @param props - the injected verbs, the shared search/quick-capture state
+ * hooks, and the locale seat.
  * @returns the card (while open).
  */
-export function IdeaSearchCard({ setQuery, select, retry, add, close, useSearch, t }: SearchCardProps) {
+export function IdeaSearchCard({ setQuery, select, retry, add, close, useSearch, useQuick, quick, t }: SearchCardProps) {
   const state = useSearch(view => view)
+  const quickState = useQuick(view => view)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -34,6 +38,8 @@ export function IdeaSearchCard({ setQuery, select, retry, add, close, useSearch,
   if (!state.open) return null
 
   const selected = state.selectedId
+  const quickOpen = quickState.open
+  const canSave = quickState.text.trim().length > 0 && quickState.preparing === 'none'
 
   return (
     <div className="dsh-idea-search-layer">
@@ -51,6 +57,45 @@ export function IdeaSearchCard({ setQuery, select, retry, add, close, useSearch,
             ×
           </button>
         </header>
+        <div className="dsh-idea-quick">
+          <button
+            type="button"
+            className="dsh-idea-quick-toggle"
+            aria-expanded={quickOpen}
+            onClick={() => { quickOpen ? quick.close() : quick.open() }}
+          >
+            {t('quick.title')}
+          </button>
+          {quickOpen && (
+            <div className="dsh-idea-quick-form">
+              <textarea
+                className="dsh-idea-quick-input"
+                value={quickState.text}
+                placeholder={t('quick.placeholder')}
+                aria-label={t('quick.placeholder')}
+                rows={4}
+                autoFocus
+                onChange={event => { quick.setText(event.target.value) }}
+              />
+              {quickState.failure !== null && <p className="dsh-idea-state">{t('quick.failed')}</p>}
+              <div className="dsh-idea-quick-actions">
+                <Button
+                  disabled={!canSave}
+                  onClick={quick.saveDirect}
+                >
+                  {quickState.preparing === 'direct' ? t('quick.saving') : t('quick.saveDirect')}
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!canSave}
+                  onClick={quick.organize}
+                >
+                  {quickState.preparing === 'ai' ? t('quick.organizing') : t('quick.organize')}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
         <input
           ref={inputRef}
           className="dsh-idea-search-input"

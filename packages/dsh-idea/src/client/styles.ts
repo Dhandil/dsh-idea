@@ -425,6 +425,49 @@ body[data-ds-dark-theme] .dsh-idea-search {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-secondary);
 }
+.dsh-idea-quick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.dsh-idea-quick-toggle {
+  align-self: flex-start;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.dsh-idea-quick-toggle:hover {
+  text-decoration: underline;
+}
+.dsh-idea-quick-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dsh-idea-quick-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--dsw-alias-border-primary, rgba(127, 127, 127, 0.35));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  resize: vertical;
+}
+.dsh-idea-quick-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
 .dsh-idea-search-input {
   width: 100%;
   box-sizing: border-box;

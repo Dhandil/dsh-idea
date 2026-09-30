@@ -65,15 +65,18 @@ const boundedList = z.array(z.string().trim().min(1).max(IDEA_LIMITS.listItemMax
 const durableList = z.array(z.string().min(1).max(IDEA_LIMITS.listItemMax)).max(IDEA_LIMITS.listMax)
 
 /**
- * Prepared semantic input for one save. `title`, `core`, and `motivation`
- * must be non-empty after trimming; every string field is normalized;
- * arrays are bounded and hold non-empty strings only. Invalid input is
- * rejected before persistence is attempted.
+ * Prepared semantic input for one save. `title` and `core` must be non-empty
+ * after trimming; `motivation` may be empty (T12 Quick Capture stores the
+ * user's raw note without one) and every string field is normalized; arrays
+ * are bounded and hold non-empty strings only. Invalid input is rejected
+ * before persistence is attempted. The chat-extraction flow keeps its own
+ * stricter check: a model proposal without a motivation is rejected at the
+ * preparation boundary.
  */
 export const ideaDraftSchema = z.object({
   title: requiredText(IDEA_LIMITS.titleMax),
   core: requiredText(IDEA_LIMITS.fieldMax),
-  motivation: requiredText(IDEA_LIMITS.fieldMax),
+  motivation: optionalText(IDEA_LIMITS.fieldMax),
   currentConclusion: optionalText(IDEA_LIMITS.fieldMax),
   possibleValue: optionalText(IDEA_LIMITS.fieldMax),
   useWhen: boundedList,

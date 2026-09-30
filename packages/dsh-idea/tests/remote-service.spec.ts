@@ -123,8 +123,7 @@ function stubHarness(overrides: {
     capturedContext: [{ role: 'assistant', text: 'canonical captured answer' }],
   }
   const resolved: PreparedIdeaSource = {
-    source: markerSource,
-    model: { provider: 'p', model: 'm' },
+    origin: { kind: 'conversation', source: markerSource, model: { provider: 'p', model: 'm' } },
     createdAt: 1,
   }
   const create = vi.fn(overrides.create ?? (async () => aggregateOf('idea_1', 'idea_ver_1')))
@@ -361,6 +360,7 @@ describe('generated contributions', () => {
       '@dsh-external/dsh-idea#idea/manualEdit',
       '@dsh-external/dsh-idea#idea/prepareEvolution',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
+      '@dsh-external/dsh-idea#idea/prepareQuickCapture',
       '@dsh-external/dsh-idea#idea/relatedFromMessage',
       '@dsh-external/dsh-idea#idea/restore',
       '@dsh-external/dsh-idea#idea/search',
@@ -373,6 +373,7 @@ describe('generated contributions', () => {
       // and the durable commit are not.
       const cancellable = descriptor.id.endsWith('#idea/create')
         || descriptor.id.endsWith('#idea/prepareFromMessage')
+        || descriptor.id.endsWith('#idea/prepareQuickCapture')
         || descriptor.id.endsWith('#idea/prepareEvolution')
         || descriptor.id.endsWith('#idea/relatedFromMessage')
         || descriptor.id.endsWith('#idea/judgeResurfacing')

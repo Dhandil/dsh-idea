@@ -345,7 +345,9 @@ describe('preparation registry integration', () => {
     env.llm.enqueueChunks(textStream(draftText))
     const preview = await env.service.prepareFromMessage('session-1', 'a1')
     expect(registrations).toBe(1)
-    expect(registry.resolve(preview.preparationId).source.anchorMessageId).toBe('a1')
+    const storedHere = registry.resolve(preview.preparationId)
+    if (storedHere.origin.kind !== 'conversation') throw new Error('unexpected origin')
+    expect(storedHere.origin.source.anchorMessageId).toBe('a1')
 
     env.llm.enqueueChunks(textStream('still not json'))
     await expect(env.service.prepareFromMessage('session-1', 'a1')).rejects.toMatchObject({ code: 'invalid-model-output' })
@@ -358,18 +360,21 @@ describe('preparation registry integration', () => {
     const preview = await env.service.prepareFromMessage('session-1', 'a1')
 
     const stored = env.service.preparations.resolve(preview.preparationId)
-    expect(stored.source.sessionId).toBe('session-1')
-    expect(stored.source.anchorMessageId).toBe('a1')
-    expect(stored.source.capturedContext).toEqual([
+    if (stored.origin.kind !== 'conversation') throw new Error('unexpected origin')
+    expect(stored.origin.source.sessionId).toBe('session-1')
+    expect(stored.origin.source.anchorMessageId).toBe('a1')
+    expect(stored.origin.source.capturedContext).toEqual([
       { role: 'user', text: 'What if ideas lived beside their conversations?' },
       { role: 'assistant', text: 'An idea could snapshot this discussion as provenance.' },
       { role: 'assistant', text: 'The clicked answer' },
     ])
-    expect(stored.model).toEqual({ provider: 'default-provider', model: 'default-model' })
+    expect(stored.origin.model).toEqual({ provider: 'default-provider', model: 'default-model' })
     expect(stored.createdAt).toBeGreaterThan(0)
 
     // Mutating the preview cannot alter the canonical stored snapshot.
     preview.draft.title = 'mutated'
-    expect(env.service.preparations.resolve(preview.preparationId).source.capturedContext).toHaveLength(3)
+    const reread = env.service.preparations.resolve(preview.preparationId)
+    if (reread.origin.kind !== 'conversation') throw new Error('unexpected origin')
+    expect(reread.origin.source.capturedContext).toHaveLength(3)
   })
 })

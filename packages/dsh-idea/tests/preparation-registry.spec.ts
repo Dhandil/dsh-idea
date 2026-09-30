@@ -15,8 +15,11 @@ import { sourceDraft } from './helpers/harness.ts'
 import type { SourceDiscussionDraft } from '../src/types.ts'
 
 const entry = (sessionId = 'session-1'): PreparedIdeaSource => ({
-  source: sourceDraft({ sessionId }) as SourceDiscussionDraft,
-  model: { provider: 'provider', model: 'model' },
+  origin: {
+    kind: 'conversation',
+    source: sourceDraft({ sessionId }) as SourceDiscussionDraft,
+    model: { provider: 'provider', model: 'model' },
+  },
   createdAt: Date.now(),
 })
 
@@ -45,8 +48,10 @@ describe('register and resolve', () => {
     const stored = entry('session-9')
     const id = registry.register(stored)
     const resolved = registry.resolve(id)
-    expect(resolved.source.sessionId).toBe('session-9')
-    expect(resolved.model).toEqual(stored.model)
+    expect(resolved.origin.kind).toBe('conversation')
+    if (resolved.origin.kind !== 'conversation') throw new Error('unexpected origin')
+    expect(resolved.origin.source.sessionId).toBe('session-9')
+    expect(resolved.origin.model).toEqual(stored.origin.model)
     expect(resolved.createdAt).toBe(stored.createdAt)
   })
 
@@ -56,18 +61,22 @@ describe('register and resolve', () => {
     const id = registry.register(stored)
 
     // Mutating the registered input must not reach the stored entry.
-    ;(stored.source.capturedContext as unknown[]).push({ role: 'user', text: 'injected' })
-    stored.model.provider = 'mutated-provider'
+    if (stored.origin.kind !== 'conversation') throw new Error('unexpected origin')
+    ;(stored.origin.source.capturedContext as unknown[]).push({ role: 'user', text: 'injected' })
+    stored.origin.model.provider = 'mutated-provider'
 
     const resolved = registry.resolve(id)
-    expect(resolved.source.capturedContext).toHaveLength(2)
-    expect(resolved.model.provider).toBe('provider')
+    if (resolved.origin.kind !== 'conversation') throw new Error('unexpected origin')
+    expect(resolved.origin.source.capturedContext).toHaveLength(2)
+    expect(resolved.origin.model.provider).toBe('provider')
 
     // Mutating a resolved copy must not reach the stored entry either.
-    resolved.source.sessionId = 'mutated'
-    ;(resolved.source.capturedContext as unknown[]).push('injected')
-    expect(registry.resolve(id).source.sessionId).toBe('session-1')
-    expect(registry.resolve(id).source.capturedContext).toHaveLength(2)
+    resolved.origin.source.sessionId = 'mutated'
+    ;(resolved.origin.source.capturedContext as unknown[]).push('injected')
+    const reread = registry.resolve(id)
+    if (reread.origin.kind !== 'conversation') throw new Error('unexpected origin')
+    expect(reread.origin.source.sessionId).toBe('session-1')
+    expect(reread.origin.source.capturedContext).toHaveLength(2)
   })
 
   it('rejects unknown ids explicitly', () => {
@@ -99,8 +108,8 @@ describe('capacity eviction', () => {
     const third = registry.register(entry('session-3'))
 
     expect(errorCode(() => registry.resolve(first))).toBe('preparation-not-found')
-    expect(registry.resolve(second).source.sessionId).toBe('session-2')
-    expect(registry.resolve(third).source.sessionId).toBe('session-3')
+    expect(registry.resolve(second).origin).toEqual(expect.objectContaining({ kind: 'conversation' }))
+    expect(registry.resolve(third).origin).toEqual(expect.objectContaining({ kind: 'conversation' }))
   })
 
   it('sweeps expired entries before evicting live ones', () => {
@@ -114,8 +123,8 @@ describe('capacity eviction', () => {
     // one instead of evicting the live second.
     now = 2_500
     const third = registry.register({ ...entry('session-3'), createdAt: now })
-    expect(registry.resolve(second).source.sessionId).toBe('session-2')
-    expect(registry.resolve(third).source.sessionId).toBe('session-3')
+    expect(registry.resolve(second).origin).toEqual(expect.objectContaining({ kind: 'conversation' }))
+    expect(registry.resolve(third).origin).toEqual(expect.objectContaining({ kind: 'conversation' }))
     expect(errorCode(() => registry.resolve(first))).toBe('preparation-not-found')
   })
 })

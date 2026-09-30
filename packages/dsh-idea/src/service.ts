@@ -195,6 +195,59 @@ export class IdeaService extends Service {
   }
 
   /**
+   * Commit the first version of a new Idea with **no source discussion** —
+   * the T12 Quick Capture write path. Identical to {@link create} except the
+   * aggregate carries `sourceDiscussions: []` and the version cites nothing:
+   * the note is the user's own text, so no conversation provenance exists to
+   * snapshot and none may be fabricated. The empty-provenance shape is
+   * already durable-canonical (the aggregate schema and the v2→v3 migration
+   * both accept it), and the Idea stays fully eligible for search, related,
+   * and resurfacing in every conversation.
+   * @param draft - Prepared semantic content of version 1.
+   * @returns the durably stored aggregate.
+   */
+  async createDirect(draft: IdeaDraft): Promise<IdeaAggregate> {
+    const validatedDraft = parseDraft(ideaDraftSchema, draft)
+    const now = this.now()
+    const ideaId = IdeaId(createId('idea'))
+    const versionId = IdeaVersionId(createId('idea_ver'))
+    const aggregate = ideaAggregateSchema.parse({
+      idea: {
+        ideaId,
+        currentVersionId: versionId,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+      versions: [{
+        versionId,
+        ideaId,
+        ordinal: 1,
+        draft: validatedDraft,
+        reason: 'initial-save',
+        sourceDiscussionIds: [],
+        createdAt: now,
+      }],
+      sourceDiscussions: [],
+      evolutionEvents: [{
+        evolutionEventId: EvolutionEventId(createId('idea_evo')),
+        ideaId,
+        toVersionId: versionId,
+        reason: 'initial-save',
+        createdAt: now,
+      }],
+    })
+    const table = this.records
+    if (table.get(ideaId) !== undefined) {
+      // randomUUID collision: never observed in practice, but a silent
+      // overwrite of an existing idea is never acceptable.
+      throw new IdeaError('invalid-input', `idea '${ideaId}' already exists`)
+    }
+    await table.put(aggregate.idea.ideaId, aggregate)
+    return this.detach(aggregate)
+  }
+
+  /**
    * Read one Idea aggregate, synchronously from memory.
    * @param ideaId - The idea to read.
    * @returns a detached snapshot of the stored aggregate.

@@ -89,6 +89,10 @@ const useIdeaOf = <T,>(store: SnapshotStore<T>) =>
 
 const useSearchOf = useIdeaOf<ReturnType<IdeaSearchSurface['state']['getSnapshot']>>
 
+/** The closed quick-capture state shared by the regression card props. */
+const closedQuickState = { open: false, text: '', preparing: 'none' as const, failure: null }
+const useQuickOf = useIdeaOf<typeof closedQuickState>
+
 /** Card props wired to a live surface so clicks drive the real engine. */
 function liveCardProps(surface: IdeaSearchSurface, add = vi.fn()) {
   return {
@@ -98,6 +102,8 @@ function liveCardProps(surface: IdeaSearchSurface, add = vi.fn()) {
     add: (descriptor: unknown) => { add(descriptor); surface.close() },
     close: () => { surface.close() },
     useSearch: useSearchOf(surface.state),
+    useQuick: useQuickOf({ subscribe: () => () => {}, getSnapshot: () => closedQuickState, update: () => {}, set: () => {} }),
+    quick: { open: () => {}, close: () => {}, setText: () => {}, saveDirect: () => {}, organize: () => {} },
     t,
   } as unknown as SearchCardProps
 }

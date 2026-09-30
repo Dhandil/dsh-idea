@@ -43,7 +43,6 @@ import type {
   IdeaAggregate,
   IdeaDraft,
   IdeaVersion,
-  SourceDiscussionDraft,
 } from '../types.ts'
 import { remoteDomainError, remoteEvolutionError, remotePreparationError } from './errors.ts'
 import { EmbeddingCancelledError } from '../semantic/provider.ts'
@@ -67,6 +66,8 @@ import type {
   IdeaManualEditRequest,
   IdeaManualEditResult,
   IdeaPrepareEvolutionRequest,
+  IdeaPrepareQuickCaptureRequest,
+  IdeaPrepareQuickCaptureResult,
   IdeaPrepareRequest,
   IdeaRelatedRequest,
   IdeaRelatedResult,
@@ -155,6 +156,37 @@ export class IdeaRemoteService extends TypertRemoteService {
     return this.beginCommit(request.preparationId, prepared, parsed.data)
   }
 
+  /**
+   * Prepare a Quick Capture proposal from the user's own note (T12). `direct`
+   * is deterministic and makes zero model calls; `ai` makes exactly one
+   * direct model call on the conversation's route. Both register the same
+   * ephemeral registry the commit machine resolves, so the later
+   * {@link create} is idempotent for both modes. No source discussion exists
+   * here — the note is user-owned text, and nothing is ever fabricated.
+   * Every ordinary failure maps onto the preparation error vocabulary.
+   */
+  @Remote
+  async prepareQuickCapture(
+    request: IdeaPrepareQuickCaptureRequest,
+    signal?: AbortSignal,
+  ): Promise<IdeaPrepareQuickCaptureResult> {
+    if (signal?.aborted) {
+      throw new RemoteError('gateway/cancelled', 'idea quick capture was cancelled', {})
+    }
+    try {
+      const preview = await this.ctx.ideaPreparations.prepareQuickCapture(
+        request.sessionId,
+        request.text,
+        request.mode,
+        signal,
+      )
+      return { preparationId: preview.preparationId, draft: preview.draft }
+    } catch (error) {
+      const remote = remotePreparationError(error)
+      throw remote ?? error
+    }
+  }
+
   /** Resolve the preparation behind an id, translating expiry explicitly. */
   private resolvePreparation(preparationId: IdeaPreparationId): PreparedIdeaSource {
     try {
@@ -177,7 +209,7 @@ export class IdeaRemoteService extends TypertRemoteService {
     prepared: PreparedIdeaSource,
     draft: IdeaDraft,
   ): Promise<IdeaCreateResult> {
-    const flight = this.commitDurable(preparationId, prepared.source, draft)
+    const flight = this.commitDurable(preparationId, prepared, draft)
     this.commits.set(preparationId, { kind: 'committing', result: flight })
     return flight
   }
@@ -185,11 +217,16 @@ export class IdeaRemoteService extends TypertRemoteService {
   /** One durable create attempt; failure resets the preparation to retryable. */
   private async commitDurable(
     preparationId: IdeaPreparationId,
-    source: SourceDiscussionDraft,
+    prepared: PreparedIdeaSource,
     draft: IdeaDraft,
   ): Promise<IdeaCreateResult> {
     try {
-      const aggregate = await this.ctx.ideaService.create(draft, source)
+      // The commit machine branches on the preparation origin (T12): a
+      // conversation preparation commits with its Host-owned source snapshot;
+      // a quick-capture preparation commits with no source discussion at all.
+      const aggregate = prepared.origin.kind === 'conversation'
+        ? await this.ctx.ideaService.create(draft, prepared.origin.source)
+        : await this.ctx.ideaService.createDirect(draft)
       const currentVersion = aggregate.versions.at(-1)
       const { status } = aggregate.idea
       if (currentVersion === undefined || status !== 'active') {

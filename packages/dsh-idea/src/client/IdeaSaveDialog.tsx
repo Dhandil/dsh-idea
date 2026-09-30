@@ -78,7 +78,9 @@ export function IdeaSaveDialog({
           )}
         >
           <div className="dsh-idea-form" role="form" aria-label={t('dialog.title')}>
-            <p className="dsh-idea-source">{t('dialog.source', { count: modal.source.messageCount })}</p>
+            {modal.source === null
+              ? <p className="dsh-idea-source">{t('dialog.sourceQuick')}</p>
+              : <p className="dsh-idea-source">{t('dialog.source', { count: modal.source.messageCount })}</p>}
             {FIELDS.map(field => (
               field.multiline
                 ? (

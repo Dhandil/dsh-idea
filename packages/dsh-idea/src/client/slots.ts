@@ -11,6 +11,7 @@ import type { IdeaDetail, IdeaReferenceDescriptor } from '../remote-host/types.t
 import type { IdeaReadState } from './read-state.ts'
 import type { IdeaSearchUiState } from './search-state.ts'
 import type { RelatedIdeasUiState } from './related-state.ts'
+import type { QuickCaptureUiState } from './quick-capture-state.ts'
 import type { EditableIdeaDraft, IdeaSaveState } from './state.ts'
 import type { ResurfaceUiState } from './resurfacing-state.ts'
 
@@ -34,11 +35,36 @@ export type UnifiedActionProps =
   & InjectFace<UnifiedActionInjected>
   & PropsLocale<'idea'>
 
+/** Injected business face of the Session's in-card quick capture form (T12). */
+export interface QuickCaptureInjected {
+  hooks: {
+    /** The owning Session's quick-capture form state. */
+    quick: HostObservable<QuickCaptureUiState>
+  }
+  /** Reveal the capture form above the search input. */
+  open: () => void
+  /** Hide the capture form and discard the note; zero side effects. */
+  close: () => void
+  /** Apply one text edit to the open form. */
+  setText: (text: string) => void
+  /** Prepare the deterministic direct-save proposal; zero model calls. */
+  saveDirect: () => void
+  /** Prepare the AI-organized proposal; exactly one model call. */
+  organize: () => void
+}
+
+/** Full props of the quick-capture form, rendered inside the search card. */
+export type QuickCaptureProps =
+  InjectFace<QuickCaptureInjected>
+  & PropsLocale<'idea'>
+
 /** Injected business face of the Session's Idea search card. */
 export interface SearchCardInjected {
   hooks: {
     /** The owning Session's Idea search interaction state. */
     search: HostObservable<IdeaSearchUiState>
+    /** The owning Session's quick-capture form state (T12). */
+    quick: HostObservable<QuickCaptureUiState>
   }
   /** Run one search for the typed query (blank = the recency list). */
   setQuery: (query: string) => void
@@ -50,6 +76,8 @@ export interface SearchCardInjected {
   add: (descriptor: IdeaReferenceDescriptor) => void
   /** Close the card with zero side effects. */
   close: () => void
+  /** The quick-capture verbs (T12); the state arrives via `useQuick`. */
+  quick: Omit<QuickCaptureInjected, 'hooks'>
 }
 
 /** Full props of the Idea search card entry. */

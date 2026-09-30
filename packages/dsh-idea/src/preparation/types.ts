@@ -48,13 +48,29 @@ export interface IdeaPreparationPreview {
 }
 
 /**
- * What the Host registry holds behind a preparation id: the canonical
- * captured source snapshot (T1 draft shape) plus the route that produced the
- * proposal. Committing this — never a browser-returned echo — is the only
- * provenance a later save may trust.
+ * The preview returned by a quick-capture preparation (T12). No source stats
+ * exist — the note is the user's own text, never a captured conversation.
  */
+export interface QuickCapturePreview {
+  preparationId: IdeaPreparationId
+  draft: IdeaDraft
+}
+
+/**
+ * What the Host registry holds behind a preparation id, discriminated by its
+ * origin (T12): a `conversation` preparation carries the canonical captured
+ * source snapshot (T1 draft shape) plus the route that produced the proposal;
+ * a `quick-capture` preparation carries no source discussion at all — the
+ * user's own raw text is the evidence — and records the route only when the
+ * proposal was AI-organized (direct saves make no model call). Committing
+ * this — never a browser-returned echo — is the only provenance a later save
+ * may trust, and the commit machine branches on the kind.
+ */
+export type PreparedIdeaOrigin =
+  | { kind: 'conversation'; source: SourceDiscussionDraft; model: IdeaPreparationModelRoute }
+  | { kind: 'quick-capture'; model: IdeaPreparationModelRoute | undefined }
+
 export interface PreparedIdeaSource {
-  source: SourceDiscussionDraft
-  model: IdeaPreparationModelRoute
+  origin: PreparedIdeaOrigin
   createdAt: number
 }

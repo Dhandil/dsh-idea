@@ -66,10 +66,10 @@ const validAggregate = (): IdeaAggregate => ({
 afterEach(cleanup)
 
 describe('idea draft validation', () => {
-  it('rejects empty and whitespace-only title, core, and motivation', () => {
+  it('rejects empty and whitespace-only title and core; motivation may be empty (T12 D1)', () => {
     expect(ideaDraftSchema.safeParse(draft({ title: '   ' })).success).toBe(false)
     expect(ideaDraftSchema.safeParse(draft({ core: '' })).success).toBe(false)
-    expect(ideaDraftSchema.safeParse(draft({ motivation: ' \t ' })).success).toBe(false)
+    expect(ideaDraftSchema.safeParse(draft({ motivation: '' })).success).toBe(true)
   })
 
   it('normalizes string fields by trimming', () => {

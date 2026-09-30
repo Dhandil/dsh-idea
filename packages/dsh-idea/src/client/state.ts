@@ -8,7 +8,7 @@
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
-import type { IdeaPreparationId, IdeaPreparationSourceInfo } from '../preparation/types.ts'
+import type { IdeaPreparationId, IdeaPreparationSourceInfo, QuickCapturePreview } from '../preparation/types.ts'
 import type { IdeaDraft } from '../types.ts'
 
 /** The stable failure kinds the UI knows copy for. */
@@ -35,7 +35,8 @@ export interface EditableIdeaDraft {
 export interface IdeaModalState {
   preparationId: IdeaPreparationId
   draft: EditableIdeaDraft
-  source: IdeaPreparationSourceInfo
+  /** The Host-owned source stats; `null` = a quick-capture proposal (T12). */
+  source: IdeaPreparationSourceInfo | null
 }
 
 /** The full interaction state of one Session's Idea surface. */
@@ -89,9 +90,10 @@ export const durableFrom = (draft: EditableIdeaDraft): IdeaDraft => ({
   openQuestions: listItemsOf(draft.openQuestionsText),
 })
 
-/** Whether the required fields have content after trim. */
+/** Whether the required fields have content after trim. Motivation may be
+ * empty since T12 (D1): every save surface gates on title + core only. */
 export const requiredPresent = (draft: EditableIdeaDraft): boolean =>
-  [draft.title, draft.core, draft.motivation].every(field => field.trim().length > 0)
+  [draft.title, draft.core].every(field => field.trim().length > 0)
 
 /**
  * Whether two durable drafts carry identical normalized semantic content,
@@ -122,6 +124,14 @@ export interface IdeaRemoteFace {
     signal?: AbortSignal,
   ): Promise<
     | { ok: true; value: { ideaId: string; currentVersionId: string; status: 'active'; title: string; createdAt: number } }
+    | { ok: false; error: { code: string } }
+  >
+  /** Prepare a quick-capture proposal from the user's own note (T12). */
+  prepareQuickCapture(
+    request: { sessionId: string; text: string; mode: 'direct' | 'ai' },
+    signal?: AbortSignal,
+  ): Promise<
+    | { ok: true; value: QuickCapturePreview }
     | { ok: false; error: { code: string } }
   >
 }
@@ -225,10 +235,18 @@ export class IdeaSaveSurface {
   }
 
   private async runSubmit(modal: IdeaModalState): Promise<void> {
-    const result = await this.remote.create({
-      preparationId: modal.preparationId,
-      draft: durableFrom(modal.draft),
-    })
+    let result: Awaited<ReturnType<IdeaRemoteFace['create']>>
+    try {
+      // A thrown carrier error is an unclear outcome, not a known failure:
+      // the modal stays open and a retry resubmits the SAME preparation id —
+      // the Host commit machine dedups it (T12: never re-prepare to recover).
+      result = await this.remote.create({
+        preparationId: modal.preparationId,
+        draft: durableFrom(modal.draft),
+      })
+    } catch {
+      result = { ok: false, error: { code: 'gateway/internal' } }
+    }
     this.submitInFlight = false
     // The modal was replaced or closed underneath: nothing to report.
     if (this.state.getSnapshot().modal !== modal) {
@@ -278,6 +296,21 @@ export class IdeaSaveSurface {
     if (this.state.getSnapshot().toastSeq === seq) {
       this.state.update((current) => { current.toastSeq = 0 })
     }
+  }
+
+/** Open the preview modal for a quick-capture proposal (T12): the same
+   * editable modal the chat flow uses, with no source stats to show. */
+  openQuickPreview(preview: QuickCapturePreview): void {
+    if (this.prepareInFlight || this.submitInFlight) return
+    const { preparingMessageId, modal } = this.state.getSnapshot()
+    if (preparingMessageId !== null || modal !== null) return
+    this.state.update((current) => {
+      current.modal = {
+        preparationId: preview.preparationId,
+        draft: editableFrom(preview.draft),
+        source: null,
+      }
+    })
   }
 
   /** Abort any in-flight prepare and reset to the closed state. */

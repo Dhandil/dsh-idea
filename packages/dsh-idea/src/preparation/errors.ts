@@ -17,6 +17,8 @@ export type IdeaPreparationErrorCode =
   | 'model-failed'
   /** Empty text, tool-call output, bad JSON, or schema-invalid draft. */
   | 'invalid-model-output'
+  /** The quick-capture note is empty or does not fit the Idea bounds (T12). */
+  | 'invalid-quick-capture-input'
   /** The caller aborted the preparation. */
   | 'request-cancelled'
   /** The preparation id is unknown or expired. */

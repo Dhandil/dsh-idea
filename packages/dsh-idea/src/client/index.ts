@@ -48,6 +48,7 @@ import { en, zh } from './locales.ts'
 import { IdeaReadSurface } from './read-state.ts'
 import { RelatedIdeasSurface } from './related-state.ts'
 import { IdeaSearchSurface } from './search-state.ts'
+import { IdeaQuickCaptureSurface } from './quick-capture-state.ts'
 import { selectContinuationWorkspace } from './workspace.ts'
 import type { WorkspaceRow } from './workspace.ts'
 import type {
@@ -58,6 +59,7 @@ import type {
   SearchCardInjected,
   UnifiedActionInjected,
 } from './slots.ts'
+import type { IdeaQuickCaptureFace } from './quick-capture-state.ts'
 import { IdeaSaveSurface } from './state.ts'
 import { IdeaResurfacingController } from './resurfacing-state.ts'
 import type {
@@ -132,6 +134,27 @@ function registerUi(ctx: ClientContext): void {
     for (const surface of searchSurfaces.values()) surface.dispose()
     searchSurfaces.clear()
   }, 'dsh-idea: per-session search surfaces')
+
+  // The quick-capture surfaces (T12): one per Session. A prepared proposal
+  // hands over to the Session's Save Idea surface, whose modal owns the
+  // editable preview and the idempotent durable submit.
+  const quickSurfaces = new Map<SessionId, IdeaQuickCaptureSurface>()
+  const quickFor = (sessionId: SessionId): IdeaQuickCaptureSurface => {
+    let surface = quickSurfaces.get(sessionId)
+    if (surface === undefined) {
+      surface = new IdeaQuickCaptureSurface(
+        ctx.remote.idea as IdeaQuickCaptureFace,
+        sessionId,
+        preview => { surfaceFor(sessionId).openQuickPreview(preview) },
+      )
+      quickSurfaces.set(sessionId, surface)
+    }
+    return surface
+  }
+  ctx.effect(() => () => {
+    for (const surface of quickSurfaces.values()) surface.dispose()
+    quickSurfaces.clear()
+  }, 'dsh-idea: per-session quick-capture surfaces')
 
   // The contextual resurfacing controllers (T10): one per conversation,
   // subscribing to that session's incremental event feed and owning all
@@ -241,8 +264,9 @@ function registerUi(ctx: ClientContext): void {
     locale: NS,
     inject: (sessionId): SearchCardInjected => {
       const surface = searchFor(sessionId)
+      const quick = quickFor(sessionId)
       return {
-        hooks: { search: surface.state },
+        hooks: { search: surface.state, quick: quick.state },
         setQuery: (query) => { surface.setQuery(query) },
         select: (id) => { surface.select(id) },
         retry: () => { surface.retry() },
@@ -254,6 +278,13 @@ function registerUi(ctx: ClientContext): void {
           }
         },
         close: () => { surface.close() },
+        quick: {
+          open: () => { quick.open() },
+          close: () => { quick.close() },
+          setText: (text) => { quick.setText(text) },
+          saveDirect: () => { quick.saveDirect() },
+          organize: () => { quick.organize() },
+        },
       }
     },
   }, IdeaSearchCard))
