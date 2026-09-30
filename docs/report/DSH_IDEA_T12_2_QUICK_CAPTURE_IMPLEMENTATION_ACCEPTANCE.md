@@ -4,7 +4,7 @@
 - Date: 2026-09-29
 - Accepted baseline: `b9e73781b8bf6ed5c6ab30c4b50e952b877f5858` (= `origin/main`); Harness `ddefc45fbc7f8e46dd73185e68295696d1297887` read-only, tracked diff zero throughout.
 - Architecture authority: `docs/architectue/DSH_IDEA_T12_QUICK_CAPTURE_ARCHITECTURE_FREEZE.md` (D1/D2/D3 frozen) implementing the accepted `DSH_IDEA_T12_1_QUICK_CAPTURE_PREFLIGHT.md`.
-- **Tested executable (this task, after the third architecture-review repair): commit `37a7757f6361e01a83794f8d52e89e8fa4be7bc2`**. Commit lineage: initial implementation `5b2351500679c7c1675b8c24c051aad3b8334619` → first repair `a5f0ae2dad34621f8dcf9a8373527668c9892c1e` (R1–R5) → second repair `3286bc1…` (R6–R8) → third repair `37a7757…` (R9, below). Every gate in §3/§5/§6/§6a was re-run to green against the repaired code state, with zero executable drift after the final Canonical Full.
+- **Tested executable (this task, after the fourth architecture-review repair): commit `a0d10755524a06e27772613f8713a2d60fc15653`**. Commit lineage: initial implementation `5b2351500679c7c1675b8c24c051aad3b8334619` → first repair `a5f0ae2…` (R1–R5) → second repair `3286bc1…` (R6–R8) → third repair `37a7757…` (R9) → fourth repair `a0d1075…` (R10, below). Every gate in §3/§5/§6/§6a/§6b was re-run to green against the repaired code state, with zero executable drift after the final Canonical Full.
 
 ## 1. What was implemented
 
@@ -84,6 +84,17 @@ The third review required only the pendingUnclear recovery lifecycle (R9):
 
 Third-repair verification (same binding order): Focused (quick-capture client 24 + host/card/registry/preparation/remote suites) → full regression **52 files / 817 tests, all green** → scope audit (3 files, all inside `packages/dsh-idea/src/client` + its spec) → static gates (typecheck, host build, client build) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 52 / 817 all green**, with zero executable drift after it.
 
+## 6b. Fourth Architecture Review Repair (R10, 2026-09-30)
+
+The fourth review required only the busy/not-attempted classification (R10):
+
+- **R10-1 — outcome vocabulary**: `QuickCommitOutcome` gains `busy` (not-attempted) alongside `success` / `failed` / `unclear`. `commitQuickPreview` resolves `busy` when the save surface is occupied (`submitInFlight`, a pending preparation modal) — the commit was never sent, which is fundamentally different from a definitive Host answer.
+- **R10-2 — busy preserves the recovery**: `applyCommitOutcome` treats `busy` as "nothing was attempted": an unresolved `pendingUnclear` survives untouched, and a first direct save whose commit was bounced registers its already-registered preparation as `pendingUnclear` — so the later 直接保存 commits the SAME preparation id (regression: `prepareQuickCapture` still called exactly once → no duplicate-creation risk). Only a definitive `idea/*` failure clears the stale id.
+- **R10-3 — no remote call on busy**: the busy path returns before `remote.create` (regression-asserted: zero create calls during the bounce).
+- **R10-4 — concurrent-commit safety unchanged**: double activations during the busy bounce remain no-ops; every create call across the whole scenario carries the one original preparation id.
+
+Fourth-repair verification (same binding order): Focused (quick-capture client 27 + host/card/registry/preparation/remote suites) → full regression **52 files / 820 tests, all green** → scope audit (3 files, all inside `packages/dsh-idea/`) → static gates (typecheck, host build, client build) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 52 / 820 all green**, with zero executable drift after it.
+
 ## 7. Verdict
 
-`T12_2_QUICK_CAPTURE_IMPLEMENTED — ALL_GATES_GREEN (THIRD REPAIR APPLIED)`：D1/D2/D3 与 R1–R8 语义不变；R9 修复完成并全部重验。最终 Tested executable = third-repair commit `37a7757f6361e01a83794f8d52e89e8fa4be7bc2`。等待 ChatGPT 最终架构复审。
+`T12_2_QUICK_CAPTURE_IMPLEMENTED — ALL_GATES_GREEN (FOURTH REPAIR APPLIED)`：D1/D2/D3 与 R1–R9 语义不变；R10 修复完成并全部重验。最终 Tested executable = fourth-repair commit `a0d10755524a06e27772613f8713a2d60fc15653`。等待 ChatGPT 最终架构复审。
