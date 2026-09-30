@@ -4,7 +4,7 @@
 - Date: 2026-09-29
 - Accepted baseline: `b9e73781b8bf6ed5c6ab30c4b50e952b877f5858` (= `origin/main`); Harness `ddefc45fbc7f8e46dd73185e68295696d1297887` read-only, tracked diff zero throughout.
 - Architecture authority: `docs/architectue/DSH_IDEA_T12_QUICK_CAPTURE_ARCHITECTURE_FREEZE.md` (D1/D2/D3 frozen) implementing the accepted `DSH_IDEA_T12_1_QUICK_CAPTURE_PREFLIGHT.md`.
-- **Tested executable (this task, after the architecture-review repair): commit `a5f0ae2dad34621f8dcf9a8373527668c9892c1e`**. The initial implementation commit was `5b2351500679c7c1675b8c24c051aad3b8334619`; the architecture review returned REPAIR REQUIRED (R1–R5 below), and every gate in §3 was re-run to green against the repaired code state whose lib mtimes are unchanged since the final Canonical Full (no post-Full rebuild).
+- **Tested executable (this task, after the second architecture-review repair): commit `3286bc1bfdf8707878f9243d19bef04ea406e44d`**. Commit lineage: initial implementation `5b2351500679c7c1675b8c24c051aad3b8334619` → first repair `a5f0ae2dad34621f8dcf9a8373527668c9892c1e` (R1–R5) → second repair `3286bc1…` (R6–R8, below). Every gate in §3/§5/§6 was re-run to green against the repaired code state, with zero executable drift after the final Canonical Full.
 
 ## 1. What was implemented
 
@@ -63,6 +63,16 @@ The architecture review returned `REPAIR REQUIRED` on the initial implementation
 
 Repair verification (same binding order): Focused (quick-capture host 13 + client 15 + card 3 + registry/preparation/remote suites) → full regression **52 files / 807 tests, all green** → scope audit (10 files: 9 modified + 1 new test, all inside `packages/dsh-idea/`) → static gates (typecheck, host build, client build) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 52 / 807 all green**, with zero executable drift after it. The Harness repository's own suite was not run (R1 established the Canonical Full scope).
 
-## 6. Verdict
+## 6. Second Architecture Review Repair (R6–R8, 2026-09-30)
 
-`T12_2_QUICK_CAPTURE_IMPLEMENTED — ALL_GATES_GREEN (REPAIR APPLIED)`：冻结决策 D1/D2/D3 语义不变；R1–R5 修复完成并全部重验。最终 Tested executable = Repair commit `a5f0ae2dad34621f8dcf9a8373527668c9892c1e`。等待架构复审。
+The second review passed R1–R5 and required only R6–R8:
+
+- **R6 — commit outcome state restoration**: `runQuickCommit` now fully restores both the in-flight flag and the observable `submitting` state on **every** exit path, including a structured Remote failure (`ok: false`, e.g. `idea/storage-failed`) — previously the observable spinner could stick. Regression tests cover the structured failure, the thrown unclear outcome, and a follow-up commit being accepted afterwards.
+- **R7 — cancellable prepare vs non-cancellable commit**: the quick-capture close is now phase-aware. While a direct commit is in flight, closing the card (Escape / outside / × / Add path) merely hides the form — the note and the pending outcome are preserved, the user is never misled into thinking the save was cancelled, and the note stays recoverable whichever way the commit settles (success consumes it cleanly; failure keeps it with a visible `commit-failed` on reopen). Only the prepare phase is cancellable (R1 semantics unchanged), and `commitInFlight` is set synchronously with the aborted check so a close cannot interleave between prepare resolution and commit start.
+- **R8 — unclear outcomes never re-prepare, and the stale-finally race is fixed**: an unclear commit result is remembered (`pendingUnclear`) and a later 直接保存 retries the commit with the ORIGINAL preparation id — `prepareQuickCapture` is asserted NOT called again (regression-tested). Additionally, a prepare task's `finally` is guarded by AbortController ownership, so the deterministic close → reopen → new-task race can no longer let the stale task clobber the new task's AbortController or lifecycle state (deterministic gated race test included).
+
+Second-repair verification (same binding order): Focused (quick-capture host + client + card + registry/preparation/remote suites) → full regression **52 files / 813 tests, all green** → scope audit (5 files, all inside `packages/dsh-idea/`) → static gates (typecheck, host build, client build) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 52 / 813 all green**, with zero executable drift after it (lib mtime unchanged post-Full).
+
+## 7. Verdict
+
+`T12_2_QUICK_CAPTURE_IMPLEMENTED — ALL_GATES_GREEN (SECOND REPAIR APPLIED)`：D1/D2/D3 与 R1–R5 语义不变；R6–R8 修复完成并全部重验。最终 Tested executable = second-repair commit `3286bc1bfdf8707878f9243d19bef04ea406e44d`。等待 ChatGPT 最终架构复审。
