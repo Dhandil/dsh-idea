@@ -108,8 +108,8 @@ describe('capacity eviction', () => {
     const third = registry.register(entry('session-3'))
 
     expect(errorCode(() => registry.resolve(first))).toBe('preparation-not-found')
-    expect(registry.resolve(second).origin).toEqual(expect.objectContaining({ kind: 'conversation' }))
-    expect(registry.resolve(third).origin).toEqual(expect.objectContaining({ kind: 'conversation' }))
+    expect(registry.resolve(second).origin).toEqual({ kind: 'conversation', source: expect.objectContaining({ sessionId: 'session-2' }), model: { provider: 'provider', model: 'model' } })
+    expect(registry.resolve(third).origin).toEqual({ kind: 'conversation', source: expect.objectContaining({ sessionId: 'session-3' }), model: { provider: 'provider', model: 'model' } })
   })
 
   it('sweeps expired entries before evicting live ones', () => {
@@ -123,8 +123,8 @@ describe('capacity eviction', () => {
     // one instead of evicting the live second.
     now = 2_500
     const third = registry.register({ ...entry('session-3'), createdAt: now })
-    expect(registry.resolve(second).origin).toEqual(expect.objectContaining({ kind: 'conversation' }))
-    expect(registry.resolve(third).origin).toEqual(expect.objectContaining({ kind: 'conversation' }))
+    expect(registry.resolve(second).origin).toEqual({ kind: 'conversation', source: expect.objectContaining({ sessionId: 'session-2' }), model: { provider: 'provider', model: 'model' } })
+    expect(registry.resolve(third).origin).toEqual({ kind: 'conversation', source: expect.objectContaining({ sessionId: 'session-3' }), model: { provider: 'provider', model: 'model' } })
     expect(errorCode(() => registry.resolve(first))).toBe('preparation-not-found')
   })
 })

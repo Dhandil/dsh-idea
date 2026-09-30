@@ -127,6 +127,14 @@ describe('quick-capture preparation (ai)', () => {
     await expect(env.idea.prepareQuickCapture(quickRequest({ mode: 'ai', text: '' })))
       .rejects.toMatchObject({ code: 'idea/invalid-quick-capture-input' })
   })
+
+  it('rejects an over-bounds note before the provider is called (R3)', async () => {
+    const env = await fullHarness()
+    await expect(env.idea.prepareQuickCapture(quickRequest({ mode: 'ai', text: 'x'.repeat(20_001) })))
+      .rejects.toMatchObject({ code: 'idea/invalid-quick-capture-input' })
+    // The shared gate runs before the route/provider: zero model calls.
+    expect(env.llm.calls).toHaveLength(0)
+  })
 })
 
 describe('quick-capture commit (the shared commit machine)', () => {

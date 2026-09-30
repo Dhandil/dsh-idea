@@ -145,7 +145,14 @@ function registerUi(ctx: ClientContext): void {
       surface = new IdeaQuickCaptureSurface(
         ctx.remote.idea as IdeaQuickCaptureFace,
         sessionId,
-        preview => { surfaceFor(sessionId).openQuickPreview(preview) },
+        {
+          // AI handoff: refused while this surface is busy — the quick form
+          // keeps the note visible (T12.2 R1).
+          onPreview: preview => surfaceFor(sessionId).openQuickPreview(preview),
+          // Direct auto-commit: same preparation id, no confirmation step
+          // (T12.2 R4).
+          onCommit: preview => surfaceFor(sessionId).commitQuickPreview(preview),
+        },
       )
       quickSurfaces.set(sessionId, surface)
     }
@@ -272,12 +279,14 @@ function registerUi(ctx: ClientContext): void {
         retry: () => { surface.retry() },
         add: (descriptor) => {
           // The card closes only after a successful append; a CAS/seam
-          // failure keeps it open with the localized composer notice.
+          // failure keeps it open with the localized composer notice. The
+          // quick-capture form shares the card's lifecycle (T12.2 R1).
           if (attachReference(sessionId, descriptor)) {
             surface.close()
+            quick.close()
           }
         },
-        close: () => { surface.close() },
+        close: () => { surface.close(); quick.close() },
         quick: {
           open: () => { quick.open() },
           close: () => { quick.close() },

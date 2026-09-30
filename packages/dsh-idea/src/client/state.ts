@@ -299,11 +299,13 @@ export class IdeaSaveSurface {
   }
 
 /** Open the preview modal for a quick-capture proposal (T12): the same
-   * editable modal the chat flow uses, with no source stats to show. */
-  openQuickPreview(preview: QuickCapturePreview): void {
-    if (this.prepareInFlight || this.submitInFlight) return
+   * editable modal the chat flow uses, with no source stats to show.
+   * @returns whether the handoff was accepted; `false` means this surface is
+   * busy and the caller must keep the user's note visible (T12.2 R1). */
+  openQuickPreview(preview: QuickCapturePreview): boolean {
+    if (this.prepareInFlight || this.submitInFlight) return false
     const { preparingMessageId, modal } = this.state.getSnapshot()
-    if (preparingMessageId !== null || modal !== null) return
+    if (preparingMessageId !== null || modal !== null) return false
     this.state.update((current) => {
       current.modal = {
         preparationId: preview.preparationId,
@@ -311,6 +313,55 @@ export class IdeaSaveSurface {
         source: null,
       }
     })
+    return true
+  }
+
+  /**
+   * Auto-commit a direct-save quick-capture proposal (T12.2 R4): the
+   * Preparation → commit chain runs without a confirmation step, on the
+   * SAME preparation id. An unclear (thrown) outcome is retried once with
+   * that id — the Host commit machine dedups, so a retry never double-writes
+   * — and a retry is the only recovery ever attempted (never a re-prepare).
+   * @returns a promise resolving `true` on success; `false` when this
+   * surface was busy (the caller must keep the user's note visible) or when
+   * the commit failed after the same-id retry.
+   */
+  commitQuickPreview(preview: QuickCapturePreview): Promise<boolean> {
+    if (this.submitInFlight) return Promise.resolve(false)
+    const { preparingMessageId, modal } = this.state.getSnapshot()
+    if (preparingMessageId !== null || modal !== null) return Promise.resolve(false)
+    this.submitInFlight = true
+    this.state.update((current) => {
+      current.submitting = true
+      current.failure = null
+    })
+    return this.runQuickCommit(preview)
+  }
+
+  private async runQuickCommit(preview: QuickCapturePreview): Promise<boolean> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const result = await this.remote.create({
+          preparationId: preview.preparationId,
+          // The Host prepared this draft; it is committed verbatim (the
+          // browser never re-edits a direct-save proposal).
+          draft: preview.draft,
+        })
+        this.submitInFlight = false
+        if (!result.ok) return false
+        this.state.update((current) => {
+          current.submitting = false
+          current.toastSeq += 1
+        })
+        return true
+      } catch {
+        // Unclear outcome: the modal machinery is not involved; the same-id
+        // retry below is the only recovery (T12.2 R4).
+      }
+    }
+    this.submitInFlight = false
+    this.state.update((current) => { current.submitting = false })
+    return false
   }
 
   /** Abort any in-flight prepare and reset to the closed state. */

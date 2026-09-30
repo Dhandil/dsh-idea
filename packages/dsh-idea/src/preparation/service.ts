@@ -35,7 +35,7 @@ import type {
   PreparedIdeaSource,
   QuickCapturePreview,
 } from './types.ts'
-import { ideaDraftSchema } from '../schema.ts'
+import { ideaDraftSchema, IDEA_LIMITS } from '../schema.ts'
 import type { IdeaDraft, SourceDiscussionDraft } from '../types.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -171,6 +171,15 @@ export class IdeaPreparationService extends Service {
     const normalized = text.trim()
     if (normalized.length === 0) {
       throw new IdeaPreparationError('invalid-quick-capture-input', 'the quick-capture note is empty')
+    }
+    // The shared Host-side input gate (T12.2 R3): the note rides `core`
+    // verbatim in both modes, so an over-bounds note is rejected here —
+    // for `ai` strictly BEFORE the provider is called.
+    if (normalized.length > IDEA_LIMITS.fieldMax) {
+      throw new IdeaPreparationError(
+        'invalid-quick-capture-input',
+        `the quick-capture note exceeds ${IDEA_LIMITS.fieldMax} characters`,
+      )
     }
 
     if (mode === 'direct') {

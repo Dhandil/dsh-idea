@@ -77,7 +77,15 @@ export function IdeaSearchCard({ setQuery, select, retry, add, close, useSearch,
                 autoFocus
                 onChange={event => { quick.setText(event.target.value) }}
               />
-              {quickState.failure !== null && <p className="dsh-idea-state">{t('quick.failed')}</p>}
+              {quickState.failure !== null && (
+                <p className="dsh-idea-state">
+                  {t(quickState.failure === 'commit-failed'
+                    ? 'quick.commitFailed'
+                    : quickState.failure === 'handoff-failed'
+                      ? 'quick.handoffFailed'
+                      : 'quick.failed')}
+                </p>
+              )}
               <div className="dsh-idea-quick-actions">
                 <Button
                   disabled={!canSave}
