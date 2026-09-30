@@ -4,7 +4,7 @@
 - Date: 2026-09-29
 - Accepted baseline: `b9e73781b8bf6ed5c6ab30c4b50e952b877f5858` (= `origin/main`); Harness `ddefc45fbc7f8e46dd73185e68295696d1297887` read-only, tracked diff zero throughout.
 - Architecture authority: `docs/architectue/DSH_IDEA_T12_QUICK_CAPTURE_ARCHITECTURE_FREEZE.md` (D1/D2/D3 frozen) implementing the accepted `DSH_IDEA_T12_1_QUICK_CAPTURE_PREFLIGHT.md`.
-- **Tested executable (this task, after the second architecture-review repair): commit `3286bc1bfdf8707878f9243d19bef04ea406e44d`**. Commit lineage: initial implementation `5b2351500679c7c1675b8c24c051aad3b8334619` → first repair `a5f0ae2dad34621f8dcf9a8373527668c9892c1e` (R1–R5) → second repair `3286bc1…` (R6–R8, below). Every gate in §3/§5/§6 was re-run to green against the repaired code state, with zero executable drift after the final Canonical Full.
+- **Tested executable (this task, after the third architecture-review repair): commit `37a7757f6361e01a83794f8d52e89e8fa4be7bc2`**. Commit lineage: initial implementation `5b2351500679c7c1675b8c24c051aad3b8334619` → first repair `a5f0ae2dad34621f8dcf9a8373527668c9892c1e` (R1–R5) → second repair `3286bc1…` (R6–R8) → third repair `37a7757…` (R9, below). Every gate in §3/§5/§6/§6a was re-run to green against the repaired code state, with zero executable drift after the final Canonical Full.
 
 ## 1. What was implemented
 
@@ -73,6 +73,17 @@ The second review passed R1–R5 and required only R6–R8:
 
 Second-repair verification (same binding order): Focused (quick-capture host + client + card + registry/preparation/remote suites) → full regression **52 files / 813 tests, all green** → scope audit (5 files, all inside `packages/dsh-idea/`) → static gates (typecheck, host build, client build) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 52 / 813 all green**, with zero executable drift after it (lib mtime unchanged post-Full).
 
+## 6a. Third Architecture Review Repair (R9, 2026-09-30)
+
+The third review required only the pendingUnclear recovery lifecycle (R9):
+
+- **R9-1 — same-id retry is a real commit**: the manual 直接保存 retry of an unresolved `pendingUnclear` enters `commitInFlight` synchronously, so a double activation can never fire a concurrent duplicate commit, and the retry uses the ORIGINAL preparation id (`prepareQuickCapture` asserted not called again).
+- **R9-2 — the recovery survives close**: with an unresolved `pendingUnclear`, closing the card only hides the form — the note, the failure copy, and the original preparation id are preserved; reopening shows the form exactly as it was and the retry completes normally.
+- **R9-3 — no bypass**: while `pendingUnclear` is unresolved, editing the note (`setText`) and AI organize (a new preparation) are both refused, so the recovery cannot be sidestepped.
+- **R9-4 — unclear classification**: a Gateway/transport-class structured failure (`gateway/*`) is now classified `unclear` (the Host's answer is unknown), while only plugin-owned `idea/*` codes are definitive `failed` — unknown results are never misclassified as definitive failures.
+
+Third-repair verification (same binding order): Focused (quick-capture client 24 + host/card/registry/preparation/remote suites) → full regression **52 files / 817 tests, all green** → scope audit (3 files, all inside `packages/dsh-idea/src/client` + its spec) → static gates (typecheck, host build, client build) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 52 / 817 all green**, with zero executable drift after it.
+
 ## 7. Verdict
 
-`T12_2_QUICK_CAPTURE_IMPLEMENTED — ALL_GATES_GREEN (SECOND REPAIR APPLIED)`：D1/D2/D3 与 R1–R5 语义不变；R6–R8 修复完成并全部重验。最终 Tested executable = second-repair commit `3286bc1bfdf8707878f9243d19bef04ea406e44d`。等待 ChatGPT 最终架构复审。
+`T12_2_QUICK_CAPTURE_IMPLEMENTED — ALL_GATES_GREEN (THIRD REPAIR APPLIED)`：D1/D2/D3 与 R1–R8 语义不变；R9 修复完成并全部重验。最终 Tested executable = third-repair commit `37a7757f6361e01a83794f8d52e89e8fa4be7bc2`。等待 ChatGPT 最终架构复审。
