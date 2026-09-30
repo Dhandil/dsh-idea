@@ -4,7 +4,7 @@
 - Date: 2026-09-29
 - Accepted baseline: `b9e73781b8bf6ed5c6ab30c4b50e952b877f5858` (= `origin/main`); Harness `ddefc45fbc7f8e46dd73185e68295696d1297887` read-only, tracked diff zero throughout.
 - Architecture authority: `docs/architectue/DSH_IDEA_T12_QUICK_CAPTURE_ARCHITECTURE_FREEZE.md` (D1/D2/D3 frozen) implementing the accepted `DSH_IDEA_T12_1_QUICK_CAPTURE_PREFLIGHT.md`.
-- **Tested executable (this task): HEAD `b9e7378…` + rebuilt `lib/`** (host `tsc` build at 13:02, client bundle at 13:29). Uncommitted, awaiting architecture review.
+- **Tested executable (this task): implementation commit `5b2351500679c7c1675b8c24c051aad3b8334619`** (the exact code state of HEAD `b9e7378…` + rebuilt `lib/`, host `tsc` build 13:02 / client bundle 13:29, whose lib mtimes are unchanged across the Canonical Full and remain unchanged since). Committed as `5b23515` before this docs-only addendum; every verification gate in this report ran against this code state.
 
 ## 1. What was implemented
 
@@ -46,7 +46,7 @@
 
 ## 4. Git 状态
 
-- HEAD = `b9e73781b8bf6ed5c6ab30c4b50e952b877f5858`（未提交，等待架构审核后由用户决定提交/推送）。
+- Implementation commit = `5b2351500679c7c1675b8c24c051aad3b8334619`（T12.2 的 28 个文件：25 个实现/测试 + 3 个阶段文档）；本报告的 Tested SHA 即该提交。
 - 工作区：`packages/dsh-idea` 下 22 M + 3 ??（本任务实现），外加用户既有 docs drift（5 删除 + 12 未跟踪）完整保留；无 reset/clean/覆盖。
 - Harness：tracked diff = 0。
 - 未运行真实 Provider、未进入 T13。
