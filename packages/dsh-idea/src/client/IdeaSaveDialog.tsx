@@ -14,8 +14,9 @@ import { requiredPresent } from './state.ts'
 import type { EditableIdeaDraft } from './state.ts'
 import type { IdeaLocaleKey } from './locales.ts'
 
-/** The editable fields, in modal order. */
-const FIELDS: ReadonlyArray<{
+/** The editable fields, in modal order. Shared with the T12.3 library
+ * proposal editor so the seven-field contract lives in exactly one place. */
+export const IDEA_FORM_FIELDS: ReadonlyArray<{
   key: keyof EditableIdeaDraft
   label: IdeaLocaleKey
   multiline: boolean
@@ -27,7 +28,10 @@ const FIELDS: ReadonlyArray<{
   { key: 'possibleValue', label: 'field.possibleValue', multiline: true },
   { key: 'useWhenText', label: 'field.useWhen', multiline: true },
   { key: 'openQuestionsText', label: 'field.openQuestions', multiline: true },
-]
+] as const
+
+/** The modal-order alias the dialog renders. */
+const FIELDS = IDEA_FORM_FIELDS
 
 /**
  * The Session's Idea preview modal plus its toasts.

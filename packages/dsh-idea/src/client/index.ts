@@ -403,10 +403,24 @@ function registerUi(ctx: ClientContext): void {
     {
       onPreview: preview => librarySave.openQuickPreview(preview),
       onCommit: preview => librarySave.commitQuickPreview(preview),
-      // A direct-save success refreshes the Current list (T12.3 §8).
-      onSuccess: () => { readSurface.refreshToCurrent() },
     },
   )
+
+  // T12.3 R3: the post-creation transition is a controller concern, not a
+  // mounted-UI concern. The library save surface's success toast sequence is
+  // the authoritative signal for BOTH creation paths (direct auto-commit and
+  // confirmed AI proposal); the subscription lives at the root, so the
+  // Current/refresh normalization happens even when the settings section is
+  // unmounted. The conversation session surfaces never touch this
+  // subscription — their own toast flows are UI-only.
+  let lastLibraryToastSeq = librarySave.state.getSnapshot().toastSeq
+  ctx.effect(() => librarySave.state.subscribe(() => {
+    const snapshot = librarySave.state.getSnapshot()
+    if (snapshot.toastSeq !== lastLibraryToastSeq) {
+      lastLibraryToastSeq = snapshot.toastSeq
+      readSurface.refreshToCurrent()
+    }
+  }), 'dsh-idea: library creation success transition')
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',

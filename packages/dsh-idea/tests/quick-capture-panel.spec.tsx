@@ -65,7 +65,7 @@ function panelRig(over: {
         },
       }],
     })),
-    prepareQuickCapture: over.prepare ?? vi.fn(async () => ({
+    prepareQuickCapture: over.prepare ?? vi.fn(async (_request: unknown, signal?: AbortSignal) => ({
       ok: true as const,
       value: {
         preparationId: 'prep_1' as never,
@@ -192,6 +192,44 @@ describe('Idea panel information architecture (T12.3)', () => {
     expect((screen.getByLabelText('想到什么就写下来，保存为一条 Idea…') as HTMLTextAreaElement).value).toBe('原文')
     expect(screen.getByText('保存失败，原文已保留，可重试。')).toBeTruthy()
     void save
+  })
+
+  it('T12.3 R2: Back during an AI prepare cancels it — no late proposal modal', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let gatedSignal: AbortSignal | undefined
+    const { save, quick, props } = panelRig({
+      prepare: async (_request: unknown, signal?: AbortSignal) => {
+        gatedSignal = signal
+        await gate
+        if (signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+        return {
+          ok: true as const,
+          value: {
+            preparationId: 'prep_late' as never,
+            draft: { title: '迟到的提案', core: '迟到的核心', motivation: '', currentConclusion: '', possibleValue: '', useWhen: [], openQuestions: [] },
+          },
+        }
+      },
+    })
+    render(<IdeaSearchCard {...props} />)
+    fireEvent.click(screen.getByText('＋ 记录新想法'))
+    fireEvent.change(screen.getByLabelText('想到什么就写下来，保存为一条 Idea…'), { target: { value: '原文' } })
+    fireEvent.click(screen.getByText('AI 整理'))
+    expect(quick.state.getSnapshot().preparing).toBe('ai')
+
+    // Back during the AI prepare: the subview returns to the list with the
+    // note preserved, and the prepare is cancelled.
+    fireEvent.click(screen.getByText('← 记录新想法'))
+    expect(quick.state.getSnapshot()).toMatchObject({ open: false, text: '原文', preparing: 'none' })
+    release()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+
+    // No late proposal modal may appear after the panel left capture mode.
+    expect(gatedSignal?.aborted).toBe(true)
+    expect(save.state.getSnapshot().modal).toBeNull()
+    // The list is usable again.
+    expect(screen.getByPlaceholderText('搜索保存的 Idea…')).toBeTruthy()
   })
 
   it('the Add path still attaches the pinned reference and closes the panel', async () => {

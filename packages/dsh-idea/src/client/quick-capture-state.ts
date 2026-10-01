@@ -63,9 +63,6 @@ export interface IdeaQuickCaptureCallbacks {
    * with the note intact (never silently dropped, T12.2 R1).
    */
   onPreview: (preview: QuickCapturePreview) => boolean
-  /** T12.3: notified when a direct-save commit succeeds (e.g. the Settings
-   * library refreshes its Current view). Optional. */
-  onSuccess?: () => void
   /**
    * Direct auto-commit: run Preparation → commit on the SAME preparation id
    * without a confirmation step. Resolves with the commit outcome (R6):
@@ -113,11 +110,24 @@ export class IdeaQuickCaptureSurface {
   }
 
   /**
-   * T12.3: return from the capture subview to the list WITHOUT discarding
-   * the unsaved note — only switches the subview; the panel-wide close keeps
-   * its own phase-aware semantics (R7–R10).
+   * T12.3 R2: return from the capture subview to the list. The unsaved note
+   * is always preserved. An in-flight prepare (AI or direct) is CANCELLED —
+   * the aborted async result is silenced, so back can never be followed by
+   * a late proposal preview (R2-B). A commit in flight is not cancellable
+   * (R7): hide merely switches the subview while the commit settles, with
+   * the note and the unresolved recovery preserved (R2-D).
    */
   hide(): void {
+    if (this.prepareInFlight) {
+      this.prepareAbort?.abort()
+      this.prepareAbort = undefined
+      this.prepareInFlight = false
+      this.state.update((current) => {
+        current.open = false
+        current.preparing = 'none'
+      })
+      return
+    }
     this.state.update((current) => { current.open = false })
   }
 

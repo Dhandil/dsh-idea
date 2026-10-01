@@ -17,7 +17,7 @@
  * @module @dsh-external/dsh-idea/client/IdeaSection
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button, Pill, RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IdeaHoverCard } from './hover-card.tsx'
@@ -26,6 +26,7 @@ import type { IdeaVersionReason } from '../types.ts'
 import { durableFrom, requiredPresent, sameIdeaDraft } from './state.ts'
 import type { EditableIdeaDraft } from './state.ts'
 import { detailDraftOf } from './read-state.ts'
+import { IDEA_FORM_FIELDS } from './IdeaSaveDialog.tsx'
 import type { IdeaDeletionState, IdeaEditState, IdeaReadState, IdeaProposalState } from './read-state.ts'
 import type { IdeaSectionProps } from './slots.ts'
 import type { IdeaLocaleKey } from './locales.ts'
@@ -81,22 +82,21 @@ export function IdeaSection({
   const saveState = useLibrarySave(view => view)
   useEffect(() => { load() }, [load])
 
-  // T12.3 §8: after a confirmed library creation (direct save or AI proposal)
-  // leaves the create subview, switch to Current, clear the search query, and
-  // force-refetch so the new Idea is immediately visible (never optimistic).
-  const lastToastRef = useRef(saveState.toastSeq)
-  useEffect(() => {
-    if (saveState.toastSeq !== lastToastRef.current) {
-      lastToastRef.current = saveState.toastSeq
-      selectView('current')
-      searchIdeas('')
-      load()
-    }
-  }, [saveState.toastSeq, selectView, searchIdeas, load])
-
   // T12.3: the create subview covers both the raw capture form and the AI
   // proposal preview (which lives on the library save surface's modal).
+  // The post-success Current/refresh transition is root-scoped (T12.3 R3):
+  // the save surface's success subscription performs it even when this
+  // section is unmounted — correctness never depends on this mount.
   const creating = quickState.open || saveState.modal !== null
+
+  /** T12.3 R2: the phase-aware create-subview Back. A proposal preview open
+   * is safely cancelled first (zero durable writes); the quick surface's
+   * own back then hides the form while preserving the draft and, during a
+   * commit, the unresolved recovery (R7–R10). */
+  const onBack = (): void => {
+    if (saveState.modal !== null) librarySave.cancelQuick()
+    libraryQuick.back()
+  }
   // T9R2 R7: the shell unmounts this section on every settings navigation
   // and modal close, while the root-scoped read surface keeps its state —
   // so each fresh mount re-enters at the list, never inside a detail left
@@ -112,27 +112,29 @@ export function IdeaSection({
     return (
       <div className="dsh-idea-library">
         <div className="dsh-idea-back-row">
-          <Button variant="outline" onClick={libraryQuick.hide}>{t('library.createBack')}</Button>
+          <Button variant="outline" onClick={onBack}>{t('library.createBack')}</Button>
         </div>
         {modal !== null ? (
           <div className="dsh-idea-form" role="form" aria-label={t('dialog.title')}>
             <p className="dsh-idea-source">{t('dialog.sourceQuick')}</p>
-            <label className="dsh-idea-field">
-              <span>{t('field.title')}</span>
-              <input
-                type="text"
-                value={modal.draft.title}
-                onChange={event => { librarySave.editDraft({ title: event.target.value }) }}
-              />
-            </label>
-            <label className="dsh-idea-field">
-              <span>{t('field.core')}</span>
-              <textarea
-                rows={6}
-                value={modal.draft.core}
-                onChange={event => { librarySave.editDraft({ core: event.target.value }) }}
-              />
-            </label>
+            {IDEA_FORM_FIELDS.map(field => (
+              <label key={field.key} className="dsh-idea-field">
+                <span>{t(field.label)}</span>
+                {field.multiline ? (
+                  <textarea
+                    rows={field.key === 'core' ? 6 : 3}
+                    value={modal.draft[field.key]}
+                    onChange={event => { librarySave.editDraft({ [field.key]: event.target.value }) }}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={modal.draft[field.key]}
+                    onChange={event => { librarySave.editDraft({ [field.key]: event.target.value }) }}
+                  />
+                )}
+              </label>
+            ))}
             {saveState.failure !== null && <p className="dsh-idea-state">{t('read.error')}</p>}
             <div className="dsh-idea-quick-actions">
               <Button disabled={saveState.submitting} onClick={librarySave.cancelQuick}>{t('dialog.cancel')}</Button>

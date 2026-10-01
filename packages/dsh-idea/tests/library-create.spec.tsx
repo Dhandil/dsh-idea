@@ -17,7 +17,7 @@ import { useSyncExternalStore } from 'react'
 import { IdeaSection } from '../src/client/IdeaSection.tsx'
 import { IdeaReadSurface } from '../src/client/read-state.ts'
 import { IdeaQuickCaptureSurface } from '../src/client/quick-capture-state.ts'
-import { IdeaSaveSurface } from '../src/client/state.ts'
+import { IdeaSaveSurface, requiredPresent } from '../src/client/state.ts'
 import type { IdeaSectionProps } from '../src/client/slots.ts'
 
 afterEach(cleanup)
@@ -81,7 +81,15 @@ function createRig(over: {
       ok: true as const,
       value: {
         preparationId: 'prep_1' as never,
-        draft: { title: '新想法标题', core: '新想法原文', motivation: '', currentConclusion: '', possibleValue: '', useWhen: [], openQuestions: [] },
+        draft: {
+          title: '新想法标题',
+          core: '新想法核心',
+          motivation: '为什么要保留',
+          currentConclusion: '当前结论',
+          possibleValue: '可能的落地价值',
+          useWhen: ['讨论产品定位时'],
+          openQuestions: ['怎么冷启动？'],
+        },
       },
     })),
     create: over.create ?? vi.fn(async () => ({
@@ -98,9 +106,18 @@ function createRig(over: {
     {
       onPreview: p => save.openQuickPreview(p),
       onCommit: p => save.commitQuickPreview(p),
-      onSuccess: () => readSurface.refreshToCurrent(),
     },
   )
+  // Mirror the index.ts R3 wiring: the success transition is a root-scoped
+  // save-state subscription, independent of the section's React mount.
+  let lastLibraryToastSeq = save.state.getSnapshot().toastSeq
+  save.state.subscribe(() => {
+    const snapshot = save.state.getSnapshot()
+    if (snapshot.toastSeq !== lastLibraryToastSeq) {
+      lastLibraryToastSeq = snapshot.toastSeq
+      readSurface.refreshToCurrent()
+    }
+  })
   const useOf = (store: { subscribe: (fn: () => void) => () => void; getSnapshot: () => unknown }) =>
     (select: (state: never) => unknown) =>
       useSyncExternalStore(store.subscribe, () => select(store.getSnapshot() as never))
@@ -195,24 +212,51 @@ describe('Settings → Ideas creation entry (T12.3)', () => {
     expect(screen.queryByLabelText('想到什么就写下来，保存为一条 Idea…')).toBeNull()
   })
 
-  it('an AI proposal is editable and user-confirmed before the commit', async () => {
+  it('R1: an AI proposal previews and edits ALL SEVEN fields before the commit', async () => {
     const { props, remote } = createRig()
     render(<IdeaSection {...props} />)
     fireEvent.click(screen.getByText('＋ 新建 Idea'))
     fireEvent.change(screen.getByLabelText('想到什么就写下来，保存为一条 Idea…'), { target: { value: '原始原文' } })
     fireEvent.click(screen.getByText('AI 整理'))
     await flush()
-    // The editable proposal replaces the raw form.
-    const title = screen.getByDisplayValue('新想法标题') as HTMLInputElement
-    fireEvent.change(title, { target: { value: '改过的标题' } })
-    const core = screen.getByDisplayValue('新想法原文') as HTMLTextAreaElement
-    fireEvent.change(core, { target: { value: '改过的核心' } })
+
+    // Every one of the seven prepared fields is visible and editable.
+    expect(screen.getByDisplayValue('新想法标题')).toBeTruthy()
+    expect(screen.getByDisplayValue('新想法核心')).toBeTruthy()
+    expect(screen.getByDisplayValue('为什么要保留')).toBeTruthy()
+    expect(screen.getByDisplayValue('当前结论')).toBeTruthy()
+    expect(screen.getByDisplayValue('可能的落地价值')).toBeTruthy()
+    expect(screen.getByDisplayValue('讨论产品定位时')).toBeTruthy()
+    expect(screen.getByDisplayValue('怎么冷启动？')).toBeTruthy()
+
+    // Edit two of them — including one that the old UI hid (motivation).
+    fireEvent.change(screen.getByDisplayValue('新想法标题'), { target: { value: '改过的标题' } })
+    fireEvent.change(screen.getByDisplayValue('为什么要保留'), { target: { value: '改过的动机' } })
     fireEvent.click(screen.getByText('保存'))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
-    expect((remote.create as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toMatchObject({
-      preparationId: 'prep_1',
-      draft: { title: '改过的标题', core: '改过的核心' },
-    })
+
+    const call = (remote.create as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      preparationId: string
+      draft: Record<string, string>
+    }
+    expect(call.preparationId).toBe('prep_1')
+    expect(call.draft.title).toBe('改过的标题')
+    expect(call.draft.motivation).toBe('改过的动机')
+    // Unmodified fields round-trip byte-identically from the proposal.
+    expect(call.draft.core).toBe('新想法核心')
+    expect(call.draft.currentConclusion).toBe('当前结论')
+    expect(call.draft.possibleValue).toBe('可能的落地价值')
+    expect(call.draft.useWhen).toEqual(['讨论产品定位时'])
+    expect(call.draft.openQuestions).toEqual(['怎么冷启动？'])
+  })
+
+  it('R1: requiredPresent still gates on title + core only (D1)', () => {
+    expect(requiredPresent({
+      title: 't', core: 'c', motivation: '', currentConclusion: '', possibleValue: '', useWhenText: '', openQuestionsText: '',
+    })).toBe(true)
+    expect(requiredPresent({
+      title: '', core: 'c', motivation: 'm', currentConclusion: '', possibleValue: '', useWhenText: '', openQuestionsText: '',
+    })).toBe(false)
   })
 
   it('a failed create keeps the text and stays in the create view', async () => {
@@ -271,5 +315,126 @@ describe('Settings → Ideas creation entry (T12.3)', () => {
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
     expect(quick.state.getSnapshot().text).toBe('')
     second.unmount()
+  })
+})
+
+
+describe('T12.3 R2/R3 — phase-aware create Back and root-scoped success', () => {
+  let gatedRelease!: () => void
+
+  const backRig = () => {
+    const rig = createRig()
+    ;(rig.remote.prepareQuickCapture as unknown as {
+      mockImplementationOnce: (f: (_request: unknown, signal?: AbortSignal) => Promise<unknown>) => void
+    }).mockImplementationOnce(async (_request: unknown, signal?: AbortSignal) => {
+      await new Promise<void>((resolve) => { gatedRelease = resolve })
+      if (signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+      return {
+        ok: true as const,
+        value: {
+          preparationId: 'prep_2' as never,
+          draft: {
+            title: '迟到的提案', core: '迟到的核心', motivation: '', currentConclusion: '',
+            possibleValue: '', useWhen: [], openQuestions: [],
+          },
+        },
+      }
+    })
+    return rig
+  }
+
+  it('R2-B: settings AI prepare → Back cancels it → no late proposal, draft kept', async () => {
+    const { props, quick, save } = backRig()
+    render(<IdeaSection {...props} />)
+    fireEvent.click(screen.getByText('＋ 新建 Idea'))
+    fireEvent.change(screen.getByLabelText('想到什么就写下来，保存为一条 Idea…'), { target: { value: '原文要保留' } })
+    fireEvent.click(screen.getByText('AI 整理'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
+    expect(quick.state.getSnapshot().preparing).toBe('ai')
+
+    fireEvent.click(screen.getByText('← 新建 Idea'))
+    expect(quick.state.getSnapshot()).toMatchObject({ open: false, text: '原文要保留', preparing: 'none' })
+    gatedRelease()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+    expect(save.state.getSnapshot().modal).toBeNull()
+
+    fireEvent.click(screen.getByText('＋ 新建 Idea'))
+    expect((screen.getByLabelText('想到什么就写下来，保存为一条 Idea…') as HTMLTextAreaElement).value).toBe('原文要保留')
+  })
+
+  it('R2-C: settings AI proposal → Back cancels the proposal safely and returns to the library', async () => {
+    const { props, quick, save } = createRig()
+    render(<IdeaSection {...props} />)
+    fireEvent.click(screen.getByText('＋ 新建 Idea'))
+    fireEvent.change(screen.getByLabelText('想到什么就写下来，保存为一条 Idea…'), { target: { value: '原文' } })
+    fireEvent.click(screen.getByText('AI 整理'))
+    await flush()
+    expect(save.state.getSnapshot().modal).not.toBeNull()
+
+    fireEvent.click(screen.getByText('← 新建 Idea'))
+    expect(save.state.getSnapshot().modal).toBeNull()
+    expect(quick.state.getSnapshot().open).toBe(false)
+    // Zero durable writes: the preparation was simply abandoned.
+    expect(save.state.getSnapshot().submitting).toBe(false)
+    // The library is visible again.
+    expect(screen.getByText('＋ 新建 Idea')).toBeTruthy()
+  })
+
+  it('R2-D: Back during a direct commit cannot discard the note or the recovery', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const { props, quick, remote } = createRig()
+    ;(remote.create as unknown as {
+      mockImplementation: (f: () => Promise<unknown>) => void
+    }).mockImplementation(async () => { throw new Error('carrier down') })
+    ;(remote.create as unknown as {
+      mockImplementationOnce: (f: () => Promise<unknown>) => void
+    }).mockImplementationOnce(async () => {
+      await gate
+      throw new Error('carrier down')
+    })
+    render(<IdeaSection {...props} />)
+    fireEvent.click(screen.getByText('＋ 新建 Idea'))
+    fireEvent.change(screen.getByLabelText('想到什么就写下来，保存为一条 Idea…'), { target: { value: '原文' } })
+    fireEvent.click(screen.getByText('直接保存'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+
+    fireEvent.click(screen.getByText('← 新建 Idea'))
+    expect(quick.state.getSnapshot().text).toBe('原文')
+    release()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+    expect(quick.state.getSnapshot().failure).toBe('commit-failed')
+    expect(quick.state.getSnapshot().text).toBe('原文')
+  })
+
+  it('R3: the success transition runs while the section is unmounted', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const { props, readSurface, remote } = createRig({
+      list: async () => ({ ok: true as const, value: [row('idea_new', 'active', '新想法标题')] }),
+    })
+    ;(remote.create as unknown as {
+      mockImplementationOnce: (f: () => Promise<unknown>) => void
+    }).mockImplementationOnce(async () => {
+      await gate
+      return { ok: true as const, value: { ideaId: 'idea_new', currentVersionId: 'idea_ver_new', status: 'active' as const, title: 't', createdAt: 1 } }
+    })
+    render(<IdeaSection {...props} />)
+    fireEvent.click(screen.getByText('＋ 新建 Idea'))
+    fireEvent.change(screen.getByLabelText('想到什么就写下来，保存为一条 Idea…'), { target: { value: '原文' } })
+    fireEvent.click(screen.getByText('直接保存'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+
+    cleanup()
+    release()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+
+    expect(readSurface.state.getSnapshot().searchQuery).toBe('')
+    expect(readSurface.state.getSnapshot().view).toBe('current')
+    expect(readSurface.state.getSnapshot().lists.current.status).toBe('ready')
+
+    render(<IdeaSection {...props} />)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
+    expect(readSurface.state.getSnapshot().lists.current.items.some(i => i.id === 'idea_new')).toBe(true)
   })
 })
