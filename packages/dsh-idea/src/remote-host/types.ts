@@ -40,10 +40,20 @@ export interface IdeaCreateRequest {
 /** The two quick-capture prepare modes (T12): deterministic or one AI call. */
 export type IdeaQuickCaptureMode = 'direct' | 'ai'
 
+/**
+ * Where a quick capture was written (T12.3): a conversation Session (AI
+ * organize resolves the Session's projected model route) or the Settings
+ * library (AI organize resolves the Agent default model directly). A
+ * discriminated union — no fake sessions, no marker ids.
+ */
+export type IdeaQuickCaptureRoute =
+  | { kind: 'session'; sessionId: string }
+  | { kind: 'default' }
+
 /** `idea.prepareQuickCapture` request: the user's own note and the mode. */
 export interface IdeaPrepareQuickCaptureRequest {
-  /** The conversation the capture was written in (the AI route's context). */
-  sessionId: string
+  /** Where the capture was written; decides the AI model route only. */
+  route: IdeaQuickCaptureRoute
   /** The user's raw note. Verbatim `core`; never a captured discussion. */
   text: string
   /** `direct` makes zero model calls; `ai` makes exactly one. */

@@ -17,6 +17,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { IdeaQuickCaptureSurface } from '../src/client/quick-capture-state.ts'
+import { IdeaSaveSurface } from '../src/client/state.ts'
 import { IdeaReadSurface } from '../src/client/read-state.ts'
 import { selectContinuationWorkspace } from '../src/client/workspace.ts'
 import type { IdeaContinueDiscussionResult, IdeaDetail, IdeaListRow, IdeaSummary } from '../src/remote-host/types.ts'
@@ -26,6 +28,38 @@ import type { IdeaSectionProps } from '../src/client/slots.ts'
 import type { EditableIdeaDraft } from '../src/client/state.ts'
 import { zh } from '../src/client/locales.ts'
 import type { IdeaVersionId } from '../src/types.ts'
+
+/** T12.3: the library creation faces every section props object must carry. */
+function libraryCreateRig() {
+  const remote = {
+    prepareQuickCapture: vi.fn(async () => ({ ok: false as const, error: { code: 'idea/invalid-quick-capture-input' } })),
+    create: vi.fn(async () => ({ ok: false as const, error: { code: 'idea/storage-failed' } })),
+  }
+  const librarySave = new IdeaSaveSurface(remote as never, { kind: 'default' })
+  const libraryQuick = new IdeaQuickCaptureSurface(remote as never, { kind: 'default' }, {
+    onPreview: p => librarySave.openQuickPreview(p),
+    onCommit: p => librarySave.commitQuickPreview(p),
+  })
+  return {
+    libraryQuick: {
+      open: () => { libraryQuick.open() },
+      hide: () => { libraryQuick.hide() },
+      close: () => { libraryQuick.close() },
+      back: () => { libraryQuick.hide() },
+      setText: (text: string) => { libraryQuick.setText(text) },
+      saveDirect: () => { libraryQuick.saveDirect() },
+      organize: () => { libraryQuick.organize() },
+    },
+    librarySave: {
+      editDraft: (patch: Partial<EditableIdeaDraft>) => { librarySave.editDraft(patch) },
+      submitQuick: () => { librarySave.submit() },
+      cancelQuick: () => { librarySave.cancel() },
+    },
+    useLibraryQuick: ((select: (s: unknown) => unknown) => useSyncExternalStore(libraryQuick.state.subscribe, () => select(libraryQuick.state.getSnapshot()))) as never,
+    useLibrarySave: ((select: (s: unknown) => unknown) => useSyncExternalStore(librarySave.state.subscribe, () => select(librarySave.state.getSnapshot()))) as never,
+  }
+}
+
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -115,6 +149,7 @@ function sectionProps(surface: IdeaReadSurface): IdeaSectionProps {
     cancelProposal: () => { surface.cancelProposal() },
     commitProposal: () => { surface.commitProposal() },
     useIdeaRead: useIdeaReadOf(surface.state),
+    ...libraryCreateRig(),
     t,
   } as unknown as IdeaSectionProps
 }

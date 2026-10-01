@@ -8,7 +8,7 @@
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
-import type { IdeaPreparationId, IdeaPreparationSourceInfo, QuickCapturePreview } from '../preparation/types.ts'
+import type { IdeaPreparationId, IdeaPreparationSourceInfo, QuickCapturePreview, QuickCaptureRouteContext } from '../preparation/types.ts'
 import type { IdeaDraft } from '../types.ts'
 
 /** The stable failure kinds the UI knows copy for. */
@@ -138,7 +138,7 @@ export interface IdeaRemoteFace {
   >
   /** Prepare a quick-capture proposal from the user's own note (T12). */
   prepareQuickCapture(
-    request: { sessionId: string; text: string; mode: 'direct' | 'ai' },
+    request: { route: QuickCaptureRouteContext; text: string; mode: 'direct' | 'ai' },
     signal?: AbortSignal,
   ): Promise<
     | { ok: true; value: QuickCapturePreview }
@@ -161,11 +161,19 @@ export class IdeaSaveSurface {
 
   constructor(
     private readonly remote: IdeaRemoteFace,
-    private readonly sessionId: string,
+    private readonly context: QuickCaptureRouteContext,
   ) {}
 
-  /** Start the one prepare call for a message; repeats while pending are no-ops. */
+  /** The Session id; present only for a session-kind surface (T12.3). */
+  private get sessionId(): string {
+    return this.context.kind === 'session' ? this.context.sessionId : ''
+  }
+
+  /** Start the one prepare call for a message; repeats while pending are
+   * no-ops. Session-only: a default-context surface (Settings, T12.3) has no
+   * conversation to prepare from and never enters this flow. */
   prepare(messageId: MessageId): void {
+    if (this.context.kind !== 'session') return
     const { preparingMessageId, modal } = this.state.getSnapshot()
     if (this.prepareInFlight || preparingMessageId !== null || modal !== null) return
     this.prepareInFlight = true

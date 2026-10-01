@@ -30,6 +30,7 @@ import { parseIdeaReferenceText } from '../reference/uri.ts'
 import type { IdeaReferenceDescriptor } from '../reference/types.ts'
 import type { IdeaReadFace } from './read-state.ts'
 import type { IdeaRemoteFace } from './state.ts'
+import type { IdeaQuickCaptureFace } from './quick-capture-state.ts'
 import type { IdeaRelatedFace } from './related-state.ts'
 import type { IdeaSearchFace } from './search-state.ts'
 import { appendIdeaReferenceNotified } from './reference-append.ts'
@@ -59,7 +60,6 @@ import type {
   SearchCardInjected,
   UnifiedActionInjected,
 } from './slots.ts'
-import type { IdeaQuickCaptureFace } from './quick-capture-state.ts'
 import { IdeaSaveSurface } from './state.ts'
 import { IdeaResurfacingController } from './resurfacing-state.ts'
 import type {
@@ -97,7 +97,7 @@ function registerUi(ctx: ClientContext): void {
   const surfaceFor = (sessionId: SessionId): IdeaSaveSurface => {
     let surface = surfaces.get(sessionId)
     if (surface === undefined) {
-      surface = new IdeaSaveSurface(ctx.remote.idea as IdeaRemoteFace, sessionId)
+      surface = new IdeaSaveSurface(ctx.remote.idea as IdeaRemoteFace, { kind: 'session', sessionId })
       surfaces.set(sessionId, surface)
     }
     return surface
@@ -144,7 +144,7 @@ function registerUi(ctx: ClientContext): void {
     if (surface === undefined) {
       surface = new IdeaQuickCaptureSurface(
         ctx.remote.idea as IdeaQuickCaptureFace,
-        sessionId,
+        { kind: 'session', sessionId },
         {
           // AI handoff: refused while this surface is busy — the quick form
           // keeps the note visible (T12.2 R1).
@@ -287,8 +287,10 @@ function registerUi(ctx: ClientContext): void {
           }
         },
         close: () => { surface.close(); quick.close() },
+        back: () => { quick.hide() },
         quick: {
           open: () => { quick.open() },
+          hide: () => { quick.hide() },
           close: () => { quick.close() },
           setText: (text) => { quick.setText(text) },
           saveDirect: () => { quick.saveDirect() },
@@ -389,6 +391,23 @@ function registerUi(ctx: ClientContext): void {
     ctx.uiWorkspace.openSession(SessionId(conversationId))
   }, prepareWorkspace)
   ctx.effect(() => () => { readSurface.dispose() }, 'dsh-idea: library read surface')
+
+  // The Settings library's creation surfaces (T12.3): root-scoped, route
+  // context `default` — no conversation, no Workspace, no fabricated Session.
+  // The surfaces outlive the section's React mount, so an unresolved recovery
+  // authority survives settings navigation (T12.3 §9).
+  const librarySave = new IdeaSaveSurface(ctx.remote.idea as IdeaRemoteFace, { kind: 'default' })
+  const libraryQuick = new IdeaQuickCaptureSurface(
+    ctx.remote.idea as IdeaQuickCaptureFace,
+    { kind: 'default' },
+    {
+      onPreview: preview => librarySave.openQuickPreview(preview),
+      onCommit: preview => librarySave.commitQuickPreview(preview),
+      // A direct-save success refreshes the Current list (T12.3 §8).
+      onSuccess: () => { readSurface.refreshToCurrent() },
+    },
+  )
+
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'ideas',
@@ -396,7 +415,7 @@ function registerUi(ctx: ClientContext): void {
     label: () => ctx.locale.bind(NS)('read.nav'),
     locale: NS,
     inject: (): IdeaSectionInjected => ({
-      hooks: { ideaRead: readSurface.state },
+      hooks: { ideaRead: readSurface.state, libraryQuick: libraryQuick.state, librarySave: librarySave.state },
       load: () => { readSurface.load() },
       searchIdeas: (query) => { readSurface.searchIdeas(query) },
       selectView: (view) => { readSurface.selectView(view) },
@@ -416,6 +435,20 @@ function registerUi(ctx: ClientContext): void {
       requestDelete: () => { readSurface.requestDelete() },
       cancelDelete: () => { readSurface.cancelDelete() },
       confirmDelete: () => { readSurface.confirmDelete() },
+      libraryQuick: {
+        open: () => { libraryQuick.open() },
+        hide: () => { libraryQuick.hide() },
+        close: () => { libraryQuick.close() },
+        back: () => { libraryQuick.hide() },
+        setText: (text) => { libraryQuick.setText(text) },
+        saveDirect: () => { libraryQuick.saveDirect() },
+        organize: () => { libraryQuick.organize() },
+      },
+      librarySave: {
+        editDraft: (patch) => { librarySave.editDraft(patch) },
+        submitQuick: () => { librarySave.submit() },
+        cancelQuick: () => { librarySave.cancel() },
+      },
     }),
   }, IdeaSection))
 }

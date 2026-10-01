@@ -372,10 +372,10 @@ describe('search card', () => {
     await flush()
     render(<IdeaSearchCard {...liveCardProps(surface)} />)
 
-    expect(screen.getByText('搜索 Idea')).toBeTruthy()
+    expect(screen.getByText('Idea')).toBeTruthy()
     expect((screen.getByLabelText('搜索保存的 Idea…') as HTMLInputElement).value).toBe('')
     expect(screen.getAllByRole('option')).toHaveLength(2)
-    const add = screen.getByRole('button', { name: '添加' }) as HTMLButtonElement
+    const add = screen.getByRole('button', { name: '添加到对话' }) as HTMLButtonElement
     expect(add.disabled).toBe(true)
   })
 
@@ -394,9 +394,9 @@ describe('search card', () => {
     expect(surface.state.getSnapshot().selectedId).toBe('idea_2')
     expect((screen.getAllByRole('option')[1]!).getAttribute('aria-selected')).toBe('true')
     expect((screen.getAllByRole('option')[0]!).getAttribute('aria-selected')).toBe('false')
-    expect((screen.getByRole('button', { name: '添加' }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole('button', { name: '添加到对话' }) as HTMLButtonElement).disabled).toBe(false)
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '添加' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '添加到对话' })) })
     expect(add).toHaveBeenCalledTimes(1)
     expect(add).toHaveBeenCalledWith(descriptorOf('idea_2'))
     // Add closes the card.

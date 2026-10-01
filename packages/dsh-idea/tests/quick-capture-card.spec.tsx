@@ -77,10 +77,10 @@ function cardRig(remote: ReturnType<typeof remoteRig>, overrides: {
 } = {}) {
   const search = new IdeaSearchSurface(remote as never)
   search.open()
-  const save = new IdeaSaveSurface(remote as never, 'session-1')
+  const save = new IdeaSaveSurface(remote as never, { kind: 'session', sessionId: 'session-1' })
   const quick = new IdeaQuickCaptureSurface(
     remote as never,
-    'session-1',
+    { kind: 'session', sessionId: 'session-1' },
     {
       onPreview: preview => save.openQuickPreview(preview),
       onCommit: preview => save.commitQuickPreview(preview),

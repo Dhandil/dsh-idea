@@ -425,6 +425,27 @@ body[data-ds-dark-theme] .dsh-idea-search {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-secondary);
 }
+.dsh-idea-library-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.dsh-idea-library-head .dsh-idea-library-search {
+  flex: 1;
+}
+.dsh-idea-search-back {
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.dsh-idea-search-back:hover {
+  text-decoration: underline;
+}
 .dsh-idea-quick {
   display: flex;
   flex-direction: column;

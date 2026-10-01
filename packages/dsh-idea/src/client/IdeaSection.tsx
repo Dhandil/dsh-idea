@@ -17,7 +17,7 @@
  * @module @dsh-external/dsh-idea/client/IdeaSection
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button, Pill, RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IdeaHoverCard } from './hover-card.tsx'
@@ -74,10 +74,29 @@ export function IdeaSection({
   editProposalDraft, cancelProposal, commitProposal,
   editDraft, cancelEdit, saveEdit,
   archiveIdea, restoreIdea, requestDelete, cancelDelete, confirmDelete,
-  load, useIdeaRead, t,
+  load, useIdeaRead, useLibraryQuick, useLibrarySave, libraryQuick, librarySave, t,
 }: IdeaSectionProps): ReactNode {
   const state = useIdeaRead(view => view)
+  const quickState = useLibraryQuick(view => view)
+  const saveState = useLibrarySave(view => view)
   useEffect(() => { load() }, [load])
+
+  // T12.3 §8: after a confirmed library creation (direct save or AI proposal)
+  // leaves the create subview, switch to Current, clear the search query, and
+  // force-refetch so the new Idea is immediately visible (never optimistic).
+  const lastToastRef = useRef(saveState.toastSeq)
+  useEffect(() => {
+    if (saveState.toastSeq !== lastToastRef.current) {
+      lastToastRef.current = saveState.toastSeq
+      selectView('current')
+      searchIdeas('')
+      load()
+    }
+  }, [saveState.toastSeq, selectView, searchIdeas, load])
+
+  // T12.3: the create subview covers both the raw capture form and the AI
+  // proposal preview (which lives on the library save surface's modal).
+  const creating = quickState.open || saveState.modal !== null
   // T9R2 R7: the shell unmounts this section on every settings navigation
   // and modal close, while the root-scoped read surface keeps its state —
   // so each fresh mount re-enters at the list, never inside a detail left
@@ -85,6 +104,82 @@ export function IdeaSection({
   // remount happens there. Empty deps are deliberate (a per-render identity
   // would reset mid-detail).
   useEffect(() => { closeDetail() }, [])
+
+  if (creating) {
+    const modal = saveState.modal
+    const canCommit = modal !== null && modal.draft.title.trim().length > 0 && modal.draft.core.trim().length > 0 && !saveState.submitting
+    const canCapture = quickState.text.trim().length > 0 && quickState.preparing === 'none'
+    return (
+      <div className="dsh-idea-library">
+        <div className="dsh-idea-back-row">
+          <Button variant="outline" onClick={libraryQuick.hide}>{t('library.createBack')}</Button>
+        </div>
+        {modal !== null ? (
+          <div className="dsh-idea-form" role="form" aria-label={t('dialog.title')}>
+            <p className="dsh-idea-source">{t('dialog.sourceQuick')}</p>
+            <label className="dsh-idea-field">
+              <span>{t('field.title')}</span>
+              <input
+                type="text"
+                value={modal.draft.title}
+                onChange={event => { librarySave.editDraft({ title: event.target.value }) }}
+              />
+            </label>
+            <label className="dsh-idea-field">
+              <span>{t('field.core')}</span>
+              <textarea
+                rows={6}
+                value={modal.draft.core}
+                onChange={event => { librarySave.editDraft({ core: event.target.value }) }}
+              />
+            </label>
+            {saveState.failure !== null && <p className="dsh-idea-state">{t('read.error')}</p>}
+            <div className="dsh-idea-quick-actions">
+              <Button disabled={saveState.submitting} onClick={librarySave.cancelQuick}>{t('dialog.cancel')}</Button>
+              <Button variant="primary" disabled={!canCommit} onClick={librarySave.submitQuick}>
+                {saveState.submitting ? t('dialog.saving') : t('dialog.save')}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <textarea
+              className="dsh-idea-quick-input"
+              value={quickState.text}
+              placeholder={t('quick.placeholder')}
+              aria-label={t('quick.placeholder')}
+              rows={6}
+              onChange={event => { libraryQuick.setText(event.target.value) }}
+            />
+            {quickState.failure !== null && (
+              <p className="dsh-idea-state">
+                {quickState.failure === 'commit-failed'
+                  ? t('quick.commitFailed')
+                  : quickState.failure === 'handoff-failed'
+                    ? t('quick.handoffFailed')
+                    : t('quick.failed')}
+              </p>
+            )}
+            <div className="dsh-idea-quick-actions">
+              <Button
+                disabled={!canCapture}
+                onClick={libraryQuick.organize}
+              >
+                {quickState.preparing === 'ai' ? t('quick.organizing') : t('quick.organize')}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={!canCapture}
+                onClick={libraryQuick.saveDirect}
+              >
+                {quickState.preparing === 'direct' ? t('quick.saving') : t('quick.saveDirect')}
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
 
   if (state.detailId !== null) {
     const editing = state.edit.status !== 'idle' && state.edit.ideaId === state.detailId
@@ -157,14 +252,17 @@ export function IdeaSection({
   const view = state.lists[state.view]
   return (
     <div className="dsh-idea-library">
-      <input
-        type="text"
-        className="dsh-idea-library-search"
-        value={state.searchQuery}
-        placeholder={t('read.search.placeholder')}
-        aria-label={t('read.search.placeholder')}
-        onChange={event => { searchIdeas(event.target.value) }}
-      />
+      <div className="dsh-idea-library-head">
+        <input
+          type="text"
+          className="dsh-idea-library-search"
+          value={state.searchQuery}
+          placeholder={t('read.search.placeholder')}
+          aria-label={t('read.search.placeholder')}
+          onChange={event => { searchIdeas(event.target.value) }}
+        />
+        <Button variant="outline" onClick={libraryQuick.open}>{t('library.newIdea')}</Button>
+      </div>
       {searching ? (
         state.search.status === 'loading' && <p className="dsh-idea-state">{t('read.loading')}</p>
       ) : (

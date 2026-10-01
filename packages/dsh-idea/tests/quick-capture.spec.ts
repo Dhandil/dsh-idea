@@ -54,7 +54,7 @@ async function fullHarness() {
 }
 
 const quickRequest = (overrides: Partial<IdeaPrepareQuickCaptureRequest> = {}): IdeaPrepareQuickCaptureRequest => ({
-  sessionId: 'session-1',
+  route: { kind: 'session', sessionId: 'session-1' },
   text: NOTE,
   mode: 'direct',
   ...overrides,
@@ -147,6 +147,88 @@ describe('quick-capture preparation (ai)', () => {
       .rejects.toMatchObject({ code: 'idea/invalid-quick-capture-input' })
     // The shared gate runs before the route/provider: zero model calls.
     expect(env.llm.calls).toHaveLength(0)
+  })
+})
+
+describe('T12.3 default route (Settings library)', () => {
+  it('R-17: a session route keeps the original behavior end-to-end', async () => {
+    const env = await fullHarness()
+    const result = await env.idea.prepareQuickCapture(quickRequest({ mode: 'direct' }))
+    const saved = await env.idea.create({ preparationId: result.preparationId, draft: result.draft })
+    expect(saved.status).toBe('active')
+    expect(env.ctx.ideaService.get(saved.ideaId).sourceDiscussions).toEqual([])
+  })
+
+  it('R-18: a default route direct save makes zero model calls', async () => {
+    const env = await fullHarness()
+    const result = await env.idea.prepareQuickCapture(
+      { route: { kind: 'default' }, text: NOTE, mode: 'direct' },
+    )
+    expect(env.llm.calls).toHaveLength(0)
+    const saved = await env.idea.create({ preparationId: result.preparationId, draft: result.draft })
+    expect(env.ctx.ideaService.get(saved.ideaId).sourceDiscussions).toEqual([])
+  })
+
+  it('R-19/20: a default route AI organize makes exactly one call via agentDefaultModel.currentSelection()', async () => {
+    const env = await fullHarness()
+    env.llm.enqueueChunks(textStream(JSON.stringify({
+      title: '默认路由整理',
+      core: NOTE,
+      motivation: '',
+      currentConclusion: '',
+      possibleValue: '',
+      useWhen: [],
+      openQuestions: [],
+    })))
+    const result = await env.idea.prepareQuickCapture(
+      { route: { kind: 'default' }, text: NOTE, mode: 'ai' },
+    )
+    expect(env.llm.calls).toHaveLength(1)
+    // R-20: the model came from agentDefaultModel.currentSelection().
+    expect(env.llm.calls[0]?.provider).toBe('default-provider')
+    expect(env.llm.calls[0]?.model).toBe('default-model')
+    // R-21: no sessionId is fabricated for the default route.
+    expect(env.llm.calls[0]?.sessionId).toBeUndefined()
+    expect(result.draft.motivation).toBe('')
+  })
+
+  it('R-22: a default route AI organize preserves the reasoning effort', async () => {
+    const sessionQuery = new FakeSessionQuery()
+    sessionQuery.add('session-1', defaultEvents())
+    const agentDefaultModel = new FakeAgentDefaultModel()
+    agentDefaultModel.selection = {
+      provider: 'default-provider',
+      model: 'default-model',
+      reasoningEffort: 'high',
+    }
+    const llm = new FakeLlm()
+    const env = await preparationHarness({ sessionQuery, agentDefaultModel, llm })
+    llm.enqueueChunks(textStream(JSON.stringify({
+      title: 't', core: NOTE, motivation: '', currentConclusion: '', possibleValue: '', useWhen: [], openQuestions: [],
+    })))
+    const result = await env.service.prepareQuickCapture({ kind: 'default' }, NOTE, 'ai')
+    expect(llm.calls).toHaveLength(1)
+    expect(llm.calls[0]?.reasoningEffort?.toString()).toBe('high')
+    expect(result.draft.motivation).toBe('')
+  })
+
+  it('R-23: invalid input is rejected before the provider, in both routes', async () => {
+    const env = await fullHarness()
+    await expect(env.idea.prepareQuickCapture(
+      { route: { kind: 'default' }, text: 'x'.repeat(20_001), mode: 'ai' },
+    )).rejects.toMatchObject({ code: 'idea/invalid-quick-capture-input' })
+    expect(env.llm.calls).toHaveLength(0)
+  })
+
+  it('R-24/25: the default route commits through the same machine with empty provenance', async () => {
+    const env = await fullHarness()
+    const result = await env.idea.prepareQuickCapture(
+      { route: { kind: 'default' }, text: NOTE, mode: 'direct' },
+    )
+    const saved = await env.idea.create({ preparationId: result.preparationId, draft: result.draft })
+    const aggregate = env.ctx.ideaService.get(saved.ideaId)
+    expect(aggregate.sourceDiscussions).toEqual([])
+    expect(aggregate.versions[0]?.sourceDiscussionIds).toEqual([])
   })
 })
 

@@ -43,7 +43,9 @@ export interface QuickCaptureInjected {
   }
   /** Reveal the capture form above the search input. */
   open: () => void
-  /** Hide the capture form and discard the note; zero side effects. */
+  /** Hide the capture subview and keep the draft (T12.3 back action). */
+  hide: () => void
+  /** Close the capture form; phase-aware (R7–R10). */
   close: () => void
   /** Apply one text edit to the open form. */
   setText: (text: string) => void
@@ -78,6 +80,8 @@ export interface SearchCardInjected {
   close: () => void
   /** The quick-capture verbs (T12); the state arrives via `useQuick`. */
   quick: Omit<QuickCaptureInjected, 'hooks'>
+  /** T12.3: the capture-subview back action (keeps the draft). */
+  back: () => void
 }
 
 /** Full props of the Idea search card entry. */
@@ -154,6 +158,18 @@ export interface IdeaSectionInjected {
   hooks: {
     /** The Idea library state: both views, the detail, and the lifecycles. */
     ideaRead: HostObservable<IdeaReadState>
+    /** The library's quick-capture creation form state (T12.3). */
+    libraryQuick: HostObservable<QuickCaptureUiState>
+    /** The library's quick save surface state (proposal preview/commit). */
+    librarySave: HostObservable<IdeaSaveState>
+  }
+  /** The library creation verbs (T12.3), sharing the conversation pipeline. */
+  libraryQuick: Omit<QuickCaptureInjected, 'hooks'> & { back: () => void }
+  /** The library proposal editor verbs: the editable preview + commit. */
+  librarySave: {
+    editDraft: (patch: Partial<EditableIdeaDraft>) => void
+    submitQuick: () => void
+    cancelQuick: () => void
   }
   /** Load the selected view's list; called once when the section first renders. */
   load: () => void

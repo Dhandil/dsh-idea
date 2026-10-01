@@ -57,6 +57,16 @@ export interface QuickCapturePreview {
 }
 
 /**
+ * Where a quick capture was written (T12.3): the conversation's Session —
+ * whose projected model route organizes the note — or a session-independent
+ * context (the Settings library) that resolves the Agent default model
+ * directly. A discriminated union by design: no fake sessions, no marker ids.
+ */
+export type QuickCaptureRouteContext =
+  | { kind: 'session'; sessionId: string }
+  | { kind: 'default' }
+
+/**
  * What the Host registry holds behind a preparation id, discriminated by its
  * origin (T12): a `conversation` preparation carries the canonical captured
  * source snapshot (T1 draft shape) plus the route that produced the proposal;

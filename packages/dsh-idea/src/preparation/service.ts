@@ -34,6 +34,7 @@ import type {
   PreparedIdeaOrigin,
   PreparedIdeaSource,
   QuickCapturePreview,
+  QuickCaptureRouteContext,
 } from './types.ts'
 import { ideaDraftSchema, IDEA_LIMITS } from '../schema.ts'
 import type { IdeaDraft, SourceDiscussionDraft } from '../types.ts'
@@ -145,16 +146,19 @@ export class IdeaPreparationService extends Service {
    * Turn the user's own quick-capture note into an editable Idea draft
    * proposal (T12). `direct` is fully deterministic — title from the first
    * non-empty line, the complete original text as `core`, an empty
-   * motivation — and makes no model call at all. `ai` resolves the calling
-   * conversation's model route and makes exactly one direct `ctx.llm.stream()`
-   * call framing the note as data; the strict parser applies unchanged and an
-   * empty `motivation` stays legal here (D1). Both modes register the same
-   * registry as {@link prepareFromMessage} — one opaque preparation id, one
-   * commit through the shared idempotent commit machine — and never record a
-   * source discussion: the note is the user's own text, not a captured
-   * conversation.
-   * @param sessionId - The conversation the capture was written in (the AI
-   * route's calling context; never persisted as provenance).
+   * motivation — and makes no model call at all. `ai` makes exactly one
+   * direct `ctx.llm.stream()` call framing the note as data; the strict
+   * parser applies unchanged and an empty `motivation` stays legal here (D1).
+   * The model route depends on the route context (T12.3): a `session` route
+   * uses the Session's projected model with the Agent-Default fallback, while
+   * a `default` route (Settings → Ideas, no conversation required) resolves
+   * `agentDefaultModel.currentSelection()` directly — `GenerateOptions`
+   * carry no sessionId in that case and none is ever fabricated. Both modes
+   * register the same registry as {@link prepareFromMessage} — one opaque
+   * preparation id, one commit through the shared idempotent commit machine —
+   * and never record a source discussion: the note is the user's own text,
+   * not a captured conversation.
+   * @param route - Where the capture was written (session or default).
    * @param text - The user's raw note.
    * @param mode - `direct` (zero model calls) or `ai` (exactly one call).
    * @param signal - Optional caller cancellation; checked at every stage.
@@ -162,7 +166,7 @@ export class IdeaPreparationService extends Service {
    * @throws `IdeaPreparationError` with a stable {@link IdeaPreparationErrorCode}.
    */
   async prepareQuickCapture(
-    sessionId: string,
+    route: QuickCaptureRouteContext,
     text: string,
     mode: 'direct' | 'ai',
     signal?: AbortSignal,
@@ -186,10 +190,26 @@ export class IdeaPreparationService extends Service {
       return this.registerQuickCapture(this.directQuickCaptureDraft(normalized), undefined)
     }
 
-    const route = await resolveModelRoute(this.ctx.sessionQuery, this.ctx.agentDefaultModel, sessionId, signal)
+    let modelRoute: IdeaPreparationModelRoute
+    if (route.kind === 'default') {
+      // T12.3: the Settings library has no conversation — the Agent default
+      // model IS the route, read directly and completely.
+      try {
+        const selection = this.ctx.agentDefaultModel.currentSelection()
+        modelRoute = {
+          provider: selection.provider,
+          model: selection.model,
+          ...(selection.reasoningEffort !== undefined ? { reasoningEffort: selection.reasoningEffort } : {}),
+        }
+      } catch (error) {
+        throw new IdeaPreparationError('model-unavailable', 'no default Agent model is available', { cause: error })
+      }
+    } else {
+      modelRoute = await resolveModelRoute(this.ctx.sessionQuery, this.ctx.agentDefaultModel, route.sessionId, signal)
+    }
     checkCancelled(signal)
-    const draft = await this.organizeQuickCapture(normalized, sessionId, route, signal)
-    return this.registerQuickCapture(draft, route)
+    const draft = await this.organizeQuickCapture(normalized, route, modelRoute, signal)
+    return this.registerQuickCapture(draft, modelRoute)
   }
 
   /** The deterministic direct-save draft: verbatim core, derived title. */
@@ -215,27 +235,29 @@ export class IdeaPreparationService extends Service {
     return result.data
   }
 
-  /** The one AI-organize call over the user's note; strict parsing. */
+  /** The one AI-organize call over the user's note; strict parsing. The
+   * GenerateOptions carry a sessionId only for a session route — a default
+   * route is session-independent and none is ever fabricated (T12.3). */
   private async organizeQuickCapture(
     normalized: string,
-    sessionId: string,
-    route: IdeaPreparationModelRoute,
+    route: QuickCaptureRouteContext,
+    modelRoute: IdeaPreparationModelRoute,
     signal?: AbortSignal,
   ): Promise<IdeaDraft> {
     const prompt = buildQuickCapturePrompt(normalized)
     const options: GenerateOptions = {
-      provider: route.provider,
-      model: route.model,
-      ...(route.reasoningEffort !== undefined ? { reasoningEffort: ReasoningEffortId(route.reasoningEffort) } : {}),
+      provider: modelRoute.provider,
+      model: modelRoute.model,
+      ...(modelRoute.reasoningEffort !== undefined ? { reasoningEffort: ReasoningEffortId(modelRoute.reasoningEffort) } : {}),
       messages: [createUserMessage({
         content: [{ type: 'text', text: prompt.user }],
         source: { kind: 'plugin', plugin: 'dsh-idea' },
       })],
       system: prompt.system,
-      sessionId: SessionId(sessionId),
+      ...(route.kind === 'session' ? { sessionId: SessionId(route.sessionId) } : {}),
       ...(signal !== undefined ? { signal } : {}),
     }
-    return parseIdeaDraftOutput(await extractModelText(this.ctx.llm, options, sessionId, signal))
+    return parseIdeaDraftOutput(await extractModelText(this.ctx.llm, options, route.kind === 'session' ? route.sessionId : 'default', signal))
   }
 
   /** Validate the organized draft and mint its preparation id. */

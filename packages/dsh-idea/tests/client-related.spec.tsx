@@ -187,7 +187,7 @@ describe('add and view verbs', () => {
     await readyOverlay(relatedFace(), undefined, add)
     const expected = matchOf('idea_1', 'Alpha idea').reference
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '添加' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '添加到对话' })) })
 
     expect(add).toHaveBeenCalledTimes(1)
     expect(add).toHaveBeenCalledWith(expected)
@@ -214,7 +214,7 @@ describe('add and view verbs', () => {
     // Read-only: only 返回 and 添加 — never 编辑/归档/恢复/删除/保存.
     const buttons = screen.getAllByRole('button').map(button => button.textContent)
     expect(buttons).toContain('返回列表')
-    expect(buttons).toContain('添加')
+    expect(buttons).toContain('添加到对话')
     expect(buttons).not.toContain('保存')
     expect(buttons).not.toContain('归档')
     expect(buttons).not.toContain('恢复')
@@ -229,7 +229,7 @@ describe('add and view verbs', () => {
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '查看' })) })
     await flush()
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '添加' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '添加到对话' })) })
 
     expect(add).toHaveBeenCalledTimes(1)
     expect(add).toHaveBeenCalledWith(matchOf('idea_1', 'Alpha idea').reference)
@@ -314,7 +314,7 @@ describe('separation from Save Idea state', () => {
     const face = relatedFace(async () => ({ ok: false as const, error: { code: 'idea/model-failed' } }))
     const saveFace = { prepareFromMessage: vi.fn(), create: vi.fn() } as never
     const related = newSurface(face)
-    const save = new IdeaSaveSurface(saveFace, 'session-1')
+    const save = new IdeaSaveSurface(saveFace, { kind: 'session', sessionId: 'session-1' })
     pendings.push(() => save.dispose())
     const before = JSON.stringify(save.state.getSnapshot())
 

@@ -77,7 +77,7 @@ function faceWith(prepare?: () => Promise<unknown>, create?: () => Promise<unkno
 }
 
 function newSurface(face: IdeaRemoteFace, sessionId = 'session-1'): IdeaSaveSurface {
-  const surface = new IdeaSaveSurface(face, sessionId)
+  const surface = new IdeaSaveSurface(face, { kind: 'session', sessionId })
   pendings.push(() => surface.dispose())
   return surface
 }

@@ -14,7 +14,7 @@
  */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { QuickCapturePreview } from '../preparation/types.ts'
+import type { QuickCapturePreview, QuickCaptureRouteContext } from '../preparation/types.ts'
 import type { QuickCommitOutcome } from './state.ts'
 
 /** The quick-capture prepare lifecycle marker. */
@@ -48,7 +48,7 @@ const CLOSED: QuickCaptureUiState = {
 /** Minimal structural face of the Host the surface talks to. */
 export interface IdeaQuickCaptureFace {
   prepareQuickCapture(
-    request: { sessionId: string; text: string; mode: 'direct' | 'ai' },
+    request: { route: QuickCaptureRouteContext; text: string; mode: 'direct' | 'ai' },
     signal?: AbortSignal,
   ): Promise<
     | { ok: true; value: QuickCapturePreview }
@@ -63,6 +63,9 @@ export interface IdeaQuickCaptureCallbacks {
    * with the note intact (never silently dropped, T12.2 R1).
    */
   onPreview: (preview: QuickCapturePreview) => boolean
+  /** T12.3: notified when a direct-save commit succeeds (e.g. the Settings
+   * library refreshes its Current view). Optional. */
+  onSuccess?: () => void
   /**
    * Direct auto-commit: run Preparation → commit on the SAME preparation id
    * without a confirmation step. Resolves with the commit outcome (R6):
@@ -94,7 +97,7 @@ export class IdeaQuickCaptureSurface {
 
   constructor(
     private readonly remote: IdeaQuickCaptureFace,
-    private readonly sessionId: string,
+    private readonly route: QuickCaptureRouteContext,
     private readonly callbacks: IdeaQuickCaptureCallbacks,
   ) {}
 
@@ -107,6 +110,15 @@ export class IdeaQuickCaptureSurface {
   open(): void {
     if (this.state.getSnapshot().open) return
     this.state.update((draft) => { draft.open = true })
+  }
+
+  /**
+   * T12.3: return from the capture subview to the list WITHOUT discarding
+   * the unsaved note — only switches the subview; the panel-wide close keeps
+   * its own phase-aware semantics (R7–R10).
+   */
+  hide(): void {
+    this.state.update((current) => { current.open = false })
   }
 
   /**
@@ -202,7 +214,7 @@ export class IdeaQuickCaptureSurface {
     let failed = false
     try {
       const result = await this.remote.prepareQuickCapture(
-        { sessionId: this.sessionId, text, mode },
+        { route: this.route, text, mode },
         controller.signal,
       )
       if (!controller.signal.aborted && result.ok) preview = result.value

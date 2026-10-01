@@ -175,7 +175,7 @@ export class IdeaRemoteService extends TypertRemoteService {
     }
     try {
       const preview = await this.ctx.ideaPreparations.prepareQuickCapture(
-        request.sessionId,
+        request.route,
         request.text,
         request.mode,
         signal,

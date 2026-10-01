@@ -282,6 +282,17 @@ export class IdeaReadSurface {
     })
   }
 
+  /**
+   * T12.3: after a library creation succeeds, exit any search, return to the
+   * Current view, and force-refetch it so the new Idea is immediately
+   * visible. Never optimistic.
+   */
+  refreshToCurrent(): void {
+    this.searchIdeas('')
+    this.selectView('current')
+    this.loadList('current', true)
+  }
+
   /** Refetch both views after a confirmed mutation; never optimistic. */
   private refreshLists(): void {
     this.loadList('current', true)

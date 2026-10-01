@@ -43,7 +43,7 @@ const quickRig = () => {
   const onCommit = vi.fn()
   const surface = new IdeaQuickCaptureSurface(
     { prepareQuickCapture } as unknown as ConstructorParameters<typeof IdeaQuickCaptureSurface>[0],
-    'session-1',
+    { kind: 'session', sessionId: 'session-1' },
     { onPreview, onCommit },
   )
   return { surface, prepareQuickCapture, onPreview, onCommit }
@@ -201,7 +201,7 @@ describe('IdeaSaveSurface — quick commit (R6) and preview handoff (R1)', () =>
     const create = vi.fn()
     const surface = new IdeaSaveSurface(
       { create, prepareFromMessage: vi.fn(), prepareQuickCapture: vi.fn() } as unknown as ConstructorParameters<typeof IdeaSaveSurface>[0],
-      'session-1',
+      { kind: 'session', sessionId: 'session-1' },
     )
     return { surface, create }
   }
@@ -288,11 +288,11 @@ describe('IdeaQuickCaptureSurface — R7 commit is not cancellable, R8 same-id r
     const create = vi.fn()
     const save = new IdeaSaveSurface(
       { create, prepareFromMessage: vi.fn(), prepareQuickCapture: vi.fn() } as unknown as ConstructorParameters<typeof IdeaSaveSurface>[0],
-      'session-1',
+      { kind: 'session', sessionId: 'session-1' },
     )
     const surface = new IdeaQuickCaptureSurface(
       { prepareQuickCapture } as unknown as ConstructorParameters<typeof IdeaQuickCaptureSurface>[0],
-      'session-1',
+      { kind: 'session', sessionId: 'session-1' },
       {
         onPreview: p => save.openQuickPreview(p),
         onCommit: p => save.commitQuickPreview(p),
@@ -434,12 +434,12 @@ describe('IdeaQuickCaptureSurface — R9 pendingUnclear recovery lifecycle', () 
     const create = vi.fn()
     const save = new IdeaSaveSurface(
       { create, prepareFromMessage: vi.fn(), prepareQuickCapture: vi.fn() } as unknown as ConstructorParameters<typeof IdeaSaveSurface>[0],
-      'session-1',
+      { kind: 'session', sessionId: 'session-1' },
     )
     rig.surface.dispose()
     const surface = new IdeaQuickCaptureSurface(
       { prepareQuickCapture: rig.prepareQuickCapture } as unknown as ConstructorParameters<typeof IdeaQuickCaptureSurface>[0],
-      'session-1',
+      { kind: 'session', sessionId: 'session-1' },
       {
         onPreview: p => save.openQuickPreview(p),
         onCommit: p => save.commitQuickPreview(p),
@@ -452,7 +452,7 @@ describe('IdeaQuickCaptureSurface — R9 pendingUnclear recovery lifecycle', () 
     const create = vi.fn()
     const surface = new IdeaSaveSurface(
       { create, prepareFromMessage: vi.fn(), prepareQuickCapture: vi.fn() } as unknown as ConstructorParameters<typeof IdeaSaveSurface>[0],
-      'session-1',
+      { kind: 'session', sessionId: 'session-1' },
     )
     create.mockResolvedValueOnce({ ok: false as const, error: { code: 'gateway/internal' } })
     expect(await surface.commitQuickPreview(preview('1'))).toBe('unclear')
@@ -566,11 +566,11 @@ describe('IdeaQuickCaptureSurface — R10 busy never destroys the pending recove
     })
     const save = new IdeaSaveSurface(
       { create, prepareFromMessage: vi.fn(), prepareQuickCapture: vi.fn() } as unknown as ConstructorParameters<typeof IdeaSaveSurface>[0],
-      'session-1',
+      { kind: 'session', sessionId: 'session-1' },
     )
     const surface = new IdeaQuickCaptureSurface(
       { prepareQuickCapture } as unknown as ConstructorParameters<typeof IdeaQuickCaptureSurface>[0],
-      'session-1',
+      { kind: 'session', sessionId: 'session-1' },
       {
         onPreview: p => save.openQuickPreview(p),
         onCommit: p => save.commitQuickPreview(p),
