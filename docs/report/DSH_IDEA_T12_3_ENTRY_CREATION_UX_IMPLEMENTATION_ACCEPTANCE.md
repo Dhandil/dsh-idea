@@ -4,7 +4,7 @@
 - Date: 2026-09-30
 - Baseline: origin/main `9b2440ac94fd2cbaf843ce629c3ee5a7238dbc33` (T12.2 CLOSED at `a0d10755524a06e27772613f8713a2d60fc15653`); Harness `ddefc45fbc7f8e46dd73185e68295696d1297887` read-only, tracked diff zero throughout.
 - Architecture authority: `docs/architectue/DSH_IDEA_T12_3_ENTRY_CREATION_UX_ARCHITECTURE_FREEZE.md`.
-- **Tested executable (this task): implementation commit `95d228bd1aa4d153ff99189822fbb8a6c61b2e03`** (its built `lib/` state — host build + client bundle — is exactly what the final Canonical Full verified; zero post-Full drift).
+- **Tested executable (this task, after the architecture-review repair): commit `f16df40e7c0c526aba8729cd331ee772adb87851`**. Commit lineage: initial implementation `95d228bd1aa4d153ff99189822fbb8a6c61b2e03` → repair `f16df40…` (R1–R3, below). Every gate in §2 was re-run to green against the repaired code state, with zero executable drift after the final Canonical Full (lib mtime unchanged post-Full).
 
 ## 1. What was implemented
 
@@ -44,7 +44,17 @@ Modified (24): `src/client/{IdeaSearchCard,IdeaSection,index,locales,quick-captu
 New (2): `tests/library-create.spec.tsx`, `tests/quick-capture-panel.spec.tsx`.
 Docs: the freeze doc + this report. Build artifacts (`lib/`) remain gitignored.
 
-## 4. Git state
+## 4. Architecture Review Repair (R1–R3, 2026-10-01)
 
-- Implementation commit: `95d228bd1aa4d153ff99189822fbb8a6c61b2e03` (= Tested SHA; docs-only report commit follows).
+The review accepted the Host route context, Conversation IA, and the shared Creation Domain, and required R1–R3:
+
+- **R1 — full seven-field proposal preview**: the dialog's field descriptors are exported as `IDEA_FORM_FIELDS` and the Settings proposal editor renders ALL seven fields (title/core/motivation/currentConclusion/possibleValue/useWhen/openQuestions) bound to `librarySave.editDraft` — no third field-definition copy. Regression: the AI output's seven fields are all visible and editable; editing motivation lands in the commit; unmodified fields round-trip byte-identically; `requiredPresent` still gates title+core only (D1).
+- **R2 — phase-aware Back**: `hide()` now cancels an in-flight prepare (AI or direct) with the note preserved — a Back can never be followed by a late proposal preview (regression: gated prepare → Back → completion → no late modal, conversation AND settings). Back while an AI proposal preview is open safely cancels the proposal (zero durable writes) and returns to the Library. Back during an in-flight commit only hides the form — the note and the unresolved recovery survive (R7–R10 preserved, regression-tested).
+- **R3 — root-scoped success transition**: the mount-dependent toastSeq effect is REMOVED. The authoritative transition is a root-scoped subscription on the library save surface's success toast sequence → `readSurface.refreshToCurrent()` (switch Current, clear search, force reload). It fires for BOTH creation paths (direct auto-commit and confirmed AI proposal) regardless of whether the section is mounted, with no double refresh (single mechanism). Regression: commit starts → section unmounts → commit succeeds → remount shows Current/search-cleared/fresh-reloaded.
+
+Repair verification (same binding order): Focused (all quick-capture/panel/library/registry/preparation/remote/search/related/client/schema suites) → full regression **54 files / 843 tests, all green** → scope audit (6 files, all inside `packages/dsh-idea/`) → static gates (typecheck, host build, client build) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 54 / 843 all green**, zero executable drift after it.
+
+## 4a. Git state
+
+- Implementation commit: `f16df40e7c0c526aba8729cd331ee772adb87851` (= Tested SHA; docs-only report commit follows). Original implementation commit: `95d228bd1aa4d153ff99189822fbb8a6c61b2e03`.
 - Harness tracked diff: 0. User docs drift: 17 items preserved. No reset/clean/git add .; no real Provider; T13 not started.
