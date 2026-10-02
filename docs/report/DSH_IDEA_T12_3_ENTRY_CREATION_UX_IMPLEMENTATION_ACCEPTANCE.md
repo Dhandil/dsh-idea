@@ -4,14 +4,14 @@
 - Date: 2026-09-30
 - Baseline: origin/main `9b2440ac94fd2cbaf843ce629c3ee5a7238dbc33` (T12.2 CLOSED at `a0d10755524a06e27772613f8713a2d60fc15653`); Harness `ddefc45fbc7f8e46dd73185e68295696d1297887` read-only, tracked diff zero throughout.
 - Architecture authority: `docs/architectue/DSH_IDEA_T12_3_ENTRY_CREATION_UX_ARCHITECTURE_FREEZE.md`.
-- **Tested executable (this task, after the architecture-review repair): commit `f16df40e7c0c526aba8729cd331ee772adb87851`**. Commit lineage: initial implementation `95d228bd1aa4d153ff99189822fbb8a6c61b2e03` → repair `f16df40…` (R1–R3, below). Every gate in §2 was re-run to green against the repaired code state, with zero executable drift after the final Canonical Full (lib mtime unchanged post-Full).
+- **Tested executable (this task, after the second architecture-review repair): commit `61e1eede676829e6fd07c5918ed84b64f7f0ad93`**. Commit lineage: initial implementation `95d228bd1aa4d153ff99189822fbb8a6c61b2e03` → first repair `f16df40…` (R1–R3, below) → second repair `61e1eed…` (R4 footer layout, below). Every gate in §2 was re-run to green against the repaired code state, with zero executable drift after the final Canonical Full (lib mtime unchanged post-Full).
 
 ## 1. What was implemented
 
 **Conversation `+ → Idea` panel (information architecture, `IdeaSearchCard.tsx`)**
 
 - Title 「搜索 Idea」 → **「Idea」**; the search placeholder is unchanged (「搜索保存的 Idea…」).
-- List-mode footer: LEFT secondary 「＋ 记录新想法」 opens the capture subview; RIGHT primary 「添加到对话」 is the previous Add (reference-attach semantics, disabled-until-selection, close-on-success — all unchanged).
+- List-mode footer: LEFT secondary 「＋ 记录新想法」 opens the capture subview; RIGHT primary 「添加到对话」 is the previous Add (reference-attach semantics, disabled-until-selection, close-on-success — all unchanged). The layout is phase-scoped CSS (T12.3 R4): `-list` spreads the two actions to opposite edges (`space-between`), while the capture footer keeps both actions right-aligned (`-capture`).
 - The T12.2 quick-capture form above the search input is gone; 「＋ 记录新想法」 switches the SAME panel to the **capture subview**: header becomes 「← 记录新想法」 (back), the note textarea, and right-aligned 「AI 整理」 / 「直接保存」. Search input, results, and Add are not rendered in the subview. No extra big modal is introduced by the panel itself.
 - **Back** (←) returns to list mode via the new `IdeaQuickCaptureSurface.hide()` — it preserves the search query (which lives on the search surface) and the unsaved capture draft; re-entering 记录新想法 restores both.
 - Full panel close (× / Escape / outside) keeps the phase-aware R7–R10 semantics: idle drafts clear, prepares cancel, commits and unresolved `pendingUnclear` recovery are never dropped (regression-tested).
@@ -20,8 +20,8 @@
 
 - A first-class 「＋ 新建 Idea」 action beside the library search box, visible in Current, Archived, and search states.
 - It opens the in-section create subview (「← 新建 Idea」 back action, back preserves the draft within the mount) backed by a **root-scoped** `IdeaSaveSurface({ kind: 'default' })` and `IdeaQuickCaptureSurface({ kind: 'default' })` — the surfaces outlive the section's React mount, so drafts and the same-ID recovery authority survive settings navigation and unmount/remount (regression-tested).
-- The subview shares the conversation pipeline end-to-end: zero-LLM direct save with auto-commit, explicit AI organize (editable proposal rendered in the subview as 标题/核心想法 fields bound to the preparation draft, user-confirmed 保存 → the SAME preparation id commit), busy/unclear/definite failure handling, R7–R10 lifecycle.
-- **Success UX** (direct save via the `onSuccess` callback; confirmed AI proposal via the toast-sequence watch): leave the create subview, switch to Current, clear the library search query, and force-reload the Current list (`readSurface.refreshToCurrent()` — never optimistic). The new Idea appears immediately.
+- The subview shares the conversation pipeline end-to-end: zero-LLM direct save with auto-commit, explicit AI organize (editable proposal rendered in the subview through the SHARED `IDEA_FORM_FIELDS` descriptor — ALL SEVEN fields editable, semantics identical to the IdeaSaveDialog — user-confirmed 保存 → the SAME preparation id commit), busy/unclear/definite failure handling, R7–R10 lifecycle.
+- **Success UX** (both paths, T12.3 R3): the transition is a ROOT-SCOPED subscription on the library save surface's success toast sequence → `readSurface.refreshToCurrent()` (leave the create subview, switch to Current, clear the library search query, force-reload the Current list — never optimistic). It fires regardless of whether the section is mounted; the new Idea appears immediately.
 - **Failure UX**: the text/edit content is preserved and the subview stays; no optimistic insert.
 
 **Host (`QuickCaptureRouteContext`)**
@@ -54,7 +54,15 @@ The review accepted the Host route context, Conversation IA, and the shared Crea
 
 Repair verification (same binding order): Focused (all quick-capture/panel/library/registry/preparation/remote/search/related/client/schema suites) → full regression **54 files / 843 tests, all green** → scope audit (6 files, all inside `packages/dsh-idea/`) → static gates (typecheck, host build, client build) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 54 / 843 all green**, zero executable drift after it.
 
-## 4a. Git state
+## 4a. Second Architecture Review Repair (R4, 2026-10-01)
+
+The second review required only the panel footer layout (R4):
+
+- **R4 — phase-scoped footer layout**: the frozen list footer spreads its secondary (记录新想法) and primary (添加到对话) actions to opposite edges (`justify-content: space-between` via the new `dsh-idea-search-foot-list` modifier), while the capture footer keeps both actions together on the right (`dsh-idea-search-foot-capture` with `flex-end`). The base `.dsh-idea-search-foot` no longer carries its own justify-content, so the two phases cannot regress into each other. Regression: the footer carries the phase modifier in each mode, and the injected stylesheet provably implements `space-between` (list) and `flex-end` (capture) — class + CSS-rule assertions, not text-only.
+
+Second-repair verification (same binding order): Focused (panel spec 7 + all related suites) → full regression **54 files / 844 tests, all green** → scope audit (3 files, all inside `packages/dsh-idea/`) → static gates (typecheck, host build, client build) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 54 / 844 all green**, zero executable drift after it.
+
+## 4b. Git state
 
 - Implementation commit: `f16df40e7c0c526aba8729cd331ee772adb87851` (= Tested SHA; docs-only report commit follows). Original implementation commit: `95d228bd1aa4d153ff99189822fbb8a6c61b2e03`.
 - Harness tracked diff: 0. User docs drift: 17 items preserved. No reset/clean/git add .; no real Provider; T13 not started.
