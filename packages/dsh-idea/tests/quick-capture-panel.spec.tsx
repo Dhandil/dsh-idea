@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { IdeaSearchCard } from '../src/client/IdeaSearchCard.tsx'
+import '../src/client/styles.ts'
 import { IdeaSearchSurface } from '../src/client/search-state.ts'
 import { IdeaQuickCaptureSurface } from '../src/client/quick-capture-state.ts'
 import { IdeaSaveSurface } from '../src/client/state.ts'
@@ -230,6 +231,32 @@ describe('Idea panel information architecture (T12.3)', () => {
     expect(save.state.getSnapshot().modal).toBeNull()
     // The list is usable again.
     expect(screen.getByPlaceholderText('搜索保存的 Idea…')).toBeTruthy()
+  })
+
+  it('T12.3 R4: the footer layout is phase-scoped — list spreads, capture right-aligns', () => {
+    const { props } = panelRig()
+    render(<IdeaSearchCard {...props} />)
+
+    // List mode: the footer carries the -list modifier, whose frozen rule
+    // spreads the secondary and primary actions to opposite edges.
+    const listFoot = document.querySelector('footer.dsh-idea-search-foot') as HTMLElement
+    expect(listFoot.className).toContain('dsh-idea-search-foot-list')
+    expect(listFoot.className).not.toContain('dsh-idea-search-foot-capture')
+
+    // The injected stylesheet actually implements the frozen layouts (not
+    // just class names): space-between for the list, flex-end for capture.
+    const css = document.querySelector('style[data-plugin-css]')?.textContent ?? ''
+    expect(css).toMatch(/\.dsh-idea-search-foot-list\s*{[^}]*justify-content:\s*space-between/)
+    expect(css).toMatch(/\.dsh-idea-search-foot-capture\s*{[^}]*justify-content:\s*flex-end/)
+
+    // Capture mode switches the footer to the right-aligned modifier.
+    fireEvent.click(screen.getByText('＋ 记录新想法'))
+    const captureFoot = document.querySelector('footer.dsh-idea-search-foot') as HTMLElement
+    expect(captureFoot.className).toContain('dsh-idea-search-foot-capture')
+    expect(captureFoot.className).not.toContain('dsh-idea-search-foot-list')
+    // Both capture actions stay grouped in this footer.
+    expect(captureFoot.textContent).toContain('AI 整理')
+    expect(captureFoot.textContent).toContain('直接保存')
   })
 
   it('the Add path still attaches the pinned reference and closes the panel', async () => {

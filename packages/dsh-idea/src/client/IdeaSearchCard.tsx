@@ -129,7 +129,7 @@ export function IdeaSearchCard({ setQuery, select, retry, add, back, close, useS
             </div>
           </>
         )}
-        <footer className="dsh-idea-search-foot">
+        <footer className={`dsh-idea-search-foot ${capture ? 'dsh-idea-search-foot-capture' : 'dsh-idea-search-foot-list'}`}>
           {capture ? (
             <>
               <Button

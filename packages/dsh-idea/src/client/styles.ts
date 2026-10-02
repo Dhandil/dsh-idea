@@ -533,6 +533,17 @@ body[data-ds-dark-theme] .dsh-idea-search {
 }
 .dsh-idea-search-foot {
   display: flex;
+  gap: 8px;
+  align-items: center;
+}
+/* T12.3 R4: the list footer spreads its secondary (记录新想法) and primary
+ * (添加到对话) actions to opposite edges; the capture footer keeps both
+ * actions together on the right. */
+.dsh-idea-search-foot-list {
+  justify-content: space-between;
+  width: 100%;
+}
+.dsh-idea-search-foot-capture {
   justify-content: flex-end;
 }
 .dsh-idea-resurface {
