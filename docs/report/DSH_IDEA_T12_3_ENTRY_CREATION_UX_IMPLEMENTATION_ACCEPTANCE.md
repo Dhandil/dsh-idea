@@ -64,5 +64,5 @@ Second-repair verification (same binding order): Focused (panel spec 7 + all rel
 
 ## 4b. Git state
 
-- Implementation commit: `f16df40e7c0c526aba8729cd331ee772adb87851` (= Tested SHA; docs-only report commit follows). Original implementation commit: `95d228bd1aa4d153ff99189822fbb8a6c61b2e03`.
+- Implementation commit: `f16df40e7c0c526aba8729cd331ee772adb87851` (first repair). Original implementation commit: `95d228bd1aa4d153ff99189822fbb8a6c61b2e03`. The authoritative Tested SHA is the second repair `61e1eede676829e6fd07c5918ed84b64f7f0ad93` (see the header line above) — the commit whose built `lib/` state the final Canonical Full (54 files / 844 tests PASS, `--no-file-parallelism`) verified with zero post-Full executable drift.
 - Harness tracked diff: 0. User docs drift: 17 items preserved. No reset/clean/git add .; no real Provider; T13 not started.
