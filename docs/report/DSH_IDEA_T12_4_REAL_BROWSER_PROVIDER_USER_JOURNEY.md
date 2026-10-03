@@ -3,7 +3,7 @@
 - Outcome: **`T12_4_REAL_BROWSER_PROVIDER_USER_JOURNEY_PASS`**
 - Date: 2026-10-02
 - Protocol freeze: `docs/architectue/DSH_IDEA_T12_4_REAL_BROWSER_PROVIDER_PROTOCOL_FREEZE.md`
-- Accepted executable: **`61e1eede676829e6fd07c5918ed84b64f7f0ad93`** (T12.3 CLOSED at `a0d1075…`)
+- Accepted executable: **`61e1eede676829e6fd07c5918ed84b64f7f0ad93`** (T12.3 Accepted Executable; T12.3 docs closure = `65d5ac184623a3329cd65b723e1a846020cc8a64`. `a0d1075…` belongs to the T12.2 executable lineage, not the T12.3 closure).
 - Closure baseline: `65d5ac184623a3329cd65b723e1a846020cc8a64` (= `origin/main` at freeze)
 - Harness: `ddefc45fbc7f8e46dd73185e68295696d1297887`, read-only, tracked diff zero throughout
 - Scope: T12.2/T12.3 Quick Capture user journey only — no T10 resurfacing, no T11 semantic recall, no Agent Turn, no Continue Discussion/Evolution/Related, no T13, no normal chat messages sent
@@ -83,7 +83,9 @@ Read-only `idea/list` + `idea/get` + `idea/getVersions` after all scenarios:
 | `DSH_IDEA_T12_4_20261002_114239_SETTINGS_DIRECT` | active | `[]` | `[]` |
 | `整理零散产品想法为长期可复用的 Idea` (SETTINGS_AI) | active | `[]` | `[]` |
 
-All four carry the marker. All have empty Quick Capture provenance — **no Source Discussion fabrication anywhere**. Ideas survive a browser reload ✓.
+All four runs used the unique marker in their raw test input. The two Direct-save Ideas retain the marker in their derived titles (deterministic title = first non-empty line). The two AI-organized Ideas have final titles produced by the real model — the marker does not appear in those titles themselves; these Ideas are identified by their independent creation records, their persisted content, and their read-back verification. This is a marker-convention clarification, not a product defect.
+
+All four have empty Quick Capture provenance — **no Source Discussion fabrication anywhere**. Ideas survive a browser reload ✓.
 
 ## 7. Console / network audit
 
