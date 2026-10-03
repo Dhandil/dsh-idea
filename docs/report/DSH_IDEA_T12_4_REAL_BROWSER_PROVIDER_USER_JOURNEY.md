@@ -18,7 +18,7 @@ browser-use MCP → ZCode In-app Browser (real Chromium). Real navigation to the
 
 ## 3. Unique marker
 
-`DSH_IDEA_T12_4_20261002_114239` — all four Ideas carry this marker in their titles, clearly distinguishing them from any other data.
+`DSH_IDEA_T12_4_20261002_114239` — all four Quick Capture runs used this unique marker in their raw test input. The two Direct-save Ideas retain it in their derived titles; the two AI-organized Ideas use model-generated final titles and are identified by their independent creation records, persisted content, browser-edit markers, and read-back verification.
 
 ## 4. Scenario results (A–G, all PASS)
 
