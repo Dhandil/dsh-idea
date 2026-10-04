@@ -103,10 +103,19 @@ export class IdeaResurfacingService extends Service {
     const sessionId = input.sessionId
     const currentTurn = input.currentTurn.slice(0, RESURFACING_TURN_TEXT_LIMIT)
     const corpus: ResurfacingCandidate[] = []
+    const muted: ResurfacingCandidate[] = []
+    const mutedIds = this.ctx.ideaService.listResurfacingMutedIds()
     for (const view of this.ctx.ideaService.list({ includeArchived: true })) {
       try {
         const aggregate = this.ctx.ideaService.get(view.idea.ideaId)
-        corpus.push(candidateOf(view, aggregate, sessionId))
+        const candidate = candidateOf(view, aggregate, sessionId)
+        // T13.1 D6: a muted Idea never enters scoring, the pool, or the
+        // Judge — deterministic suppression before anything else.
+        if (mutedIds.has(candidate.ideaId)) {
+          muted.push(candidate)
+          continue
+        }
+        corpus.push(candidate)
       } catch {
         // Deleted between list and get: the Idea is gone, so it is simply no
         // candidate — never an error surfaced to a client that asked about a
@@ -114,7 +123,11 @@ export class IdeaResurfacingService extends Service {
       }
     }
     if (corpus.length === 0) {
-      return { stop: { reason: 'NO_ELIGIBLE_IDEAS' }, candidates: [], suppressed: [] }
+      return {
+        stop: { reason: 'NO_ELIGIBLE_IDEAS' },
+        candidates: [],
+        suppressed: muted.map(candidate => ({ ideaId: candidate.ideaId, reason: 'USER_MUTED' as const })),
+      }
     }
 
     const features = extractQueryFeatures(currentTurn)
@@ -125,6 +138,7 @@ export class IdeaResurfacingService extends Service {
     })
     const { pool, belowFloor } = selectResurfacingPool(kept)
     const allSuppressed = [
+      ...muted.map(candidate => ({ ideaId: candidate.ideaId, reason: 'USER_MUTED' as const })),
       ...suppressed,
       ...belowFloor.map(candidate => ({ ideaId: candidate.ideaId, reason: 'BELOW_RETRIEVAL_FLOOR' as const })),
     ]

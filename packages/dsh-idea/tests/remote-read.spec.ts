@@ -132,6 +132,7 @@ describe('idea.get', () => {
       createdAt: created.idea.createdAt,
       updatedAt: created.idea.updatedAt,
       versionId: created.idea.currentVersionId,
+      resurfacingMuted: false,
       source: { sessionId: 'session-1', anchorMessageId: 'msg-1' },
     })
   })

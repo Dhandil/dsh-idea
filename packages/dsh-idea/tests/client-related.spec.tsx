@@ -66,6 +66,7 @@ const matchOf = (id: string, title: string): IdeaRelatedMatch => ({
 const detailOf = (id: string, title: string): IdeaDetail => ({
   id,
   status: 'active',
+  resurfacingMuted: false,
   title,
   core: `Core of ${title}`,
   motivation: `Motivation of ${title}`,

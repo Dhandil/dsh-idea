@@ -365,6 +365,7 @@ describe('generated contributions', () => {
       '@dsh-external/dsh-idea#idea/restore',
       '@dsh-external/dsh-idea#idea/search',
       '@dsh-external/dsh-idea#idea/semanticResurfacingCandidates',
+      '@dsh-external/dsh-idea#idea/setResurfacingMuted',
     ])
     for (const descriptor of descriptors) {
       expect(descriptor.result?.mode).toBe('strict')
@@ -374,6 +375,7 @@ describe('generated contributions', () => {
       const cancellable = descriptor.id.endsWith('#idea/create')
         || descriptor.id.endsWith('#idea/prepareFromMessage')
         || descriptor.id.endsWith('#idea/prepareQuickCapture')
+        || descriptor.id.endsWith('#idea/setResurfacingMuted')
         || descriptor.id.endsWith('#idea/prepareEvolution')
         || descriptor.id.endsWith('#idea/relatedFromMessage')
         || descriptor.id.endsWith('#idea/judgeResurfacing')

@@ -146,6 +146,8 @@ export interface ResurfaceStripInjected {
   reference: () => void
   /** Dismiss this opportunity in this conversation; the Idea is untouched. */
   dismiss: () => void
+  /** T13.1: durably pause proactive reminders for this Idea. */
+  pauseReminders: () => void
 }
 
 /** Full props of the contextual Idea resurfacing strip entry. */
@@ -171,6 +173,8 @@ export interface IdeaSectionInjected {
     submitQuick: () => void
     cancelQuick: () => void
   }
+  /** T13.1: durably pause or resume reminders for one Idea. */
+  setResurfacingMuted: (id: string, muted: boolean) => void
   /** Load the selected view's list; called once when the section first renders. */
   load: () => void
   /** Run the section search for the typed query (blank returns to the tabs). */

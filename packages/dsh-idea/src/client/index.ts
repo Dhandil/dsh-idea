@@ -316,6 +316,7 @@ function registerUi(ctx: ClientContext): void {
         toggleDetail: () => { controller.toggleDetail() },
         reference: () => { controller.reference() },
         dismiss: () => { controller.dismiss() },
+        pauseReminders: () => { controller.pauseReminders() },
       }
     },
   }, IdeaResurfaceStrip))
@@ -463,6 +464,7 @@ function registerUi(ctx: ClientContext): void {
         submitQuick: () => { librarySave.submit() },
         cancelQuick: () => { librarySave.cancel() },
       },
+      setResurfacingMuted: (id, muted) => { readSurface.setResurfacingMuted(id, muted) },
     }),
   }, IdeaSection))
 }

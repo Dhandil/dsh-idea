@@ -275,6 +275,7 @@ describe('idea_semantic record schema', () => {
       'discussions',
       'ideas',
       'resurfacing_budgets',
+      'resurfacing_preferences',
     ])
   })
 })

@@ -275,6 +275,7 @@ function stripProps(controller: IdeaResurfacingController) {
     toggleDetail: () => { controller.toggleDetail() },
     reference: () => { controller.reference() },
     dismiss: () => { controller.dismiss() },
+    pauseReminders: () => { controller.pauseReminders() },
     t,
   }
 }
@@ -919,7 +920,7 @@ describe('the strip component', () => {
     expect(screen.getByText('💡 以前保存过一个可能相关的 Idea：「Alpha idea」')).toBeDefined()
     expect(screen.getByText('查看')).toBeDefined()
     expect(screen.getByText('引用')).toBeDefined()
-    expect(screen.getByText('忽略')).toBeDefined()
+    expect(screen.getByText('本次忽略')).toBeDefined()
   })
 
   it('expands a read-only detail and toggles it closed', async () => {
@@ -946,7 +947,7 @@ describe('the strip component', () => {
     pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
     await flush()
 
-    fireEvent.click(screen.getByText('忽略'))
+    fireEvent.click(screen.getByText('本次忽略'))
     expect(screen.queryByText('引用')).toBeNull()
     expect(rig.controller.state.getSnapshot().lastExpireReason).toBe('DISMISSED')
   })

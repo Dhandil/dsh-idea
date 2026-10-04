@@ -354,6 +354,7 @@ export class IdeaSemanticService extends Service {
     const sessionId = request.sessionId
     const bounded = boundSemanticQueryInput(request.currentTurn, request.recentContext)
     const discussionIdeaId = this.ctx.ideaService.findDiscussionByConversationId(sessionId)?.ideaId
+    const mutedIds = this.ctx.ideaService.listResurfacingMutedIds()
     const eligible: { record: SemanticEmbeddingRecord; candidate: ResurfacingCandidate }[] = []
     for (const [ideaId, record] of this.embeddings.entries()) {
       try {
@@ -366,6 +367,9 @@ export class IdeaSemanticService extends Service {
         if (currentVersion === undefined || semanticContentHash(currentVersion.draft) !== record.contentHash) continue
         if (discussionIdeaId !== undefined && discussionIdeaId === ideaId) continue
         if (aggregate.sourceDiscussions.some(discussion => discussion.sessionId === sessionId)) continue
+        // T13.1 D6: a muted Idea never enters the eligible set — with an
+        // empty eligible set no query embedding is requested at all.
+        if (mutedIds.has(ideaId)) continue
         eligible.push({
           record,
           candidate: candidateOf({ idea: aggregate.idea, currentVersion }, aggregate, sessionId),
@@ -444,6 +448,7 @@ export class IdeaSemanticService extends Service {
     const sessionId = request.sessionId
     const bounded = boundSemanticQueryInput(request.currentTurn, request.recentContext)
     const discussionIdeaId = this.ctx.ideaService.findDiscussionByConversationId(sessionId)?.ideaId
+    const mutedIds = this.ctx.ideaService.listResurfacingMutedIds()
     const corpus: ResurfacingCandidate[] = []
     for (const view of this.ctx.ideaService.list()) {
       try {
@@ -452,6 +457,9 @@ export class IdeaSemanticService extends Service {
         if (aggregate === undefined || aggregate.idea.status !== 'active') continue
         if (discussionIdeaId !== undefined && discussionIdeaId === view.idea.ideaId) continue
         if (aggregate.sourceDiscussions.some(discussion => discussion.sessionId === sessionId)) continue
+        // T13.1 D6: a muted Idea never enters the selector corpus — with an
+        // empty corpus the selector call is never dispatched at all.
+        if (mutedIds.has(view.idea.ideaId)) continue
         corpus.push(candidateOf(view, aggregate, sessionId))
       } catch {
         // Deleted between list and get: the Idea is gone candidate-locally.

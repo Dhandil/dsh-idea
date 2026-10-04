@@ -104,7 +104,8 @@ const detailOf = (summary: IdeaSummary, overrides: Partial<IdeaDetail> = {}): Id
   possibleValue: 'Value text',
   useWhen: ['use one', 'use two'],
   openQuestions: ['question one'],
-  versionId: 'idea_ver_1' as IdeaVersionId,
+  resurfacingMuted: false,
+    versionId: 'idea_ver_1' as IdeaVersionId,
   ...overrides,
 })
 

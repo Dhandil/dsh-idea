@@ -107,7 +107,8 @@ const detailOf = (summary: IdeaSummary): IdeaDetail => ({
   possibleValue: '',
   useWhen: [],
   openQuestions: [],
-  versionId: 'idea_ver_1' as IdeaVersionId,
+  resurfacingMuted: false,
+    versionId: 'idea_ver_1' as IdeaVersionId,
 })
 
 const continueResult = (): { ok: true; value: IdeaContinueDiscussionResult } => ({

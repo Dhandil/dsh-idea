@@ -18,7 +18,7 @@ import type { ResurfaceStripProps } from './slots.ts'
  * the locale seat.
  * @returns the strip (while a suggestion is visible).
  */
-export function IdeaResurfaceStrip({ useResurface, toggleDetail, reference, dismiss, t }: ResurfaceStripProps) {
+export function IdeaResurfaceStrip({ useResurface, toggleDetail, reference, dismiss, pauseReminders, t }: ResurfaceStripProps) {
   const state = useResurface(view => view)
   const suggestion = state.suggestion
   if (suggestion === null) return null
@@ -44,8 +44,18 @@ export function IdeaResurfaceStrip({ useResurface, toggleDetail, reference, dism
           <button type="button" className="dsh-idea-resurface-action" onClick={dismiss}>
             {t('resurface.dismiss')}
           </button>
+          <button
+            type="button"
+            className="dsh-idea-resurface-action"
+            onClick={pauseReminders}
+          >
+            {t('resurface.pause')}
+          </button>
         </span>
       </div>
+      {state.pauseFailed && (
+        <p className="dsh-idea-resurface-pause-error" role="status">{t('resurface.pauseError')}</p>
+      )}
       {state.detailOpen && (
         <div className="dsh-idea-resurface-detail">
           <p className="dsh-idea-resurface-field">

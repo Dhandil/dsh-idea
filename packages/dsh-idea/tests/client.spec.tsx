@@ -208,6 +208,7 @@ describe('client plugin mount', () => {
       '@dsh-external/dsh-idea#idea/restore',
       '@dsh-external/dsh-idea#idea/search',
       '@dsh-external/dsh-idea#idea/semanticResurfacingCandidates',
+      '@dsh-external/dsh-idea#idea/setResurfacingMuted',
     ])
     expect(localeRegisters).toEqual(['idea'])
     expect(slotInjectNames).toEqual([

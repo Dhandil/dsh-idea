@@ -59,6 +59,7 @@ import type {
   IdeaVersion,
   ListIdeasOptions,
   ResurfacingBudget,
+  ResurfacingPreference,
   SourceDiscussion,
   SourceDiscussionDraft,
 } from './types.ts'
@@ -116,6 +117,8 @@ export class IdeaService extends Service {
   /** Process-local permanent-delete guard: ideas with a delete admitted. */
   private readonly deleting = new Set<IdeaId>()
   private resurfacingBudgets?: KvTable<string, ResurfacingBudget>
+  /** T13.1: per-Idea durable resurfacing preference (presence = muted). */
+  private resurfacingPreferences?: KvTable<IdeaId, ResurfacingPreference>
   /** Per-conversation budget-claim tails: one conversation's claims serialize
    * behind each other; different conversations never share a slot. */
   private readonly budgetTails = new Map<string, Promise<void>>()
@@ -130,6 +133,7 @@ export class IdeaService extends Service {
     this.table = domain.table('ideas')
     this.discussions = domain.table('discussions')
     this.resurfacingBudgets = domain.table('resurfacing_budgets')
+    this.resurfacingPreferences = domain.table('resurfacing_preferences')
   }
 
   /**
@@ -447,6 +451,11 @@ export class IdeaService extends Service {
       for (const discussionId of bindings) {
         await this.workspaces.delete(discussionId)
       }
+      // T13.1: the resurfacing preference is auxiliary durable state owned
+      // by this Idea — cleaned before the final aggregate deletion, so a
+      // successful delete never leaves an orphan preference. A cleanup
+      // failure propagates and fails the delete (never silently ignored).
+      await this.resurfacingPreferences?.delete(ideaId)
       await this.records.delete(ideaId)
     })
   }
@@ -771,6 +780,59 @@ export class IdeaService extends Service {
       }
       await this.budgetRecords.put(sessionId, { surfaceBudgetConsumed: true })
       return 'CLAIMED'
+    })
+  }
+
+  /**
+   * Read the durable per-Idea proactive-resurfacing preference (T13.1),
+   * synchronously from memory over the `resurfacing_preferences` table.
+   * Pure read: no writes, no model calls, no aggregate mutation.
+   * @param ideaId - The Idea the preference is keyed by.
+   * @returns whether proactive reminders for this Idea are paused.
+   * @throws `IdeaError` with `idea-not-found` when the Idea does not exist.
+   */
+  getResurfacingPreference(ideaId: IdeaId): { muted: boolean } {
+    this.get(ideaId)
+    return { muted: this.resurfacingPreferences?.get(ideaId) !== undefined }
+  }
+
+  /**
+   * The set of Ideas whose proactive resurfacing reminders the user has
+   * paused (T13.1): one synchronous authoritative read over the
+   * `resurfacing_preferences` table, for the resurfacing candidate paths to
+   * filter with. Pure read: no writes, no model calls.
+   * @returns the muted Idea ids.
+   */
+  listResurfacingMutedIds(): ReadonlySet<IdeaId> {
+    const muted = new Set<IdeaId>()
+    for (const [ideaId, record] of this.resurfacingPreferences?.entries() ?? []) {
+      if (record.muted === true) muted.add(ideaId)
+    }
+    return muted
+  }
+
+  /**
+   * Pause or resume proactive resurfacing reminders for one Idea (T13.1):
+   * `muted = true` durably puts the preference record, `muted = false`
+   * deletes it. Both directions are idempotent — a repeated same-value write
+   * has zero semantic effect. The mutation serializes through the Idea's
+   * per-Idea mutation tail and is rejected while a permanent delete is
+   * admitted. It never touches the aggregate: no `updatedAt` change, no
+   * version, no evolution event, no semantic re-index, no model calls.
+   * @param ideaId - The Idea to pause or resume.
+   * @param muted - Whether proactive reminders should be paused.
+   * @throws `IdeaError` with `idea-not-found` when the Idea does not exist,
+   * `deleting` while a permanent delete is admitted.
+   */
+  async setResurfacingMuted(ideaId: IdeaId, muted: boolean): Promise<{ muted: boolean }> {
+    return await this.enqueueIdeaMutation(ideaId, async () => {
+      this.get(ideaId)
+      if (muted) {
+        await this.resurfacingPreferences?.put(ideaId, { muted: true })
+      } else {
+        await this.resurfacingPreferences?.delete(ideaId)
+      }
+      return { muted }
     })
   }
 

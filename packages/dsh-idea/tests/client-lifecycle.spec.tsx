@@ -92,6 +92,7 @@ const row = (overrides: Partial<IdeaListRow> = {}): IdeaListRow => ({
 const detail = (overrides: Partial<IdeaDetail> = {}): IdeaDetail => ({
   id: 'idea_1',
   status: 'active',
+  resurfacingMuted: false,
   title: 'Saved idea',
   core: 'Core text',
   motivation: 'Why kept',

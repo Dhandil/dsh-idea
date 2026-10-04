@@ -67,6 +67,8 @@ import type {
   IdeaManualEditResult,
   IdeaPrepareEvolutionRequest,
   IdeaPrepareQuickCaptureRequest,
+  IdeaSetResurfacingMutedRequest,
+  IdeaSetResurfacingMutedResult,
   IdeaPrepareQuickCaptureResult,
   IdeaPrepareRequest,
   IdeaRelatedRequest,
@@ -280,7 +282,8 @@ export class IdeaRemoteService extends TypertRemoteService {
   async get(request: IdeaGetRequest): Promise<IdeaDetail> {
     try {
       const aggregate = this.ctx.ideaService.get(IdeaId(request.id))
-      return ideaDetailOf(aggregate)
+      const { muted } = this.ctx.ideaService.getResurfacingPreference(IdeaId(request.id))
+      return ideaDetailOf(aggregate, muted)
     } catch (error) {
       throw remoteDomainError(error) ?? error
     }
@@ -634,6 +637,31 @@ export class IdeaRemoteService extends TypertRemoteService {
   }
 
   /**
+   * Pause or resume proactive resurfacing reminders for one Idea (T13.1).
+   * The durable preference lives on the Host; the browser never writes
+   * storage. The Host revalidates the Idea identity (idea/not-found) and
+   * rejects while a permanent delete is admitted (deleting).
+   */
+  @Remote
+  async setResurfacingMuted(
+    request: IdeaSetResurfacingMutedRequest,
+    signal?: AbortSignal,
+  ): Promise<IdeaSetResurfacingMutedResult> {
+    if (signal?.aborted) {
+      throw new RemoteError('gateway/cancelled', 'idea resurfacing preference was cancelled', {})
+    }
+    try {
+      const result = await this.ctx.ideaService.setResurfacingMuted(
+        IdeaId(request.id as string),
+        request.muted,
+      )
+      return { muted: result.muted }
+    } catch (error) {
+      throw remoteDomainError(error) ?? error
+    }
+  }
+
+  /**
    * The semantic branch of hybrid resurfacing retrieval. Delegation to the
    * semantic service: candidate-local canonical validation, at most one
    * query embedding (embedding mode) or one Session-model selector call
@@ -771,7 +799,7 @@ function lifecycleResultOf(aggregate: IdeaAggregate): IdeaLifecycleResult {
 }
 
 /** The full wire detail of one Idea: the summary plus its current version. */
-function ideaDetailOf(aggregate: IdeaAggregate): IdeaDetail {
+function ideaDetailOf(aggregate: IdeaAggregate, resurfacingMuted: boolean): IdeaDetail {
   const version = aggregate.versions.find(entry => entry.versionId === aggregate.idea.currentVersionId)
   if (version === undefined) {
     throw new Error(`idea '${aggregate.idea.ideaId}' has no current version`)
@@ -783,6 +811,7 @@ function ideaDetailOf(aggregate: IdeaAggregate): IdeaDetail {
     useWhen: [...version.draft.useWhen],
     openQuestions: [...version.draft.openQuestions],
     versionId: version.versionId,
+    resurfacingMuted,
   }
 }
 

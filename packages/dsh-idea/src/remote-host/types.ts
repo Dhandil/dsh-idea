@@ -142,6 +142,19 @@ export interface IdeaDetail extends IdeaSummary {
   useWhen: readonly string[]
   openQuestions: readonly string[]
   versionId: IdeaVersionId
+  /** T13.1: whether the user paused proactive reminders for this Idea. */
+  resurfacingMuted: boolean
+}
+
+/** `idea.setResurfacingMuted` request (T13.1): pause or resume reminders. */
+export interface IdeaSetResurfacingMutedRequest {
+  id: string
+  muted: boolean
+}
+
+/** `idea.setResurfacingMuted` result: the applied state. */
+export interface IdeaSetResurfacingMutedResult {
+  muted: boolean
 }
 
 /** `idea.getVersion` request: one Idea plus one of its versions. */
@@ -409,6 +422,7 @@ export type IdeaResurfacingSuppressionReason =
   | 'CURRENT_DISCUSSION_DESCENDS_FROM_IDEA'
   | 'CREATED_IN_CURRENT_CONVERSATION'
   | 'BELOW_RETRIEVAL_FLOOR'
+  | 'USER_MUTED'
 
 /**
  * `idea.evaluateResurfacing` result: the zero-model deterministic stage.

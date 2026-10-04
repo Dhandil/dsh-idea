@@ -63,6 +63,9 @@ export interface ResurfaceUiState {
   detailOpen: boolean
   /** Why the last suggestion disappeared (observability only). */
   lastExpireReason: string | null
+  /** T13.1: the durable pause write failed — the suggestion stays with a
+   * visible retry affordance; never a pretend pause. */
+  pauseFailed: boolean
 }
 
 /** Minimal structural face of the Host remote the controller talks to. */
@@ -73,6 +76,14 @@ export interface ResurfacingRemoteFace {
     recentContext: readonly { role: 'user' | 'assistant'; text: string }[]
   }): Promise<
     | { ok: true; value: IdeaResurfacingEvaluateResult }
+    | { ok: false; error: { code: string } }
+  >
+  /** T13.1: the durable per-Idea mute write (Host-owned storage). */
+  setResurfacingMuted(request: {
+    id: string
+    muted: boolean
+  }): Promise<
+    | { ok: true; value: { muted: boolean } }
     | { ok: false; error: { code: string } }
   >
   judgeResurfacing(request: {
@@ -191,6 +202,7 @@ const IDLE: ResurfaceUiState = {
   suggestion: null,
   detailOpen: false,
   lastExpireReason: null,
+  pauseFailed: false,
 }
 
 /** Text of one message's content blocks (bounded at the caller). */
@@ -337,6 +349,9 @@ export class IdeaResurfacingController {
   private readonly surfacedIds = new Set<string>()
   private readonly referencedIds = new Set<string>()
   private readonly dismissedIds = new Set<string>()
+  /** T13.1: Ideas durably paused from this controller's interactions. */
+  private readonly mutedIds = new Set<string>()
+  private pauseInFlight = false
   /**
    * The durable one-surface budget state, loaded from the Host before any
    * evaluation may begin. `loading` and `failed` block evaluation (fail
@@ -452,7 +467,8 @@ export class IdeaResurfacingController {
     }
   }
 
-  /** Dismiss this opportunity in this conversation; the Idea is untouched. */
+  /** Dismiss this opportunity in this conversation; the Idea is untouched,
+   * no durable preference is written (T13.1 D1). */
   dismiss(): void {
     const suggestion = this.state.getSnapshot().suggestion
     if (suggestion === null) return
@@ -461,6 +477,42 @@ export class IdeaResurfacingController {
       draft.suggestion = null
       draft.detailOpen = false
       draft.lastExpireReason = 'DISMISSED'
+      draft.pauseFailed = false
+    })
+  }
+
+  /**
+   * T13.1 D7: durably pause proactive reminders for the suggested Idea via
+   * the Host-owned preference. On success the suggestion disappears with
+   * lastExpireReason USER_MUTED. On failure NOTHING is pretended: the
+   * suggestion stays, a visible failure shows, and the pause button becomes
+   * the retry affordance. Zero provider calls.
+   */
+  pauseReminders(): void {
+    const suggestion = this.state.getSnapshot().suggestion
+    if (suggestion === null) return
+    if (this.pauseInFlight) return
+    this.pauseInFlight = true
+    this.state.update((draft) => {
+      draft.pauseFailed = false
+    })
+    void this.remote.setResurfacingMuted({ id: suggestion.ideaId, muted: true }).then((result) => {
+      this.pauseInFlight = false
+      if (!result.ok) {
+        this.state.update((draft) => { draft.pauseFailed = true })
+        return
+      }
+      // Host confirmed the durable pause: expire the suggestion.
+      this.mutedIds.add(suggestion.ideaId)
+      this.state.update((draft) => {
+        draft.suggestion = null
+        draft.detailOpen = false
+        draft.lastExpireReason = 'USER_MUTED'
+        draft.pauseFailed = false
+      })
+    }, () => {
+      this.pauseInFlight = false
+      this.state.update((draft) => { draft.pauseFailed = true })
     })
   }
 
@@ -828,6 +880,7 @@ export class IdeaResurfacingController {
     this.state.update((draft) => {
       draft.suggestion = suggestion
       draft.lastExpireReason = null
+      draft.pauseFailed = false
     })
   }
 

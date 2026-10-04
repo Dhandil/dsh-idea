@@ -118,6 +118,7 @@ export type ResurfacingHostSuppressionReason =
   | 'CURRENT_DISCUSSION_DESCENDS_FROM_IDEA'
   | 'CREATED_IN_CURRENT_CONVERSATION'
   | 'BELOW_RETRIEVAL_FLOOR'
+  | 'USER_MUTED'
 
 /**
  * One candidate of the T10 retrieval: exactly the pinned current version the

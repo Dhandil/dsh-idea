@@ -546,6 +546,12 @@ body[data-ds-dark-theme] .dsh-idea-search {
 .dsh-idea-search-foot-capture {
   justify-content: flex-end;
 }
+.dsh-idea-resurface-pause-error {
+  margin: 0;
+  padding: 4px 10px;
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: 12px;
+}
 .dsh-idea-resurface {
   display: flex;
   flex-direction: column;

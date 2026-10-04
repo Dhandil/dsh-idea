@@ -29,6 +29,11 @@ export const zh = {
   'read.nav': 'Ideas',
   'read.loading': '加载中…',
   'read.error': 'Idea 列表加载失败',
+  'read.reminder.on': '提醒：已开启',
+  'read.reminder.off': '提醒：已暂停',
+  'read.reminder.pause': '暂停提醒',
+  'read.reminder.resume': '恢复提醒',
+  'read.reminder.error': '操作失败，请重试',
   'read.search.placeholder': '搜索全部 Idea…',
   'library.newIdea': '＋ 新建 Idea',
   'library.createBack': '← 新建 Idea',
@@ -131,7 +136,9 @@ export const zh = {
   'resurface.view': '查看',
   'resurface.collapse': '收起',
   'resurface.reference': '引用',
-  'resurface.dismiss': '忽略',
+  'resurface.dismiss': '本次忽略',
+  'resurface.pause': '暂停提醒',
+  'resurface.pauseError': '暂停失败，请重试。',
 } satisfies Record<string, string>
 
 /** The idea namespace key union. */
@@ -168,6 +175,11 @@ export const en = {
   'read.nav': 'Ideas',
   'read.loading': 'Loading…',
   'read.error': 'Could not load the ideas.',
+  'read.reminder.on': 'Reminders: on',
+  'read.reminder.off': 'Reminders: paused',
+  'read.reminder.pause': 'Pause reminders',
+  'read.reminder.resume': 'Resume reminders',
+  'read.reminder.error': 'Operation failed; retry',
   'read.search.placeholder': 'Search all Ideas…',
   'library.newIdea': '＋ New idea',
   'library.createBack': '← New idea',
@@ -270,5 +282,7 @@ export const en = {
   'resurface.view': 'View',
   'resurface.collapse': 'Collapse',
   'resurface.reference': 'Reference',
-  'resurface.dismiss': 'Dismiss',
+  'resurface.dismiss': 'Dismiss this time',
+  'resurface.pause': 'Pause reminders',
+  'resurface.pauseError': 'Pause failed; you can retry.',
 } satisfies Record<IdeaLocaleKey, string>

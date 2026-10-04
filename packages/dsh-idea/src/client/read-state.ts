@@ -47,6 +47,8 @@ export interface IdeaReadFace {
   list(request: { view: IdeaViewKey }): Promise<RemoteRead<readonly IdeaListRow[]>>
   search(request: { query: string; scope: 'all' }, signal?: AbortSignal): Promise<RemoteRead<readonly IdeaSearchResult[]>>
   get(request: { id: string }): Promise<RemoteRead<IdeaDetail>>
+  /** T13.1: durably pause or resume proactive reminders for one Idea. */
+  setResurfacingMuted(request: { id: string; muted: boolean }): Promise<RemoteRead<{ muted: boolean }>>
   getVersions(request: { id: string }): Promise<RemoteRead<readonly IdeaVersionSummary[]>>
   continueDiscussion(request: { id: string; workspaceId?: string }): Promise<RemoteRead<IdeaContinueDiscussionResult>>
   prepareEvolution(
@@ -134,6 +136,10 @@ export interface IdeaReadState {
    * cached lists are untouched by searching and return on clearing.
    */
   searchQuery: string
+  /** T13.1: whether the last reminder toggle failed (visible affordance). */
+  reminderError: boolean
+  /** T13.1: the reminder-toggle lifecycle. */
+  reminderStatus: 'idle' | 'loading' | 'error'
   /** The mixed search load state behind the search box. */
   search: IdeaSearchLoad
   /** The open detail's idea id, or null while the list is shown. */
@@ -170,6 +176,8 @@ const IDLE_EDIT: IdeaEditState = { status: 'idle', ideaId: null, baseVersionId: 
 const CLOSED_DELETION: IdeaDeletionState = { status: 'closed', ideaId: null, errorCode: null }
 
 const INITIAL: IdeaReadState = {
+  reminderError: false,
+  reminderStatus: 'idle',
   view: 'current',
   lists: { current: { status: 'idle', items: [] }, archived: { status: 'idle', items: [] } },
   searchQuery: '',
@@ -309,6 +317,32 @@ export class IdeaReadSurface {
    * untouched); a non-blank query is one Host-ranked mixed search over
    * every Idea (scope `all`), with a newer query superseding an older one.
    */
+  /**
+   * T13.1: durably pause or resume proactive reminders for one Idea via the
+   * Host preference, then refresh the open detail's projected state. A
+   * failure surfaces through the reminder toggle's error affordance; the
+   * preference itself never pretends to have changed.
+   */
+  async setResurfacingMuted(id: string, muted: boolean): Promise<void> {
+    this.state.update((draft) => { draft.reminderStatus = 'loading' })
+    const result = await this.remote.setResurfacingMuted({ id, muted })
+      .catch(() => ({ ok: false as const, error: { code: 'gateway/internal' } }))
+    if (!result.ok) {
+      this.state.update((draft) => {
+        draft.reminderStatus = 'error'
+        draft.reminderError = true
+      })
+      return
+    }
+    this.state.update((draft) => {
+      draft.reminderStatus = 'idle'
+      draft.reminderError = false
+      if (draft.detail !== null && draft.detailId === id) {
+        draft.detail = { ...draft.detail, resurfacingMuted: muted }
+      }
+    })
+  }
+
   searchIdeas(query: string): void {
     this.state.update((draft) => { draft.searchQuery = query })
     if (query.trim().length === 0) {

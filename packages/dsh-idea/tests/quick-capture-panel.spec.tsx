@@ -49,7 +49,7 @@ const useOf = (store: { subscribe: (fn: () => void) => () => void; getSnapshot: 
     useSyncExternalStore(store.subscribe, () => select(store.getSnapshot() as never))
 
 function panelRig(over: {
-  prepare?: () => Promise<unknown>
+  prepare?: (request: unknown, signal?: AbortSignal) => Promise<unknown>
   create?: () => Promise<unknown>
   attach?: (descriptor: unknown) => boolean
 } = {}) {
@@ -66,7 +66,7 @@ function panelRig(over: {
         },
       }],
     })),
-    prepareQuickCapture: over.prepare ?? vi.fn(async (_request: unknown, signal?: AbortSignal) => ({
+    prepareQuickCapture: over.prepare ?? vi.fn(async (_request: unknown, _signal?: AbortSignal) => ({
       ok: true as const,
       value: {
         preparationId: 'prep_1' as never,

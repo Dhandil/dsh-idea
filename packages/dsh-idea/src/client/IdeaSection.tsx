@@ -75,6 +75,7 @@ export function IdeaSection({
   editProposalDraft, cancelProposal, commitProposal,
   editDraft, cancelEdit, saveEdit,
   archiveIdea, restoreIdea, requestDelete, cancelDelete, confirmDelete,
+  setResurfacingMuted,
   load, useIdeaRead, useLibraryQuick, useLibrarySave, libraryQuick, librarySave, t,
 }: IdeaSectionProps): ReactNode {
   const state = useIdeaRead(view => view)
@@ -239,6 +240,8 @@ export function IdeaSection({
                     archiveIdea={archiveIdea}
                     restoreIdea={restoreIdea}
                     requestDelete={requestDelete}
+                    reminderStatus={state.reminderStatus}
+                    setResurfacingMuted={setResurfacingMuted}
                     t={t}
                   />
                 )
@@ -406,7 +409,8 @@ export function IdeaPreviewCard(
 function IdeaDetailView(
   {
     detail, versions, versionsStatus, continueStatus, discussionId, evolutionStatus, evolutionFailure,
-    archiveStatus, restoreStatus, continueIdea, prepareEvolution, openEditor, archiveIdea, restoreIdea, requestDelete, t,
+    archiveStatus, restoreStatus, continueIdea, prepareEvolution, openEditor, archiveIdea, restoreIdea, requestDelete,
+    reminderStatus, setResurfacingMuted, t,
   }: {
     detail: IdeaDetail
     versions: readonly IdeaVersionSummary[]
@@ -423,6 +427,8 @@ function IdeaDetailView(
     archiveIdea: () => void
     restoreIdea: () => void
     requestDelete: () => void
+    reminderStatus: 'idle' | 'loading' | 'error'
+    setResurfacingMuted: (id: string, muted: boolean) => void
     t: (key: IdeaLocaleKey, params?: Record<string, unknown>) => string
   },
 ): ReactNode {
@@ -471,6 +477,21 @@ function IdeaDetailView(
       {continueStatus === 'error' && <p className="dsh-idea-state">{t('read.continue.error')}</p>}
       {archiveStatus === 'error' && <p className="dsh-idea-state">{t('read.archive.error')}</p>}
       {restoreStatus === 'error' && <p className="dsh-idea-state">{t('read.restore.error')}</p>}
+      {!archived && (
+        <div className="dsh-idea-reminder">
+          <span className="dsh-idea-reminder-state">
+            {detail.resurfacingMuted ? t('read.reminder.off') : t('read.reminder.on')}
+          </span>
+          <Button
+            variant="outline"
+            disabled={reminderStatus === 'loading'}
+            onClick={() => { setResurfacingMuted(detail.id, !detail.resurfacingMuted) }}
+          >
+            {detail.resurfacingMuted ? t('read.reminder.resume') : t('read.reminder.pause')}
+          </Button>
+        </div>
+      )}
+      {reminderStatus === 'error' && <p className="dsh-idea-state">{t('read.reminder.error')}</p>}
       {!archived && discussionId !== null && (
         <div className="dsh-idea-evolution">
           <Button

@@ -220,6 +220,16 @@ export interface ResurfacingBudget {
   surfaceBudgetConsumed: true
 }
 
+/**
+ * One durable resurfacing preference record (T13.1), keyed by IdeaId.
+ * Presence of the record means the user paused proactive reminders for this
+ * Idea; absence means reminders are enabled. Minimal by design — no fields
+ * beyond the mute fact itself.
+ */
+export interface ResurfacingPreference {
+  muted: true
+}
+
 /** Prepared semantic input for one Idea version. No model calls in V1 T1. */
 export interface IdeaDraft {
   title: string

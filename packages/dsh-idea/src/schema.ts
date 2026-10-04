@@ -22,6 +22,7 @@ import type {
   IdeaHistorySummaryEntry,
   IdeaVersion,
   ResurfacingBudget,
+  ResurfacingPreference,
   SourceDiscussion,
   SourceDiscussionDraft,
 } from './types.ts'
@@ -436,3 +437,12 @@ export const ideaDiscussionSchema = z.object({
 export const resurfacingBudgetSchema = z.object({
   surfaceBudgetConsumed: z.literal(true),
 }) satisfies z.ZodType<ResurfacingBudget>
+
+/**
+ * One durable resurfacing preference record (T13.1), keyed by IdeaId.
+ * Presence = the user paused proactive reminders; absence = enabled.
+ * Minimal canonical shape: the mute fact and nothing else (T13.1 D2).
+ */
+export const resurfacingPreferenceSchema = z.object({
+  muted: z.literal(true),
+}) satisfies z.ZodType<ResurfacingPreference>

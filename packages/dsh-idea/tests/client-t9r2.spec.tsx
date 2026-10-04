@@ -107,6 +107,7 @@ const summary = (overrides: Partial<IdeaSummary> = {}): IdeaSummary => ({
 })
 
 const detailOf = (base: IdeaSummary, overrides: Partial<IdeaDetail> = {}): IdeaDetail => ({
+  resurfacingMuted: false,
   ...base,
   currentConclusion: 'Conclusion text',
   possibleValue: 'Value text',

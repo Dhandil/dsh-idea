@@ -24,8 +24,8 @@
  */
 
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-import { ideaAggregateSchema, ideaDiscussionSchema, resurfacingBudgetSchema } from './schema.ts'
-import type { IdeaAggregate, IdeaDiscussion, IdeaId, ResurfacingBudget } from './types.ts'
+import { ideaAggregateSchema, ideaDiscussionSchema, resurfacingBudgetSchema, resurfacingPreferenceSchema } from './schema.ts'
+import type { IdeaAggregate, IdeaDiscussion, IdeaId, ResurfacingBudget, ResurfacingPreference } from './types.ts'
 import type { IdeaDiscussionId } from './types.ts'
 
 export const ideaDomainSpec = defineDomain({
@@ -37,5 +37,6 @@ export const ideaDomainSpec = defineDomain({
     ideas: domainTable<IdeaId, IdeaAggregate>(ideaAggregateSchema),
     discussions: domainTable<IdeaDiscussionId, IdeaDiscussion>(ideaDiscussionSchema),
     resurfacing_budgets: domainTable<string, ResurfacingBudget>(resurfacingBudgetSchema),
+    resurfacing_preferences: domainTable<IdeaId, ResurfacingPreference>(resurfacingPreferenceSchema),
   },
 })
