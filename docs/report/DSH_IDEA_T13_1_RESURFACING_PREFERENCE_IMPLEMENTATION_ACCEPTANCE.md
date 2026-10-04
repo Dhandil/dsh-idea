@@ -4,7 +4,7 @@
 - Date: 2026-10-02
 - Baseline: origin/main `afa6ae2e570b36241503008d52e7f3e165021d10` (T12.4 CLOSED at `61e1eed…`); Harness `ddefc45…` read-only, tracked diff zero throughout.
 - Architecture authority: `docs/architectue/DSH_IDEA_T13_RESURFACING_PREFERENCE_ARCHITECTURE_FREEZE.md` (D1–D10).
-- **Tested executable (this task): implementation commit `[T13_1_TESTED_SHA]`** (= this commit's built `lib/` state; zero post-Full drift).
+- **Tested executable (this task): implementation commit `c001a4b92a47e292571e12a654f8361f39130070`** (= this commit's built `lib/` state; zero post-Full drift).
 
 ## 1. What was implemented
 
@@ -74,5 +74,5 @@ Docs: the freeze doc + this report. Build artifacts (`lib/`) remain gitignored.
 
 ## 5. Git state
 
-- Implementation commit: `[T13_1_TESTED_SHA]` (= Tested SHA; docs-only report commit follows).
+- Implementation commit: `c001a4b92a47e292571e12a654f8361f39130070` (= Tested SHA; docs-only report commit follows).
 - Harness tracked diff: 0. User docs drift: 17 items preserved. No reset/clean/git add .; no real Provider; T13.2/T14 not started.
