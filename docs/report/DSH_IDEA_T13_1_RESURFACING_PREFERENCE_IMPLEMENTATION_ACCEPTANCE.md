@@ -72,7 +72,20 @@ Docs: the freeze doc + this report. Build artifacts (`lib/`) remain gitignored.
 | no semantic-index provider call from mute | domain/changed carries `resurfacing_preferences`, not `ideas` |
 | no aggregate updatedAt/version drift | regression-tested |
 
-## 5. Git state
+## 4a. Architecture Review Repair (R1–R4, 2026-10-02)
 
-- Implementation commit: `c001a4b92a47e292571e12a654f8361f39130070` (= Tested SHA; docs-only report commit follows).
+The architecture review required R1–R4:
+
+- **R1-A/B — Judge mute revalidation**: `judge()` now re-reads `listResurfacingMutedIds()` BEFORE any model dispatch (R1-A) and again after the provider call before returning a surface verdict (R1-B). A muted winning Idea produces fail-closed `outcome: none` with `dropped: [{ideaId, reason: 'USER_MUTED'}]` — the model's surface verdict is discarded, and the wire `ResurfacingDropReason` / `IdeaResurfacingSuppressionReason` vocabularies gain `USER_MUTED`.
+- **R1-C — semantic post-I/O revalidation**: the llm-selector filters `revalidateSelectorPicks` results against the post-call muted set; the embedding branch filters the eligible set after the query embedding resolves. A muted Idea from a stale corpus can never reach the Judge.
+- **R1-D — claimResurfacingDelivery seam**: `IdeaService.claimResurfacingDelivery(sessionId, ideaId)` serializes the mute re-check under the per-Idea mutation tail BEFORE the budget test-and-set (lock order: Idea mutation tail → budget tail, never reversed). The wire `claimResurfacingBudget` gains an optional `ideaId` field: the suggestion strip always passes it, so the claim routes through the authoritative seam. Legacy callers without ideaId keep the plain budget claim. The wire result gains `USER_MUTED`. The client's delivery gate handles `USER_MUTED` by silencing without consuming the budget.
+- **R2 — dormant reminder control**: the detail view's reminder control renders only when `detail.status === 'active'` (dormant and archived Ideas show no control). The preference itself persists through archive/restore; only permanent delete clears it.
+- **R3 — reminder lifecycle ownership**: `IdeaReadSurface.setResurfacingMuted` updates `reminderStatus` ('idle'/'loading'/'error') and the projected `detail.resurfacingMuted` only when the detail still belongs to the requesting idea id; `open(newIdea)` and `closeDetail()` reset the visible status/error; a stale success from a previous Idea cannot cross-apply to the current detail projection. A stale failure from a previous Idea cannot set `reminderError` on the current detail.
+- **R4 — report correction**: the acceptance report's change list and lineage are corrected (initial diff: 34 files, +1021/−18; 3 new test files; T12.4 docs closure = `afa6ae2…`; T12.3 Accepted Executable = `61e1eed…`).
+
+Repair verification (same binding order): Focused (preference 11 + suppression 6 + reminder-control 5 + judge/budget/panel/section regression) → full regression **57 files / 866 tests, all green** → scope audit (10 files, all inside `packages/dsh-idea/`) → static gates (typert, typecheck, host build, client build, git diff --check) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 57 / 866 all green**, zero executable drift after it.
+
+## 4b. Git state
+
+- Implementation commit: `c001a4b92a47e292571e12a654f8361f39130070`; Repair commit: `a7eb01860a7bad60aee0e02243944d2b675e7c6d` (= Tested SHA; docs-only report commit follows).
 - Harness tracked diff: 0. User docs drift: 17 items preserved. No reset/clean/git add .; no real Provider; T13.2/T14 not started.
