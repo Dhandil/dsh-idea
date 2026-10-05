@@ -227,6 +227,8 @@ export class IdeaReadSurface {
   private listAborts: Record<IdeaViewKey, AbortController | undefined> = { current: undefined, archived: undefined }
   private searchAbort: AbortController | undefined
   private detailAbort: AbortController | undefined
+  /** T13.1 R3: request generation for reminder preference mutations. */
+  private reminderGeneration = 0
   private evolutionAbort: AbortController | undefined
   /** An edit requested from a row whose detail is still loading. */
   private pendingEditId: string | null = null
@@ -324,9 +326,17 @@ export class IdeaReadSurface {
    * preference itself never pretends to have changed.
    */
   async setResurfacingMuted(id: string, muted: boolean): Promise<void> {
+    // T13.1 R3: the in-flight request is bound to the generation and the idea
+    // it was issued for; only the current owner may apply its completion.
+    const generation = this.reminderGeneration
     this.state.update((draft) => { draft.reminderStatus = 'loading' })
     const result = await this.remote.setResurfacingMuted({ id, muted })
       .catch(() => ({ ok: false as const, error: { code: 'gateway/internal' } }))
+    if (generation !== this.reminderGeneration) {
+      // open()/closeDetail() invalidated this request's UI authority; the
+      // Host durable mutation has already landed and is not rolled back.
+      return
+    }
     if (!result.ok) {
       this.state.update((draft) => {
         draft.reminderStatus = 'error'
@@ -382,6 +392,13 @@ export class IdeaReadSurface {
   /** Open one idea's detail and its version history; any prior read is abandoned. */
   open(id: string, options: { edit?: boolean } = {}): void {
     this.detailAbort?.abort()
+    // T13.1 R3: any in-flight reminder request from the previous detail loses
+    // its UI authority; the visible lifecycle resets with this open.
+    this.reminderGeneration += 1
+    this.state.update((draft) => {
+      draft.reminderStatus = 'idle'
+      draft.reminderError = false
+    })
     const controller = new AbortController()
     this.detailAbort = controller
     this.pendingEditId = options.edit === true ? id : null
@@ -485,7 +502,11 @@ export class IdeaReadSurface {
     this.detailAbort?.abort()
     this.detailAbort = undefined
     this.pendingEditId = null
+    // T13.1 R3: a closing detail invalidates its in-flight reminder requests.
+    this.reminderGeneration += 1
     this.state.update((draft) => {
+      draft.reminderStatus = 'idle'
+      draft.reminderError = false
       draft.detailId = null
       draft.detailStatus = 'loading'
       draft.detail = null

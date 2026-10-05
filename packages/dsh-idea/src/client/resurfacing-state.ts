@@ -86,15 +86,6 @@ export interface ResurfacingRemoteFace {
     | { ok: true; value: { muted: boolean } }
     | { ok: false; error: { code: string } }
   >
-  /** T13.1 R1-D: the authoritative delivery claim — mute re-check + budget
-   * claim in one Host seam. */
-  claimResurfacingDelivery(request: {
-    sessionId: string
-    ideaId: string
-  }): Promise<
-    | { ok: true; value: { outcome: 'CLAIMED' | 'ALREADY_CONSUMED' | 'USER_MUTED' } }
-    | { ok: false; error: { code: string } }
-  >
   judgeResurfacing(request: {
     sessionId: string
     currentTurn: string
@@ -856,11 +847,12 @@ export class IdeaResurfacingController {
       // claim landed.
       return
     }
-    // The durable fact is decided either way; local suppression is for life.
-    this.budgetState = 'consumed'
+    // T13.1 R1-D: the budget state follows the Host's authoritative answer —
+    // USER_MUTED means the Host did NOT consume the budget, so the local
+    // budget state must remain 'free' (a future eligible turn may evaluate
+    // again for a different Idea). Only CLAIMED/ALREADY_CONSUMED mark the
+    // budget as consumed.
     if (claim.value.outcome === 'USER_MUTED') {
-      // T13.1 R1-D: the Idea was muted between the Judge verdict and the
-      // delivery claim — silence, the budget remains free, no surface.
       this.mutedIds.add(evaluated.ideaId)
       this.state.update((draft) => {
         draft.suggestion = null
@@ -869,6 +861,8 @@ export class IdeaResurfacingController {
       })
       return
     }
+    // The durable fact is decided either way; local suppression is for life.
+    this.budgetState = 'consumed'
     if (claim.value.outcome !== 'CLAIMED') {
       // ALREADY_CONSUMED: another client won the budget; silence.
       return

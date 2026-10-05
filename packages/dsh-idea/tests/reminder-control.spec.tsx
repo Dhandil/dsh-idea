@@ -203,6 +203,153 @@ describe('Settings → Idea detail reminder control (T13.1)', () => {
     expect(snap.detail?.id).toBe('idea_2')
     expect(snap.detail?.resurfacingMuted).toBe(false)
   })
+
+  it('a dormant detail shows no reminder controls (R2)', async () => {
+    const { readSurface, props } = rig()
+    // idea_3 exists but is dormant: the preference still exists, yet the
+    // detail surface must not offer reminder controls for it.
+    ;(readSurface as unknown as {
+      remote: { get: { mockImplementation: (f: (req: { id: string }) => Promise<unknown>) => void } }
+    }).remote.get.mockImplementation(async (req: { id: string }) => ({
+      ok: true as const,
+      value: { ...detail(false, req.id), status: 'dormant' as const },
+    }))
+    render(<IdeaSection {...props} />)
+    await flush()
+    act(() => { readSurface.open('idea_3') })
+    await flush()
+    // The detail is open (its fields render) but the reminder block — the
+    // projected preference, the pause/resume verb, and the error affordance —
+    // is absent for a dormant Idea.
+    expect(screen.getByText('Test idea')).toBeTruthy()
+    expect(screen.queryByText('提醒：已开启')).toBeNull()
+    expect(screen.queryByText('提醒：已暂停')).toBeNull()
+    expect(screen.queryByText('暂停提醒')).toBeNull()
+    expect(screen.queryByText('恢复提醒')).toBeNull()
+  })
+})
+
+describe('T13.1 R3: reminder request ownership (generation guard)', () => {
+  const gateFactory = () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    return { gate, release }
+  }
+
+  const remoteSetOf = (readSurface: IdeaReadSurface) => (readSurface as unknown as {
+    remote: { setResurfacingMuted: ReturnType<typeof vi.fn> }
+  }).remote.setResurfacingMuted
+
+  it('a stale failure across a newer open never marks the new detail as error (A)', async () => {
+    const { gate, release } = gateFactory()
+    const { readSurface, props } = rig()
+    remoteSetOf(readSurface).mockImplementationOnce(async () => {
+      await gate
+      return { ok: false as const, error: { code: 'idea/storage-failed' } }
+    })
+    render(<IdeaSection {...props} />)
+    await flush()
+    act(() => { readSurface.open('idea_1') })
+    await flush()
+    fireEvent.click(screen.getByText('暂停提醒'))
+    act(() => { readSurface.open('idea_2') })
+    await flush()
+    release()
+    await flush()
+    // The failure belongs to idea_1's request; idea_2's detail stays clean.
+    const snap = readSurface.state.getSnapshot()
+    expect(snap.detail?.id).toBe('idea_2')
+    expect(snap.reminderStatus).toBe('idle')
+    expect(snap.reminderError).toBe(false)
+    expect(screen.queryByText('操作失败，请重试')).toBeNull()
+  })
+
+  it('a stale success across a newer open never projects onto the new detail (B)', async () => {
+    const { gate, release } = gateFactory()
+    const { readSurface, props } = rig()
+    remoteSetOf(readSurface).mockImplementationOnce(async (req: { id: string; muted: boolean }) => {
+      await gate
+      return { ok: true as const, value: { muted: req.muted } }
+    })
+    render(<IdeaSection {...props} />)
+    await flush()
+    act(() => { readSurface.open('idea_1') })
+    await flush()
+    fireEvent.click(screen.getByText('暂停提醒'))
+    act(() => { readSurface.open('idea_2') })
+    await flush()
+    release()
+    await flush()
+    // idea_1's success lands after idea_2 opened; idea_2's projection is
+    // untouched and no stale loading state lingers.
+    const snap = readSurface.state.getSnapshot()
+    expect(snap.detail?.id).toBe('idea_2')
+    expect(snap.detail?.resurfacingMuted).toBe(false)
+    expect(snap.reminderStatus).toBe('idle')
+    expect(snap.reminderError).toBe(false)
+  })
+
+  it('a failure after the detail closed leaves no error residue (C)', async () => {
+    const { gate, release } = gateFactory()
+    const { readSurface, props } = rig()
+    remoteSetOf(readSurface).mockImplementationOnce(async () => {
+      await gate
+      return { ok: false as const, error: { code: 'idea/storage-failed' } }
+    })
+    render(<IdeaSection {...props} />)
+    await flush()
+    act(() => { readSurface.open('idea_1') })
+    await flush()
+    fireEvent.click(screen.getByText('暂停提醒'))
+    act(() => { readSurface.closeDetail() })
+    await flush()
+    release()
+    await flush()
+    // The closed request lost its UI authority: no error surfaces.
+    const snap = readSurface.state.getSnapshot()
+    expect(snap.detailId).toBeNull()
+    expect(snap.reminderStatus).toBe('idle')
+    expect(snap.reminderError).toBe(false)
+    expect(screen.queryByText('操作失败，请重试')).toBeNull()
+  })
+
+  it('close-then-reopen: request 2 owns the surface and the stale request-1 completion cannot clobber it (D)', async () => {
+    const { gate, release } = gateFactory()
+    const { readSurface, props } = rig()
+    const remoteSet = remoteSetOf(readSurface)
+    remoteSet.mockImplementationOnce(async () => {
+      await gate
+      return { ok: false as const, error: { code: 'idea/storage-failed' } }
+    }).mockImplementationOnce(async (req: { id: string; muted: boolean }) => ({
+      ok: true as const,
+      value: { muted: req.muted },
+    }))
+    render(<IdeaSection {...props} />)
+    await flush()
+    act(() => { readSurface.open('idea_1') })
+    await flush()
+    // Request 1: gated, will fail after request 2 already succeeded.
+    fireEvent.click(screen.getByText('暂停提醒'))
+    act(() => { readSurface.closeDetail() })
+    act(() => { readSurface.open('idea_1') })
+    await flush()
+    // Request 2: succeeds immediately.
+    fireEvent.click(screen.getByText('暂停提醒'))
+    await flush()
+    expect(screen.getByText('提醒：已暂停')).toBeTruthy()
+    expect(screen.getByText('恢复提醒')).toBeTruthy()
+
+    // The stale request-1 failure arrives last — it must change nothing.
+    release()
+    await flush()
+    const snap = readSurface.state.getSnapshot()
+    expect(snap.detail?.id).toBe('idea_1')
+    expect(snap.detail?.resurfacingMuted).toBe(true)
+    expect(snap.reminderStatus).toBe('idle')
+    expect(snap.reminderError).toBe(false)
+    expect(screen.queryByText('操作失败，请重试')).toBeNull()
+    expect(screen.getByText('提醒：已暂停')).toBeTruthy()
+  })
 })
 
 describe('relaxed required-fields gate (D1)', () => {

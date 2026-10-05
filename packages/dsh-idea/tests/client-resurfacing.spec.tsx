@@ -182,6 +182,7 @@ interface Rig {
     getResurfacingBudget: ReturnType<typeof vi.fn>
     claimResurfacingBudget: ReturnType<typeof vi.fn>
     semanticResurfacingCandidates: ReturnType<typeof vi.fn>
+    setResurfacingMuted: ReturnType<typeof vi.fn>
   }
   input: { draftRev: number; occurrences: Array<{ source: string; ref: string }> }
   /** Fire the input subscription the controller registered (T11 seam). */
@@ -197,6 +198,7 @@ function makeRig(over: {
   getBudget?: ReturnType<typeof vi.fn>
   claimBudget?: ReturnType<typeof vi.fn>
   semantic?: ReturnType<typeof vi.fn>
+  setMuted?: ReturnType<typeof vi.fn>
 } = {}): Rig {
   const window = new FakeWindow()
   const input = { draftRev: 0, occurrences: [] as Array<{ source: string; ref: string }> }
@@ -223,6 +225,11 @@ function makeRig(over: {
     semanticResurfacingCandidates: over.semantic ?? vi.fn(async () => ({
       ok: true as const,
       value: { candidates: [] },
+    })),
+    // T13.1: the durable per-Idea mute write defaults to success.
+    setResurfacingMuted: over.setMuted ?? vi.fn(async () => ({
+      ok: true as const,
+      value: { muted: true },
     })),
   }
   const controller = new IdeaResurfacingController({
@@ -950,6 +957,103 @@ describe('the strip component', () => {
     fireEvent.click(screen.getByText('本次忽略'))
     expect(screen.queryByText('引用')).toBeNull()
     expect(rig.controller.state.getSnapshot().lastExpireReason).toBe('DISMISSED')
+  })
+})
+
+describe('T13.1 R4: the strip pause is a deterministic durable write', () => {
+  it('pauses durably on success: the Host write lands, the strip disappears with USER_MUTED', async () => {
+    const rig = makeRig()
+    render(<IdeaResurfaceStrip {...stripProps(rig.controller)} />)
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    expect(screen.getByText('暂停提醒')).toBeDefined()
+
+    fireEvent.click(screen.getByText('暂停提醒'))
+    await flush()
+
+    expect(rig.remote.setResurfacingMuted).toHaveBeenCalledTimes(1)
+    expect(rig.remote.setResurfacingMuted.mock.calls[0]![0]).toEqual({ id: 'idea_1', muted: true })
+    expect(screen.queryByText('💡 以前保存过一个可能相关的 Idea：「Alpha idea」')).toBeNull()
+    const state = rig.controller.state.getSnapshot()
+    expect(state.suggestion).toBeNull()
+    expect(state.lastExpireReason).toBe('USER_MUTED')
+    expect(state.pauseFailed).toBe(false)
+  })
+
+  it('a failed pause pretends nothing: the suggestion stays with a visible retry affordance', async () => {
+    const rig = makeRig({
+      setMuted: vi.fn(async () => ({ ok: false as const, error: { code: 'gateway/internal' } })),
+    })
+    render(<IdeaResurfaceStrip {...stripProps(rig.controller)} />)
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    fireEvent.click(screen.getByText('暂停提醒'))
+    await flush()
+
+    expect(rig.remote.setResurfacingMuted).toHaveBeenCalledTimes(1)
+    // The suggestion is still visible and the failure is announced.
+    expect(screen.getByText('💡 以前保存过一个可能相关的 Idea：「Alpha idea」')).toBeDefined()
+    expect(screen.getByRole('status').textContent).toBe('暂停失败，请重试。')
+    const state = rig.controller.state.getSnapshot()
+    expect(state.suggestion).not.toBeNull()
+    expect(state.pauseFailed).toBe(true)
+    expect(state.lastExpireReason).toBeNull()
+  })
+
+  it('a retry after a failed pause clears the failure and pauses durably', async () => {
+    const setMuted = vi.fn()
+      .mockResolvedValueOnce({ ok: false as const, error: { code: 'gateway/internal' } })
+      .mockResolvedValueOnce({ ok: true as const, value: { muted: true } })
+    const rig = makeRig({ setMuted })
+    render(<IdeaResurfaceStrip {...stripProps(rig.controller)} />)
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    fireEvent.click(screen.getByText('暂停提醒'))
+    await flush()
+    expect(screen.getByText('💡 以前保存过一个可能相关的 Idea：「Alpha idea」')).toBeDefined()
+    expect(screen.getByRole('status')).toBeDefined()
+
+    // The pause button doubles as the retry affordance; the failure banner
+    // clears with the successful retry.
+    fireEvent.click(screen.getByText('暂停提醒'))
+    await flush()
+
+    expect(setMuted).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText('暂停失败，请重试。')).toBeNull()
+    expect(screen.queryByText('💡 以前保存过一个可能相关的 Idea：「Alpha idea」')).toBeNull()
+    const state = rig.controller.state.getSnapshot()
+    expect(state.suggestion).toBeNull()
+    expect(state.lastExpireReason).toBe('USER_MUTED')
+    expect(state.pauseFailed).toBe(false)
+  })
+
+  it('a second click while a pause is in flight never duplicates the Host write', async () => {
+    const muteGate = deferred<{ ok: true; value: { muted: boolean } }>()
+    const setMuted = vi.fn(() => muteGate.promise)
+    const rig = makeRig({ setMuted })
+    render(<IdeaResurfaceStrip {...stripProps(rig.controller)} />)
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    fireEvent.click(screen.getByText('暂停提醒'))
+    fireEvent.click(screen.getByText('暂停提醒'))
+    fireEvent.click(screen.getByText('暂停提醒'))
+    await flush()
+    expect(setMuted).toHaveBeenCalledTimes(1)
+
+    muteGate.resolve({ ok: true, value: { muted: true } })
+    await flush()
+    expect(setMuted).toHaveBeenCalledTimes(1)
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+
+  it('a pause click with no suggestion is a no-op', async () => {
+    const rig = makeRig()
+    rig.controller.pauseReminders()
+    await flush()
+    expect(rig.remote.setResurfacingMuted).not.toHaveBeenCalled()
   })
 })
 

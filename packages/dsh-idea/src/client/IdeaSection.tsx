@@ -477,7 +477,7 @@ function IdeaDetailView(
       {continueStatus === 'error' && <p className="dsh-idea-state">{t('read.continue.error')}</p>}
       {archiveStatus === 'error' && <p className="dsh-idea-state">{t('read.archive.error')}</p>}
       {restoreStatus === 'error' && <p className="dsh-idea-state">{t('read.restore.error')}</p>}
-      {!archived && (
+      {detail.status === 'active' && (
         <div className="dsh-idea-reminder">
           <span className="dsh-idea-reminder-state">
             {detail.resurfacingMuted ? t('read.reminder.off') : t('read.reminder.on')}
