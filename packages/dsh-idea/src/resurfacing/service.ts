@@ -160,11 +160,18 @@ export class IdeaResurfacingService extends Service {
     checkCancelled(signal)
 
     const sessionId = input.sessionId
+    // T13.1 R1-A: Host-authoritative mute revalidation BEFORE any model
+    // dispatch — a preference changed between evaluate and judge drops the
+    // candidate here, so it never reaches the provider.
+    const mutedIds = this.ctx.ideaService.listResurfacingMutedIds()
     const dropped: ResurfacingJudgment['dropped'] = [...input.candidates].map((pinned) => {
       try {
         const aggregate = this.ctx.ideaService.get(IdeaId(pinned.ideaId))
         if (aggregate.idea.status !== 'active') {
           return { ideaId: IdeaId(pinned.ideaId), reason: 'CANDIDATE_BECAME_INELIGIBLE' as const }
+        }
+        if (mutedIds.has(aggregate.idea.ideaId)) {
+          return { ideaId: IdeaId(pinned.ideaId), reason: 'USER_MUTED' as const }
         }
         if (aggregate.idea.currentVersionId !== pinned.evaluatedVersionId) {
           return { ideaId: IdeaId(pinned.ideaId), reason: 'CANDIDATE_VERSION_CHANGED' as const }
@@ -173,7 +180,7 @@ export class IdeaResurfacingService extends Service {
       } catch {
         return { ideaId: IdeaId(pinned.ideaId), reason: 'CANDIDATE_BECAME_INELIGIBLE' as const }
       }
-    }).filter((entry): entry is { ideaId: IdeaId; reason: 'CANDIDATE_BECAME_INELIGIBLE' | 'CANDIDATE_VERSION_CHANGED' } => entry !== undefined)
+    }).filter((entry): entry is { ideaId: IdeaId; reason: 'CANDIDATE_BECAME_INELIGIBLE' | 'CANDIDATE_VERSION_CHANGED' | 'USER_MUTED' } => entry !== undefined)
 
     const droppedIds = new Set(dropped.map(entry => entry.ideaId as string))
     const survivors = this.ctx.ideaService.list({ includeArchived: true })
@@ -219,6 +226,19 @@ export class IdeaResurfacingService extends Service {
     checkCancelled(signal)
 
     const poolIds = new Set(survivors.map(candidate => candidate.ideaId as string))
-    return { ...parseResurfacingJudgment(text, poolIds), dropped }
+    const judgment = parseResurfacingJudgment(text, poolIds)
+
+    // T13.1 R1-B: post-Judge mute revalidation — the preference may have
+    // changed while the provider call was in flight. A muted winning Idea
+    // never surfaces: the outcome becomes none (fail-closed silence).
+    if (judgment.outcome === 'surface' && judgment.ideaId !== undefined && this.ctx.ideaService.listResurfacingMutedIds().has(judgment.ideaId)) {
+      // Fail-closed silence: the reason is absent (the model's verdict was
+      // discarded), and the dropped list carries the canonical fact.
+      return {
+        outcome: 'none',
+        dropped: [...dropped, { ideaId: judgment.ideaId, reason: 'USER_MUTED' as const }],
+      }
+    }
+    return { ...judgment, dropped }
   }
 }

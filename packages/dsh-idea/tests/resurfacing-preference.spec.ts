@@ -8,15 +8,15 @@
  * @module tests/resurfacing-preference.spec
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { cleanup, storedAggregate } from './helpers/harness.ts'
+import { cleanup } from './helpers/harness.ts'
 import { draft, harness, sourceDraft } from './helpers/harness.ts'
 
 afterEach(cleanup)
 
-async function createOne(env: { service: import('../src/service.ts').default }) {
+async function createOne(env: { service: { create: Function; setResurfacingMuted: Function; getResurfacingPreference: Function; deleteIdea: Function; archive: Function; restore: Function; get: Function; listResurfacingMutedIds: Function } }) {
   const agg = await env.service.create(draft(), sourceDraft())
   return { ideaId: agg.idea.ideaId, versionId: agg.idea.currentVersionId, updatedAt: agg.idea.updatedAt }
 }

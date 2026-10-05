@@ -16,7 +16,7 @@ import { IdeaReadSurface } from '../src/client/read-state.ts'
 import type { IdeaDetail } from '../src/remote-host/types.ts'
 import type { IdeaSectionProps } from '../src/client/slots.ts'
 import { requiredPresent } from '../src/client/state.ts'
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 afterEach(cleanup)
 
@@ -139,8 +139,7 @@ describe('Settings → Idea detail reminder control (T13.1)', () => {
   })
 
   it('resumes a paused reminder', async () => {
-    let call = 0
-    const { readSurface, setResurfacingMuted, props } = rig()
+      const { readSurface, setResurfacingMuted, props } = rig()
     const mock = setResurfacingMuted as unknown as {
       mockImplementation: (f: (req: { id: string; muted: boolean }) => Promise<unknown>) => void
     }

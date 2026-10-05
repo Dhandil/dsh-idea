@@ -699,6 +699,18 @@ export class IdeaRemoteService extends TypertRemoteService {
    */
   @Remote
   async claimResurfacingBudget(request: IdeaResurfacingBudgetRequest): Promise<IdeaResurfacingBudgetClaimResult> {
+    // T13.1 R1-D: when the caller identifies the Idea (the suggestion strip
+    // always does), the claim runs through the authoritative delivery seam —
+    // a mute re-check under the Idea's mutation tail BEFORE the budget
+    // test-and-set. Legacy callers without ideaId keep the plain budget
+    // claim.
+    if (request.ideaId !== undefined) {
+      const outcome = await this.ctx.ideaService.claimResurfacingDelivery(
+        request.sessionId,
+        IdeaId(request.ideaId as string),
+      )
+      return { outcome }
+    }
     const outcome = await this.ctx.ideaService.claimResurfacingBudget(request.sessionId)
     return { outcome }
   }

@@ -393,8 +393,14 @@ export class IdeaSemanticService extends Service {
       return { candidates: [] }
     }
 
+    // T13.1 R1-C: post-I/O mute revalidation — the preference may have
+    // changed while the query embedding was in flight; a muted Idea never
+    // enters the scored results.
+    const mutedAfter = this.ctx.ideaService.listResurfacingMutedIds()
+    const liveEligible = eligible.filter(entry => !mutedAfter.has(entry.record.ideaId))
+
     const scored: SemanticScoredRecord[] = []
-    for (const { record, candidate } of eligible) {
+    for (const { record, candidate } of liveEligible) {
       // Defensive re-validation of persisted vectors before comparison.
       if (record.dimensions !== this.profile.expectedDimensions) continue
       if (!record.vector.every(Number.isFinite)) continue
@@ -499,7 +505,13 @@ export class IdeaSemanticService extends Service {
       checkCancelled(signal)
 
       const selected = parseSelectorIdeaIds(text, new Set(pool.map(candidate => candidate.ideaId)))
-      return { candidates: this.revalidateSelectorPicks(selected, pool, sessionId) }
+      // T13.1 R1-C: post-I/O mute revalidation — the preference may have
+      // changed while the selector call was in flight; a muted candidate
+      // never reaches the Judge.
+      const mutedAfter = this.ctx.ideaService.listResurfacingMutedIds()
+      const filtered = this.revalidateSelectorPicks(selected, pool, sessionId)
+        .filter(candidate => !mutedAfter.has(IdeaId(candidate.ideaId)))
+      return { candidates: filtered }
     } catch (error) {
       if (error instanceof IdeaPreparationError && error.code === 'request-cancelled') throw error
       if (signal?.aborted) {

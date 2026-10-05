@@ -760,6 +760,35 @@ export class IdeaService extends Service {
   }
 
   /**
+   * T13.1 R1-D: the authoritative delivery claim — one atomic seam that
+   * re-checks the Idea's resurfacing preference under the per-Idea mutation
+   * tail BEFORE the per-conversation budget claim. Lock order is fixed:
+   * Idea mutation tail → conversation budget tail (never reversed). A muted
+   * Idea returns `USER_MUTED` without consuming the budget; an unmuted Idea
+   * proceeds to the existing budget test-and-set.
+   * @param sessionId - The conversation id the budget is keyed by.
+   * @param ideaId - The Idea the delivery would surface.
+   * @returns `CLAIMED`, `ALREADY_CONSUMED`, or `USER_MUTED`.
+   * @throws `IdeaError` with `idea-not-found` when the Idea does not exist,
+   * `deleting` while a permanent delete is admitted.
+   */
+  async claimResurfacingDelivery(sessionId: string, ideaId: IdeaId): Promise<'CLAIMED' | 'ALREADY_CONSUMED' | 'USER_MUTED'> {
+    return await this.enqueueIdeaMutation(ideaId, async () => {
+      this.get(ideaId)
+      if (this.resurfacingPreferences?.get(ideaId) !== undefined) {
+        return 'USER_MUTED'
+      }
+      return await this.enqueueBudgetClaim(sessionId, async () => {
+        if (this.budgetRecords.get(sessionId) !== undefined) {
+          return 'ALREADY_CONSUMED'
+        }
+        await this.budgetRecords.put(sessionId, { surfaceBudgetConsumed: true })
+        return 'CLAIMED'
+      })
+    })
+  }
+
+  /**
    * Atomically claim the conversation's one proactive-resurfacing surface
    * budget. The test-and-set runs inside the conversation's
    * per-conversation mutation tail, so concurrent same-Host claimants for

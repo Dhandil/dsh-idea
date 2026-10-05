@@ -86,6 +86,15 @@ export interface ResurfacingRemoteFace {
     | { ok: true; value: { muted: boolean } }
     | { ok: false; error: { code: string } }
   >
+  /** T13.1 R1-D: the authoritative delivery claim — mute re-check + budget
+   * claim in one Host seam. */
+  claimResurfacingDelivery(request: {
+    sessionId: string
+    ideaId: string
+  }): Promise<
+    | { ok: true; value: { outcome: 'CLAIMED' | 'ALREADY_CONSUMED' | 'USER_MUTED' } }
+    | { ok: false; error: { code: string } }
+  >
   judgeResurfacing(request: {
     sessionId: string
     currentTurn: string
@@ -113,6 +122,8 @@ export interface ResurfacingRemoteFace {
   >
   claimResurfacingBudget(request: {
     sessionId: string
+    /** T13.1 R1-D: the Idea the delivery would surface (mute re-check). */
+    ideaId?: string
   }): Promise<
     | { ok: true; value: IdeaResurfacingBudgetClaimResult }
     | { ok: false; error: { code: string } }
@@ -496,13 +507,15 @@ export class IdeaResurfacingController {
     this.state.update((draft) => {
       draft.pauseFailed = false
     })
+    // T13.1 D7: the durable mute write — the Host owns the storage, the
+    // client only sends the intent. On success the suggestion disappears.
+    // On failure the suggestion stays with a visible retry affordance.
     void this.remote.setResurfacingMuted({ id: suggestion.ideaId, muted: true }).then((result) => {
       this.pauseInFlight = false
       if (!result.ok) {
         this.state.update((draft) => { draft.pauseFailed = true })
         return
       }
-      // Host confirmed the durable pause: expire the suggestion.
       this.mutedIds.add(suggestion.ideaId)
       this.state.update((draft) => {
         draft.suggestion = null
@@ -829,7 +842,7 @@ export class IdeaResurfacingController {
     try {
       // Deliberately not abortable: a short Host call whose abort would not
       // un-consume a budget the Host may already have committed.
-      claim = await this.remote.claimResurfacingBudget({ sessionId: this.sessionId })
+      claim = await this.remote.claimResurfacingBudget({ sessionId: this.sessionId, ideaId: evaluated.ideaId })
     } catch {
       claim = undefined
     }
@@ -845,6 +858,17 @@ export class IdeaResurfacingController {
     }
     // The durable fact is decided either way; local suppression is for life.
     this.budgetState = 'consumed'
+    if (claim.value.outcome === 'USER_MUTED') {
+      // T13.1 R1-D: the Idea was muted between the Judge verdict and the
+      // delivery claim — silence, the budget remains free, no surface.
+      this.mutedIds.add(evaluated.ideaId)
+      this.state.update((draft) => {
+        draft.suggestion = null
+        draft.detailOpen = false
+        draft.lastExpireReason = 'USER_MUTED'
+      })
+      return
+    }
     if (claim.value.outcome !== 'CLAIMED') {
       // ALREADY_CONSUMED: another client won the budget; silence.
       return

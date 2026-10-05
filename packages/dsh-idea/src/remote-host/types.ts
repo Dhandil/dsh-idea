@@ -492,7 +492,7 @@ export interface IdeaResurfacingJudgeResult {
   ideaId?: string
   dropped: readonly {
     ideaId: string
-    reason: 'CANDIDATE_BECAME_INELIGIBLE' | 'CANDIDATE_VERSION_CHANGED'
+    reason: 'CANDIDATE_BECAME_INELIGIBLE' | 'CANDIDATE_VERSION_CHANGED' | 'USER_MUTED'
   }[]
 }
 
@@ -500,6 +500,9 @@ export interface IdeaResurfacingJudgeResult {
 export interface IdeaResurfacingBudgetRequest {
   /** The conversation id the one-surface budget is keyed by. */
   sessionId: string
+  /** T13.1 R1-D: the Idea the delivery would surface (enables the
+   * authoritative mute re-check). Present only from the suggestion strip. */
+  ideaId?: string
 }
 
 /** `idea.getResurfacingBudget` result: the durable budget fact, read-only. */
@@ -510,8 +513,8 @@ export interface IdeaResurfacingBudgetReadResult {
 
 /** `idea.claimResurfacingBudget` result: the closed claim outcome. */
 export interface IdeaResurfacingBudgetClaimResult {
-  /** `CLAIMED` when this call durably consumed the budget; `ALREADY_CONSUMED` otherwise. */
-  outcome: 'CLAIMED' | 'ALREADY_CONSUMED'
+  /** `CLAIMED` when this call durably consumed the budget; `ALREADY_CONSUMED` otherwise; `USER_MUTED` when the Idea was paused between proposal and delivery. */
+  outcome: 'CLAIMED' | 'ALREADY_CONSUMED' | 'USER_MUTED'
 }
 
 /**

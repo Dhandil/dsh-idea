@@ -172,7 +172,7 @@ export type ResurfacingJudgeNegativeReason =
   | 'JUDGE_FAILED'
 
 /** Why a surfaced-pool candidate was dropped before the model saw it. */
-export type ResurfacingDropReason = 'CANDIDATE_BECAME_INELIGIBLE' | 'CANDIDATE_VERSION_CHANGED'
+export type ResurfacingDropReason = 'CANDIDATE_BECAME_INELIGIBLE' | 'CANDIDATE_VERSION_CHANGED' | 'USER_MUTED'
 
 /** The one-model-call Judge result. Failure modes fail closed to `none`. */
 export interface ResurfacingJudgment {

@@ -9,22 +9,14 @@
  * @module tests/resurfacing-mute-suppression.spec
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import {
-  FakeAgentDefaultModel,
-  FakeLlm,
-  FakeSessionQuery,
-  preparationHarness,
-  textStream,
-} from './helpers/preparation.ts'
+import { afterEach, describe, expect, it } from 'vitest'
+import { FakeLlm, textStream } from './helpers/preparation.ts'
 import { cleanup, draft, harness, sourceDraft } from './helpers/harness.ts'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import IdeaResurfacingService from '../src/resurfacing/index.ts'
 import IdeaRemoteService from '../src/remote-host/index.ts'
 import IdeaSemanticService from '../src/semantic/index.ts'
-import type { IdeaSemanticDocument, IdeaSemanticEmbeddingRecord } from '../src/semantic/types.ts'
 
 afterEach(cleanup)
 
@@ -90,10 +82,9 @@ describe('T10 lexical — USER_MUTED suppression (D6-A)', () => {
 })
 
 describe('T11 semantic branches — USER_MUTED exclusion (D6-B/C)', () => {
-  const textChunk = (text: string): StreamChunk => ({ type: 'text', text } as never)
-
   async function semanticHarness(ideaCount: number, mutedCount: number) {
     const env = await harness()
+    const ids: string[] = []
     for (let index = 0; index < ideaCount; index += 1) {
       const agg = await env.service.create(
         draft({ title: `Idea ${index}`, core: `检索方案 ${index}`, motivation: 'm', possibleValue: 'v', useWhen: ['检索'] }),
@@ -102,6 +93,7 @@ describe('T11 semantic branches — USER_MUTED exclusion (D6-B/C)', () => {
       if (index < mutedCount) {
         await env.service.setResurfacingMuted(agg.idea.ideaId, true)
       }
+      ids.push(agg.idea.ideaId)
     }
     const ctx = env.ctx
     ctx.provide('sessionQuery', {
@@ -110,7 +102,7 @@ describe('T11 semantic branches — USER_MUTED exclusion (D6-B/C)', () => {
     } as never)
     ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'p', model: 'm' }) } as never)
     ctx.provide('ideaPreparations', { preparations: { resolve: () => { throw new Error('unused') } } } as never)
-    return { ...env, ctx }
+    return { ...env, ctx, ids }
   }
 
   it('D6-C: a muted Idea is excluded from the selector corpus; an all-muted corpus makes zero provider calls', async () => {
@@ -148,7 +140,7 @@ describe('T11 semantic branches — USER_MUTED exclusion (D6-B/C)', () => {
   })
 
   it('D6-B: embedding mode excludes muted Ideas from the eligible set — zero query embedding when all are muted', async () => {
-    const { semanticHarness, storedEmbedding, until, servers, closeServers } =
+    const { semanticHarness, storedEmbedding, until, closeServers } =
       await import('./helpers/semantic.ts')
     const root = await mkdtemp(`${tmpdir()}/t131-emb-`)
     try {
