@@ -1,5 +1,7 @@
 # DSH Idea T13.2 — Real Browser / Real Provider Durable Reminder Preference Validation Protocol Freeze
 
+> **AMENDMENT (2026-10-06, follow-up freeze repair)**: the isolation clauses below requiring the real `~/.dsh` to stay byte-identical during validation, and any derived requirement that the user's normal Harness (HOME `~/.dsh`, port 3080) be stopped/quiesced for validation to proceed, are **SUPERSEDED** by `docs/architectue/DSH_IDEA_T13_2_FOLLOWUP_FREEZE_REPAIR.md`. The acceptance object is now **attribution** — "T13.2-originated processes MUST NOT write to the real user DSH_HOME" — not global quiescence; the normal instance may keep running and its own writes are never T13.2-attributable. Provider configuration is sourced through the repository-external read-only template contract defined in that repair. Everything else in this freeze (cap discipline, guard, attribution fingerprint, real-browser requirement, defect/stop rules, docs-only delivery) remains in force. Original frozen text follows, preserved as written.
+
 Status: **`T13_2_PROTOCOL_FROZEN`**
 Date: 2026-10-06
 Scope: VALIDATION ONLY for T13.1 Resurfacing Preference Memory & Reminder Controls — real disposable Harness Host, real Harness Web, real Chromium, real dsh-idea plugin, real configured DeepSeek provider, real durable storage. No product implementation is authorized; T13.1 stays **`T13_1_RESURFACING_PREFERENCE_CLOSED`**.

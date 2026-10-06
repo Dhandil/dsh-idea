@@ -62,6 +62,8 @@ Host stopped, port 18795 released (0 listeners), both validation browser pages c
 
 **Real `~/.dsh` integrity — precise accounting**: the recursive path+size inventory (captured before boot; content-compared without emitting any hash or byte of the credential file) is NOT byte-identical at cleanup: the diff consists exclusively of the **user's own concurrently running normal Harness instance** (port 3080) — a `dsh-risk-advisor-ux-review` session's `sessions/…/session.lock` + `session.v3.jsonl.zstd`, its `storages/session_projcache/…` entry, `storages/workspace.json`, and a `settings.yaml` rewrite (52 → 150 bytes by that instance). **Zero T13.2-related paths appear anywhere in the diff**; every write of this validation targeted the disposable home exclusively (all processes ran with `DSH_HOME=<runtime>/home`). Honest verdict: `UNCHANGED_BY_T13_2 = TRUE`; literal byte-identity failed for reasons outside this validation's isolation boundary.
 
+> **Post-dated note (2026-10-06 follow-up freeze repair)**: the byte-identity acceptance object used in this section has been superseded by the attribution contract in `docs/architectue/DSH_IDEA_T13_2_FOLLOWUP_FREEZE_REPAIR.md` (§3, §5). Under that contract the verdict of this section is exactly the success form: `REAL_DSH_HOME_WRITTEN_BY_T13_2 = FALSE`.
+
 - Harness tracked diff: **0**. dsh-idea `git status`: **clean** — executable/test drift **0** (no Canonical Full, no unit suite re-run, per protocol §32). Credential exposure incidents: **0**.
 
 ## 9. Evidence limitations
