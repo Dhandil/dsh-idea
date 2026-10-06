@@ -1,10 +1,10 @@
 # DSH Idea T13.1 — Resurfacing Preference Implementation Acceptance Report
 
-- Outcome: **`T13_1_RESURFACING_PREFERENCE_REPAIR_2_PUSHED_AWAITING_ARCHITECTURE_REVIEW`**
-- Date: 2026-10-02 (repair #2 addendum: 2026-10-05)
+- Outcome: **`T13_1_RESURFACING_PREFERENCE_TEST_EVIDENCE_CLOSURE_PUSHED_AWAITING_FINAL_ARCHITECTURE_REVIEW`**
+- Date: 2026-10-02 (repair #2 addendum: 2026-10-05; test-evidence closure: 2026-10-06)
 - Baseline: origin/main `afa6ae2e570b36241503008d52e7f3e165021d10` (= T12.4 docs closure; the previous Accepted Executable is T12.3's `61e1eed…`); Harness `ddefc45…` read-only, tracked diff zero throughout.
 - Architecture authority: `docs/architectue/DSH_IDEA_T13_RESURFACING_PREFERENCE_ARCHITECTURE_FREEZE.md` (D1–D10).
-- **Tested executable (this task): repair #2 commit `8cad7b2e09237e2565479d230b0195d4c3a85a48`** (= this commit's built `lib/` state; zero post-Full drift).
+- **Tested executable (this task): test-evidence closure commit `eb7677045e3d224b3603e7a7ad7313ea299abefc`** — the Canonical Full ran on exactly this test set (tests-only change over repair #2's `8cad7b2…`; zero product `src/` drift; zero post-Full drift).
 
 ## 1. What was implemented
 
@@ -94,7 +94,24 @@ Repair #2 (commit `8cad7b2e09237e2565479d230b0195d4c3a85a48`) completes the roun
 
 Repair #2 verification (same binding order): Focused (`client-resurfacing.spec.tsx` 51 + `reminder-control.spec.tsx` 10, all green) → static gates (typert regenerated with zero drift, `tsc --noEmit` zero errors, host build + client build successful) → **exactly one fresh Canonical Full (`vitest run --no-file-parallelism`): 57 files / 876 tests, all green**, zero executable drift after it. Scope audit: 5 files changed (+280/−14), all inside `packages/dsh-idea/` (`src/client/{IdeaSection,read-state,resurfacing-state}`, `tests/{client-resurfacing,reminder-control} specs`); no Harness tracked diff.
 
-## 4c. Git state
+## 4c. Architecture Review Evidence Closure (E1–E6 deterministic race evidence, 2026-10-06)
 
-- Implementation commit: `c001a4b92a47e292571e12a654f8361f39130070`; Repair #1 commit: `a7eb01860a7bad60aee0e02243944d2b675e7c6d`; **Repair #2 commit: `8cad7b2e09237e2565479d230b0195d4c3a85a48` (= Tested SHA; docs-only report commit follows)**.
-- Harness tracked diff: 0. User docs drift: 17 items preserved. No reset/clean/git add .; no real Provider; T13.2/T14 not started.
+Round-2 review verdict: `T13_1_RESURFACING_PREFERENCE_TEST_EVIDENCE_REPAIR_REQUIRED` — the Repair #2 product implementation stands (R1-D/R2/R3/R4 confirmed in place, not redone); the missing item was deterministic Host/client race evidence for the R1 delivery-authority invariants. This round is TEST EVIDENCE ONLY: **zero product `src/` changes** (3 test files modified, +276/−4, commit `eb7677045e3d224b3603e7a7ad7313ea299abefc` = the new Tested SHA).
+
+New deterministic tests (7, all passing — every provider seam a scripted local fake, zero real provider calls):
+
+- **E1 — Host delivery-claim authority (R1-D)** (`resurfacing-preference.spec.ts`, 2 tests): a muted Idea's `claimResurfacingDelivery` returns `USER_MUTED` with `getResurfacingBudget` still `consumed === false` (before and after); an unmuted Idea claims `CLAIMED` (budget consumed), then `ALREADY_CONSUMED`. USER_MUTED never consumes budget, proven directly on the Host domain.
+- **E2 — client `USER_MUTED` keeps the local budget free (R1-D)** (`client-resurfacing.spec.tsx`, 1 test): turn 1's delivery claim answers `USER_MUTED` → suggestion null, `lastExpireReason='USER_MUTED'`, no surface; turn 2 on the same controller re-runs the whole path (evaluate → Judge → claim for a different Idea) and surfaces it — proving through public behavior (not private fields) that the budget state remained effectively free.
+- **E3 — pre-Judge mute race (R1-A)** (`resurfacing-mute-suppression.spec.ts`, 1 test): candidate pinned by `evaluate` while unmuted; `setResurfacingMuted` lands before `judge`; judgment is `outcome: none`, `dropped: [{ideaId, reason: 'USER_MUTED'}]`, **0 provider calls**.
+- **E4 — post-Judge provider race (R1-B)** (same file, 1 test): the Judge provider call is dispatched and parked on a gate; the Idea is muted mid-flight; the gate releases a legitimate SURFACE verdict; the final judgment is fail-closed `none` with `dropped` carrying `USER_MUTED` (exactly 1 provider call paid, verdict discarded).
+- **E5 — LLM selector post-I/O mute race (R1-C)** (same file, 1 test): the selector call is dispatched and parked; the Idea is muted; the released model picks the Idea; the result candidates are `[]` (the only Idea dropped post-I/O), so no downstream Judge request can carry it — and a stale client forwarding the pre-mute pin still gets it dropped pre-dispatch by the Judge with zero additional provider calls.
+- **E6 — embedding post-I/O mute race (R1-C)** (same file, 1 test): with a stored embedding, the query-embedding response is parked in flight; the Idea is muted; the released response revalidates and the candidate list is `[]`.
+
+Verification (binding order): Focused (`resurfacing-preference.spec.ts` 13 + `resurfacing-mute-suppression.spec.ts` 10 + `client-resurfacing.spec.tsx` 52 = **3 files / 75 tests, all green**) → T13/T8–T12 regression (**57 files / 883 tests, all green**) → typert regenerated with **zero drift** (wire untouched) → `tsc --noEmit` zero errors → host build + client build successful → `git diff --check` clean → **exactly one fresh Canonical Full (`vitest run --no-file-parallelism`): 57 files / 883 tests, all green**, zero executable drift after it.
+
+Execution environment: macOS (darwin, arm64) with zsh; all paths native (`/Users/tongxin/Developer/Harness/...`); the Mac dsh-idea preflight was **clean** (HEAD == origin/main == `0b8bb159cb849852b5f6ce285e1b76710f63d69a`, zero workspace drift). Historical Windows execution preserved 17 docs-drift items; current Mac preflight was clean.
+
+## 4d. Git state
+
+- Implementation commit: `c001a4b92a47e292571e12a654f8361f39130070`; Repair #1 commit: `a7eb01860a7bad60aee0e02243944d2b675e7c6d`; Repair #2 commit: `8cad7b2e09237e2565479d230b0195d4c3a85a48`; Repair #2 docs-only report: `0b8bb159cb849852b5f6ce285e1b76710f63d69a`; **test-evidence closure commit: `eb7677045e3d224b3603e7a7ad7313ea299abefc` (= Tested SHA; docs-only report commit follows)**.
+- Harness tracked diff: 0 (read-only throughout, HEAD `ddefc45…` unchanged). Historical Windows execution preserved 17 docs-drift items; the current Mac preflight was clean and the final Mac workspace is clean. No reset/clean/git add .; no real Provider; T13.2/T14 not started.
