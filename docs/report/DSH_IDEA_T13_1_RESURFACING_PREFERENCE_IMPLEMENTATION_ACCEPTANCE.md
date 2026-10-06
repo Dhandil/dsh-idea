@@ -1,10 +1,10 @@
 # DSH Idea T13.1 — Resurfacing Preference Implementation Acceptance Report
 
-- Outcome: **`T13_1_RESURFACING_PREFERENCE_TEST_EVIDENCE_CLOSURE_PUSHED_AWAITING_FINAL_ARCHITECTURE_REVIEW`**
-- Date: 2026-10-02 (repair #2 addendum: 2026-10-05; test-evidence closure: 2026-10-06)
+- Outcome: **`T13_1_RESURFACING_PREFERENCE_ARCHITECTURE_ACCEPTED` (`T13_1 = CLOSED`)** — final review: `docs/architectue/DSH_IDEA_T13_1_FINAL_ARCHITECTURE_REVIEW.md`
+- Date: 2026-10-02 (repair #2 addendum: 2026-10-05; test-evidence closure: 2026-10-06; final architecture acceptance: 2026-10-06)
 - Baseline: origin/main `afa6ae2e570b36241503008d52e7f3e165021d10` (= T12.4 docs closure; the previous Accepted Executable is T12.3's `61e1eed…`); Harness `ddefc45…` read-only, tracked diff zero throughout.
 - Architecture authority: `docs/architectue/DSH_IDEA_T13_RESURFACING_PREFERENCE_ARCHITECTURE_FREEZE.md` (D1–D10).
-- **Tested executable (this task): test-evidence closure commit `eb7677045e3d224b3603e7a7ad7313ea299abefc`** — the Canonical Full ran on exactly this test set (tests-only change over repair #2's `8cad7b2…`; zero product `src/` drift; zero post-Full drift).
+- **Tested executable (this task): test-evidence closure commit `eb7677045e3d224b3603e7a7ad7313ea299abefc`** — the Canonical Full ran on exactly this test set (tests-only change over repair #2's `8cad7b2…`; zero product `src/` drift; zero post-Full drift). **Final Accepted Tested SHA = `eb7677045e3d224b3603e7a7ad7313ea299abefc`** (per the final architecture review).
 
 ## 1. What was implemented
 
@@ -49,7 +49,7 @@
 2. **T8/T9/T10/T11/T12 regression** — full package suite: **54 files / 844 tests, all green**.
 3. **Architecture / Scope Audit** — initial implementation diff `afa6ae2… → c001a4b…`: **34 files (+1021/−18)** = 17 src + 15 test files (12 modified + 3 new) + 2 docs, all inside `packages/dsh-idea/` plus the freeze doc; no Harness/migration/domain-bump/Quick-Cache/T12 R1-R10/T9-codec/T11-ranking changes.
 4. **Static Gates** — typert regenerated (`setResurfacingMuted` wire shape), `tsc --noEmit` zero errors, host build + client build successful.
-5. **Canonical Full (exactly one fresh run)** — `vitest run --no-file-parallelism`: **57 files / 866 tests, all green** (includes the new preference/suppression/reminder-control specs), executed after the final build with **zero executable drift** after it (lib mtime unchanged post-Full).
+5. **Canonical Full (exactly one fresh run)** — `vitest run --no-file-parallelism`: **57 files / 866 tests, all green** (includes the new preference/suppression/reminder-control specs), executed after the final build with **zero executable drift** after it (lib mtime unchanged post-Full). — *Initial T13.1 implementation historical verification (superseded by the AUTHORITATIVE FINAL CANONICAL FULL in §4c).*
 
 ## 3. Change list
 
@@ -81,7 +81,7 @@ The architecture review required R1–R4. Repair #1 (commit `a7eb018…`) landed
 - **R3 — reminder lifecycle ownership** (client change landed in §4c): `IdeaReadSurface.setResurfacingMuted` updates `reminderStatus` ('idle'/'loading'/'error') and the projected `detail.resurfacingMuted` only when the detail still belongs to the requesting idea id; `open(newIdea)` and `closeDetail()` reset the visible status/error; a stale success from a previous Idea cannot cross-apply to the current detail projection. A stale failure from a previous Idea cannot set `reminderError` on the current detail.
 - **R4 — report correction**: the acceptance report's change list and lineage are corrected (initial diff: 34 files, +1021/−18; 3 new test files; T12.4 docs closure = `afa6ae2…`; T12.3 Accepted Executable = `61e1eed…`).
 
-Repair verification (same binding order): Focused (preference 11 + suppression 6 + reminder-control 5 + judge/budget/panel/section regression) → full regression **57 files / 866 tests, all green** → scope audit (10 files, all inside `packages/dsh-idea/`) → static gates (typert, typecheck, host build, client build, git diff --check) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 57 / 866 all green**, zero executable drift after it.
+Repair verification (same binding order): Focused (preference 11 + suppression 6 + reminder-control 5 + judge/budget/panel/section regression) → full regression **57 files / 866 tests, all green** → scope audit (10 files, all inside `packages/dsh-idea/`) → static gates (typert, typecheck, host build, client build, git diff --check) → **exactly one fresh Canonical Full (`--no-file-parallelism`): 57 / 866 all green**, zero executable drift after it. — *Repair #1 historical verification (superseded by the AUTHORITATIVE FINAL CANONICAL FULL in §4c).*
 
 ## 4b. Architecture Review Repair #2 (R1-D client completion / R2 / R3 / R4, 2026-10-05)
 
@@ -92,7 +92,7 @@ Repair #2 (commit `8cad7b2e09237e2565479d230b0195d4c3a85a48`) completes the roun
 - **R3 — reminder request ownership (generation guard)**: `IdeaReadSurface` carries a `reminderGeneration` counter bumped by `open()` and `closeDetail()`, which also reset the visible `reminderStatus`/`reminderError` in the reactive store. `setResurfacingMuted` captures the generation at issue time; a completion applies `reminderStatus`/`reminderError`/`detail.resurfacingMuted` only when `generation === currentGeneration` and `detailId === id`. A stale failure cannot mark a newer detail as error (A); a stale success cannot cross-project onto a newer detail (B); a failure after close leaves no residue (C); and after close-then-reopen, request 2 owns the surface and the stale request-1 completion cannot clobber it (D). The Host durable mutation is never cancelled or rolled back — the old completion only loses UI authority.
 - **R4 — deterministic strip-pause tests**: new `client-resurfacing.spec.tsx` block "T13.1 R4: the strip pause is a deterministic durable write" (5 tests): success (Host write lands, strip disappears with `lastExpireReason='USER_MUTED'`, `pauseFailed=false`); failure (no pretend-pause — suggestion stays, visible `暂停失败，请重试。` status); retry after failure (failure banner clears, durable pause lands); in-flight duplicate clicks never duplicate the Host write; a pause click with no suggestion is a no-op.
 
-Repair #2 verification (same binding order): Focused (`client-resurfacing.spec.tsx` 51 + `reminder-control.spec.tsx` 10, all green) → static gates (typert regenerated with zero drift, `tsc --noEmit` zero errors, host build + client build successful) → **exactly one fresh Canonical Full (`vitest run --no-file-parallelism`): 57 files / 876 tests, all green**, zero executable drift after it. Scope audit: 5 files changed (+280/−14), all inside `packages/dsh-idea/` (`src/client/{IdeaSection,read-state,resurfacing-state}`, `tests/{client-resurfacing,reminder-control} specs`); no Harness tracked diff.
+Repair #2 verification (same binding order): Focused (`client-resurfacing.spec.tsx` 51 + `reminder-control.spec.tsx` 10, all green) → static gates (typert regenerated with zero drift, `tsc --noEmit` zero errors, host build + client build successful) → **exactly one fresh Canonical Full (`vitest run --no-file-parallelism`): 57 files / 876 tests, all green**, zero executable drift after it. — *Repair #2 historical verification (superseded by the AUTHORITATIVE FINAL CANONICAL FULL in §4c).* Scope audit: 5 files changed (+280/−14), all inside `packages/dsh-idea/` (`src/client/{IdeaSection,read-state,resurfacing-state}`, `tests/{client-resurfacing,reminder-control} specs`); no Harness tracked diff.
 
 ## 4c. Architecture Review Evidence Closure (E1–E6 deterministic race evidence, 2026-10-06)
 
@@ -110,6 +110,8 @@ New deterministic tests (7, all passing — every provider seam a scripted local
 Verification (binding order): Focused (`resurfacing-preference.spec.ts` 13 + `resurfacing-mute-suppression.spec.ts` 10 + `client-resurfacing.spec.tsx` 52 = **3 files / 75 tests, all green**) → T13/T8–T12 regression (**57 files / 883 tests, all green**) → typert regenerated with **zero drift** (wire untouched) → `tsc --noEmit` zero errors → host build + client build successful → `git diff --check` clean → **exactly one fresh Canonical Full (`vitest run --no-file-parallelism`): 57 files / 883 tests, all green**, zero executable drift after it.
 
 Execution environment: macOS (darwin, arm64) with zsh; all paths native (`/Users/tongxin/Developer/Harness/...`); the Mac dsh-idea preflight was **clean** (HEAD == origin/main == `0b8bb159cb849852b5f6ce285e1b76710f63d69a`, zero workspace drift). Historical Windows execution preserved 17 docs-drift items; current Mac preflight was clean.
+
+**AUTHORITATIVE FINAL CANONICAL FULL** — `vitest run --no-file-parallelism`: **57 files / 883 tests PASS**, zero post-Full executable/test drift. This is the final accepted verification state for T13.1 (Accepted Tested SHA `eb76770…`); the 57/866 and 57/876 figures above are the historical verification states of the initial implementation and Repair #2 respectively, preserved as written.
 
 ## 4d. Git state
 
