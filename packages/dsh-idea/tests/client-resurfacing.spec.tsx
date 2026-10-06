@@ -1057,6 +1057,53 @@ describe('T13.1 R4: the strip pause is a deterministic durable write', () => {
   })
 })
 
+describe('T13.1 R1-D evidence: USER_MUTED keeps the conversation budget free', () => {
+  it('a USER_MUTED delivery claim surfaces nothing and the next eligible turn still runs the full path', async () => {
+    const claimBudget = vi.fn(async (request: { sessionId: string; ideaId?: string }) =>
+      request.ideaId === 'idea_1'
+        ? { ok: true as const, value: { outcome: 'USER_MUTED' as const } }
+        : { ok: true as const, value: { outcome: 'CLAIMED' as const } })
+    const evaluate = vi.fn()
+      .mockResolvedValueOnce({ ok: true as const, value: { candidates: [candidateWire('idea_1', 'Alpha idea')], suppressed: [] } })
+      .mockResolvedValueOnce({ ok: true as const, value: { candidates: [candidateWire('idea_2', 'Beta idea')], suppressed: [] } })
+    const rig = makeRig({
+      evaluate,
+      judge: vi.fn(async (request: { candidates: Array<{ ideaId: string }> }) =>
+        surfaceVerdict(request.candidates[0]!.ideaId)),
+      claimBudget,
+    })
+
+    // Turn 1: idea_1 wins the Judge, but the Host answers the delivery claim
+    // with USER_MUTED — the Idea was paused during the delivery race.
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+
+    expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
+    expect(rig.remote.claimResurfacingBudget.mock.calls[0]![0]).toEqual({ sessionId: 'conversation-1', ideaId: 'idea_1' })
+    const state = rig.controller.state.getSnapshot()
+    expect(state.suggestion).toBeNull()
+    expect(state.detailOpen).toBe(false)
+    expect(state.lastExpireReason).toBe('USER_MUTED')
+
+    // Turn 2: the same controller must run the whole path again — evaluation,
+    // Judge, and a delivery claim for a different Idea. That is only possible
+    // if the local budget state is still effectively free: a budget marked
+    // consumed would have stopped before evaluation. Proven through public
+    // behavior, never by inspecting private controller state.
+    pushTurn(rig.window, 4, '塔防的方向哪个更好？', '各有取舍。')
+    await flush()
+
+    expect(rig.remote.evaluateResurfacing).toHaveBeenCalledTimes(2)
+    expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(2)
+    expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledTimes(2)
+    expect(rig.remote.claimResurfacingBudget.mock.calls[1]![0]).toEqual({ sessionId: 'conversation-1', ideaId: 'idea_2' })
+    const surfaced = rig.controller.state.getSnapshot().suggestion
+    expect(surfaced).not.toBeNull()
+    expect(surfaced!.ideaId).toBe('idea_2')
+    expect(rig.controller.state.getSnapshot().lastExpireReason).toBeNull()
+  })
+})
+
 describe('T11 hybrid retrieval orchestration', () => {
   it('starts the semantic branch only after the budget is known free and the detector admits', async () => {
     const budgetGate = deferred<unknown>()

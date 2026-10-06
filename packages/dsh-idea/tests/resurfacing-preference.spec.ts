@@ -3,8 +3,9 @@
  * across restart, unmute deletes, idempotency both directions, unknown Idea
  * rejects, archive/restore preserves mute, permanent delete cleans the
  * preference (and failure semantics), concurrency serialization, additive
- * v3 compatibility, no aggregate updatedAt/version drift, and no
- * semantic-reindex trigger from preference writes.
+ * v3 compatibility, no aggregate updatedAt/version drift, no
+ * semantic-reindex trigger from preference writes, and the R1-D delivery
+ * claim authority (USER_MUTED never consumes the conversation budget).
  * @module tests/resurfacing-preference.spec
  */
 
@@ -153,6 +154,30 @@ describe('resurfacing preference domain (T13.1)', () => {
     expect(aggregate.versions).toHaveLength(1)
     expect(aggregate.evolutionEvents).toHaveLength(1)
     expect(aggregate.sourceDiscussions).toEqual(aggregate.versions[0]?.draft ? aggregate.sourceDiscussions : [])
+  })
+
+  // T13.1 E1 — the R1-D Host authority proof: the atomic delivery claim
+  // re-checks the durable preference BEFORE the budget test-and-set, so a
+  // muted Idea never consumes a conversation's one-surface budget.
+  describe('delivery claim authority (R1-D)', () => {
+    it('USER_MUTED: a muted Idea claims USER_MUTED and the budget stays free', async () => {
+      const env = await harness()
+      const { ideaId } = await createOne(env)
+      expect(env.service.getResurfacingBudget('conversation-race').consumed).toBe(false)
+
+      await env.service.setResurfacingMuted(ideaId, true)
+      await expect(env.service.claimResurfacingDelivery('conversation-race', ideaId)).resolves.toBe('USER_MUTED')
+      expect(env.service.getResurfacingBudget('conversation-race').consumed).toBe(false)
+    })
+
+    it('CLAIMED: an unmuted Idea consumes the budget exactly once, then ALREADY_CONSUMED', async () => {
+      const env = await harness()
+      const { ideaId } = await createOne(env)
+      await expect(env.service.claimResurfacingDelivery('conversation-race', ideaId)).resolves.toBe('CLAIMED')
+      expect(env.service.getResurfacingBudget('conversation-race').consumed).toBe(true)
+      await expect(env.service.claimResurfacingDelivery('conversation-race', ideaId)).resolves.toBe('ALREADY_CONSUMED')
+      expect(env.service.getResurfacingBudget('conversation-race').consumed).toBe(true)
+    })
   })
 
   it('muting does not trigger a semantic re-index: the domain change carries the preference table, not ideas', async () => {
