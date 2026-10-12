@@ -2,6 +2,28 @@
 
 > **AMENDMENT (2026-10-06, follow-up freeze repair)**: the isolation clauses below requiring the real `~/.dsh` to stay byte-identical during validation, and any derived requirement that the user's normal Harness (HOME `~/.dsh`, port 3080) be stopped/quiesced for validation to proceed, are **SUPERSEDED** by `docs/architectue/DSH_IDEA_T13_2_FOLLOWUP_FREEZE_REPAIR.md`. The acceptance object is now **attribution** — "T13.2-originated processes MUST NOT write to the real user DSH_HOME" — not global quiescence; the normal instance may keep running and its own writes are never T13.2-attributable. Provider configuration is sourced through the repository-external read-only template contract defined in that repair. Everything else in this freeze (cap discipline, guard, attribution fingerprint, real-browser requirement, defect/stop rules, docs-only delivery) remains in force. Original frozen text follows, preserved as written.
 
+> **AMENDMENT (2026-10-12, final Scenario I closure trigger fixtures)**: for the remaining positive-Judge → strip → dismiss-non-durable closure only, use the three exact detector-proven fixtures in § Final closure trigger fixtures below. This supersedes the unproven final-closure alternate prompt; it does not reopen or rewrite the historical A–H work or earlier runtime observations. The closure-specific semantic override remains `dsh-idea-semantic.mode = off`, and its public-provider cap is 20 delivered calls with request 21 denied before network, as specified by the final-closure instruction. The general protocol below is otherwise unchanged.
+
+## Final closure trigger fixtures — 2026-10-12 review amendment
+
+Amendment status: **`T13_2_FINAL_CLOSURE_TRIGGER_FIXTURES_READY_FOR_REVIEW`**. Do not rerun the final live closure until Architecture Review accepts this amendment.
+
+Before any final-closure real turn, the exact trigger string must pass the current deterministic `detectResurfacingOpportunity()` independently with `recentContext: []`. A turn that has not passed this proof must not be called a strong trigger, and zero evaluate/Judge dispatch after an unproven turn is not evidence of eventSource-repair failure.
+
+The read-only proof directly imported `packages/dsh-idea/src/resurfacing/detector.ts` with Node `v24.21.0` and `--experimental-strip-types`. That file at baseline `1c31a9713737171811084e19c628452ed91de3ce` is byte-identical to the tested implementation `7f1703badb6e48845798d8444d00f1e12023c5d8` (SHA-256 `d23fb6a4f21e6307dd00a459d24d839865d3388ad2dd9fa94b31e009ddbb44ca`). No recent context, product code, tests, or provider were used.
+
+| Fixture | Exact current-turn text | Admitted | Strong signals and detector evidence |
+|---|---|---:|---|
+| 1 | 我准备重新做一款塔防游戏，想把模块组合出的攻击范围作为核心差异化，第一步应该怎么验证？ | **TRUE** | `GOAL_DECLARATION` — `准备重新做` |
+| 2 | 我打算重新设计塔防的攻击覆盖规则，之前讨论过的模块拼接路线还能形成构筑差异吗？ | **TRUE** | `GOAL_DECLARATION` — `打算重新设计`; `MEMORY_GAP` — `之前讨论过` |
+| 3 | 我决定重新开发塔防原型。之前提过把不同形状的攻击模块拼成塔的覆盖区域，这个方向值得继续吗？ | **TRUE** | `GOAL_DECLARATION` — `决定重新开发`; `MEMORY_GAP` — `之前提过` |
+
+Each fixture independently returned `admitted = true` and at least one strong signal. Their explicit goal/memory language requires no recent-context trick, and each is specifically about tower-defense attack-range or modular-build differentiation. These exact strings are frozen; do not substitute an unproven paraphrase. Use a fresh conversation for each attempt and advance to the next fixture only after a completed turn's legitimate Judge `NONE`; never repeat an identical prompt to grind the model. If a completed turn using one of these proven fixtures again produces no evaluate/Judge dispatch, stop with `T13_2_EVENTSOURCE_REPAIR_LIVE_VALIDATION_FAILED`.
+
+### Review classification correction
+
+Attempt 2 of the 2026-10-12 closure really completed with zero evaluate and zero Judge dispatch. Its exact text — 「我现在正在重新设计塔防玩法，尤其在想攻击范围和角色构筑怎么做出差异化，之前有没有值得重新拿出来的方向？」 — was not proven against the detector before use. Architecture Review therefore classifies it as **`INVALID_REPAIR_FAILURE_PROBE`**, not evidence that the eventSource repair failed. Do not reopen H1 localization. The accepted deterministic eventSource repair R1–R5, durable Pause → Resume state, earlier real post-Resume evaluate/Judge dispatch, and the legitimacy of the first Judge `NONE / TOO_WEAKLY_CONNECTED` remain accepted. Positive Judge, real strip, Dismiss this time, and dismiss-non-durable persistence remain incomplete.
+
 Status: **`T13_2_PROTOCOL_FROZEN`**
 Date: 2026-10-06
 Scope: VALIDATION ONLY for T13.1 Resurfacing Preference Memory & Reminder Controls — real disposable Harness Host, real Harness Web, real Chromium, real dsh-idea plugin, real configured DeepSeek provider, real durable storage. No product implementation is authorized; T13.1 stays **`T13_1_RESURFACING_PREFERENCE_CLOSED`**.

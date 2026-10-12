@@ -75,3 +75,7 @@ Attempt 2 ran in a separate fresh conversation. The final assistant response dir
 ## Verdict
 
 **`T13_2_EVENTSOURCE_REPAIR_LIVE_VALIDATION_FAILED`** — the accepted repair’s live path reached evaluate and Judge once, with Judge returning NONE, but a second eligible completed turn produced no evaluate or Judge dispatch. Validation stopped at that boundary as required. This round does not establish a positive resurfacing verdict, does not show a product defect in dismiss behavior, and does not complete the final Scenario I closure proof. No code or executable files were changed; this report is the only repository change.
+
+## Post-review correction — trigger admission (2026-10-12)
+
+The historical Attempt 2 observation remains unchanged: its turn completed and produced zero evaluate and zero Judge dispatch. Architecture Review found that its trigger was never proven admitted by the current deterministic detector; therefore its classification as eventSource-repair failure evidence is **invalid**: `PREVIOUS_ATTEMPT_2_CLASSIFICATION = INVALID_REPAIR_FAILURE_PROBE`. Do not reopen H1 localization. Deterministic eventSource repair R1–R5, durable Pause → Resume state, earlier real post-Resume evaluate/Judge dispatch, and the first legitimate Judge `NONE / TOO_WEAKLY_CONNECTED` remain accepted. Positive Judge, real strip, Dismiss this time, and dismiss-non-durable persistence remain incomplete.
