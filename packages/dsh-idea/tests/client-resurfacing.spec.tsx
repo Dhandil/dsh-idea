@@ -31,6 +31,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { IdeaResurfacingController } from '../src/client/resurfacing-state.ts'
+import { ResurfacingControllerOwner } from '../src/client/resurfacing-controller-owner.ts'
 import type {
   ResurfacingEventWindowFace,
   ResurfacingInputFace,
@@ -89,6 +90,10 @@ class FakeWindow implements ResurfacingEventWindowFace {
   change: WindowChange = { kind: 'replace', entries: [] }
   revision = 0
   private readonly listeners = new Set<() => void>()
+
+  get subscriberCount(): number {
+    return this.listeners.size
+  }
 
   getSnapshot(): { entries: readonly Entry[]; change: WindowChange; revision: number } {
     return { entries: this.entries, change: this.change, revision: this.revision }
@@ -199,8 +204,8 @@ function makeRig(over: {
   claimBudget?: ReturnType<typeof vi.fn>
   semantic?: ReturnType<typeof vi.fn>
   setMuted?: ReturnType<typeof vi.fn>
-} = {}): Rig {
-  const window = new FakeWindow()
+} = {}, options: { window?: FakeWindow; trackDispose?: boolean } = {}): Rig {
+  const window = options.window ?? new FakeWindow()
   const input = { draftRev: 0, occurrences: [] as Array<{ source: string; ref: string }> }
   const inputListeners = new Set<() => void>()
   const save = { preparingMessageId: null, modal: null, submitting: false }
@@ -249,7 +254,7 @@ function makeRig(over: {
       return appendOk.value
     },
   })
-  pendings.push(() => controller.dispose())
+  if (options.trackDispose !== false) pendings.push(() => controller.dispose())
   return {
     controller,
     window,
@@ -1347,5 +1352,122 @@ describe('T11 hybrid retrieval orchestration', () => {
     const surfaced = [a, b].filter(rig => rig.controller.state.getSnapshot().suggestion !== null)
     expect(surfaced).toHaveLength(1)
     expect(surfaced[0]!.controller.state.getSnapshot().suggestion!.ideaId).toBe('idea_9')
+  })
+})
+
+describe('T13.2 Session eventSource generation ownership', () => {
+  it('R1 reuses one controller and one subscription while the binding generation is unchanged', () => {
+    const owner = new ResurfacingControllerOwner<IdeaResurfacingController>()
+    pendings.push(() => owner.disposeAll())
+    const window = new FakeWindow()
+    let rig!: Rig
+    const create = vi.fn(() => {
+      rig = makeRig({}, { window, trackDispose: false })
+      return rig.controller
+    })
+
+    const first = owner.get('session-generation', window, create)
+    const second = owner.get('session-generation', window, create)
+    const dispose = vi.spyOn(rig.controller, 'dispose')
+
+    expect(first).toBe(rig.controller)
+    expect(second).toBe(first)
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(window.subscriberCount).toBe(1)
+    expect(dispose).not.toHaveBeenCalled()
+
+    owner.disposeAll()
+    expect(dispose).toHaveBeenCalledTimes(1)
+    expect(window.subscriberCount).toBe(0)
+  })
+
+  it('R2/R3/R4 replaces a stale generation, routes only G2 events, and tears down each owned controller once', async () => {
+    const owner = new ResurfacingControllerOwner<IdeaResurfacingController>()
+    pendings.push(() => owner.disposeAll())
+    const g1Window = new FakeWindow()
+    const sessionId = 'session-generation'
+    let g1!: Rig
+    const createG1 = () => {
+      g1 = makeRig({}, { window: g1Window, trackDispose: false })
+      return g1.controller
+    }
+
+    expect(owner.get(sessionId, g1Window, createG1)).toBe(g1.controller)
+    expect(g1Window.subscriberCount).toBe(1)
+
+    // The binding may retire and return between controller requests. The next
+    // lookup must compare the new eventSource even when no absent lookup ran.
+    const g2Window = new FakeWindow()
+    let g2!: Rig
+    const order: string[] = []
+    const g1OriginalDispose = g1.controller.dispose.bind(g1.controller)
+    const g1Dispose = vi.spyOn(g1.controller, 'dispose').mockImplementation(() => {
+      order.push('dispose:G1')
+      g1OriginalDispose()
+    })
+    const createG2 = vi.fn(() => {
+      order.push('create:G2')
+      g2 = makeRig({}, { window: g2Window, trackDispose: false })
+      return g2.controller
+    })
+    const current = owner.get(sessionId, g2Window, createG2)
+    const g2Dispose = vi.spyOn(g2.controller, 'dispose')
+
+    expect(current).toBe(g2.controller)
+    expect(current).not.toBe(g1.controller)
+    expect(createG2).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(['dispose:G1', 'create:G2'])
+    expect(g1Dispose).toHaveBeenCalledTimes(1)
+    expect(g1Window.subscriberCount).toBe(0)
+    expect(g2Window.subscriberCount).toBe(1)
+
+    // An old-source completed turn cannot drive the retired controller.
+    pushTurn(g1Window, 1, '我准备重新做一个塔防游戏。', '旧一代回复')
+    await flush()
+    expect(g1.remote.evaluateResurfacing).not.toHaveBeenCalled()
+    expect(g1.remote.judgeResurfacing).not.toHaveBeenCalled()
+
+    // The deterministic completed-turn shape on G2 reaches the existing
+    // controller pipeline and dispatches its Host-facing evaluation seam.
+    pushTurn(g2Window, 1, '我准备重新做一个塔防游戏。', '新一代回复')
+    await flush()
+    expect(g2.remote.evaluateResurfacing).toHaveBeenCalledTimes(1)
+    expect(g2.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+
+    const otherWindow = new FakeWindow()
+    let other!: Rig
+    owner.get('session-other', otherWindow, () => {
+      other = makeRig({}, { window: otherWindow, trackDispose: false })
+      return other.controller
+    })
+    const otherDispose = vi.spyOn(other.controller, 'dispose')
+
+    owner.disposeAll()
+    owner.disposeAll()
+    expect(g1Dispose).toHaveBeenCalledTimes(1)
+    expect(g2Dispose).toHaveBeenCalledTimes(1)
+    expect(otherDispose).toHaveBeenCalledTimes(1)
+    expect(g2Window.subscriberCount).toBe(0)
+    expect(otherWindow.subscriberCount).toBe(0)
+  })
+
+  it('R5 retires a cached controller when the current binding is absent', () => {
+    const owner = new ResurfacingControllerOwner<IdeaResurfacingController>()
+    pendings.push(() => owner.disposeAll())
+    const window = new FakeWindow()
+    let rig!: Rig
+    const create = vi.fn(() => {
+      rig = makeRig({}, { window, trackDispose: false })
+      return rig.controller
+    })
+
+    expect(owner.get('session-generation', window, create)).toBe(rig.controller)
+    const dispose = vi.spyOn(rig.controller, 'dispose')
+    owner.disposeSession('session-generation')
+    expect(owner.get('session-generation', undefined, create)).toBeUndefined()
+
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(dispose).toHaveBeenCalledTimes(1)
+    expect(window.subscriberCount).toBe(0)
   })
 })

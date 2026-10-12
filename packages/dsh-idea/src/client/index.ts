@@ -62,6 +62,7 @@ import type {
 } from './slots.ts'
 import { IdeaSaveSurface } from './state.ts'
 import { IdeaResurfacingController } from './resurfacing-state.ts'
+import { ResurfacingControllerOwner } from './resurfacing-controller-owner.ts'
 import type {
   ResurfacingEventWindowFace,
   ResurfacingInputFace,
@@ -168,31 +169,29 @@ function registerUi(ctx: ClientContext): void {
   // ephemeral state (trigger identity, the pending pool, surfaced /
   // referenced / dismissed ids, the one-suggestion budget). Nothing here is
   // durable and nothing writes until the user picks Reference.
-  const resurfacingControllers = new Map<SessionId, IdeaResurfacingController>()
+  const resurfacingControllers = new ResurfacingControllerOwner<IdeaResurfacingController>()
   const controllerFor = (sessionId: SessionId): IdeaResurfacingController => {
-    let controller = resurfacingControllers.get(sessionId)
-    if (controller === undefined) {
-      const binding = sessions.binding(sessionId)
-      const actx = sessions.scope(sessionId)
-      if (binding === undefined || actx === undefined) {
-        throw new Error(`idea resurface: session "${sessionId}" resolved no binding`)
-      }
-      controller = new IdeaResurfacingController({
+    // SessionId is only the lookup key: resolve the live generation before
+    // the owner decides whether an existing controller can be reused.
+    const binding = sessions.binding(sessionId)
+    const actx = sessions.scope(sessionId)
+    if (binding === undefined || actx === undefined) {
+      resurfacingControllers.disposeSession(sessionId)
+      throw new Error(`idea resurface: session "${sessionId}" resolved no binding`)
+    }
+    const controller = resurfacingControllers.get(sessionId, binding.eventSource, () =>
+      new IdeaResurfacingController({
         sessionId,
         remote: ctx.remote.idea as unknown as ResurfacingRemoteFace,
         events: binding.eventSource as unknown as ResurfacingEventWindowFace,
         input: ctx.conversation.input.for(actx).state as unknown as ResurfacingInputFace,
         save: surfaceFor(sessionId).state as unknown as ResurfacingSaveFace,
         appendReference: descriptor => attachReference(sessionId, descriptor),
-      })
-      resurfacingControllers.set(sessionId, controller)
-    }
+      }),
+    )
     return controller
   }
-  ctx.effect(() => () => {
-    for (const controller of resurfacingControllers.values()) controller.dispose()
-    resurfacingControllers.clear()
-  }, 'dsh-idea: per-session resurfacing controllers')
+  ctx.effect(() => () => resurfacingControllers.disposeAll(), 'dsh-idea: per-session resurfacing controllers')
 
   /** Resolve the live composer seams of one Session for reference appends. */
   const appendSeamsFor = (sessionId: SessionId): ReferenceAppendSeams | undefined => {
