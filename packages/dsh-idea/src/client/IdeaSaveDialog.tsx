@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react'
-import { Button, IconCheckOutline16, IconWarningOutline16, Modal, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCheckOutlineRegular, IconWarningOutlineRegular, Modal, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { IdeaDialogProps } from './slots.ts'
 import { requiredPresent } from './state.ts'
 import type { EditableIdeaDraft } from './state.ts'
@@ -116,7 +116,7 @@ export function IdeaSaveDialog({
         <Toast
           key={toast}
           text={t('toast.saved')}
-          icon={<span><IconCheckOutline16 size={12} /></span>}
+          icon={<span><IconCheckOutlineRegular size={12} /></span>}
           anchor={card}
           onDone={onToastDone}
         />
@@ -125,7 +125,7 @@ export function IdeaSaveDialog({
         <Toast
           key={`failure-${failure}`}
           text={failureCopy}
-          icon={<IconWarningOutline16 />}
+          icon={<IconWarningOutlineRegular />}
           anchor={card}
           holdMs={6000}
           onDone={onFailureDone}

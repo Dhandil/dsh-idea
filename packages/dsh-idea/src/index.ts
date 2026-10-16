@@ -9,6 +9,8 @@
 
 import { IdeaService } from './service.ts'
 
+export type { IdeaMessageSource } from './message-source.ts'
+
 export { IdeaError } from './errors.ts'
 export type { IdeaErrorCode } from './errors.ts'
 export {

@@ -133,7 +133,7 @@ export class IdeaPreparationService extends Service {
       ...(route.reasoningEffort !== undefined ? { reasoningEffort: ReasoningEffortId(route.reasoningEffort) } : {}),
       messages: [createUserMessage({
         content: [{ type: 'text', text: prompt.user }],
-        source: { kind: 'plugin', plugin: 'dsh-idea' },
+        source: { kind: 'dsh-idea' },
       })],
       system: prompt.system,
       sessionId: SessionId(sessionId),
@@ -251,7 +251,7 @@ export class IdeaPreparationService extends Service {
       ...(modelRoute.reasoningEffort !== undefined ? { reasoningEffort: ReasoningEffortId(modelRoute.reasoningEffort) } : {}),
       messages: [createUserMessage({
         content: [{ type: 'text', text: prompt.user }],
-        source: { kind: 'plugin', plugin: 'dsh-idea' },
+        source: { kind: 'dsh-idea' },
       })],
       system: prompt.system,
       ...(route.kind === 'session' ? { sessionId: SessionId(route.sessionId) } : {}),

@@ -107,7 +107,7 @@ describe('one direct judgment call', () => {
     expect((options as { tools?: unknown }).tools).toBeUndefined()
     expect(options.messages).toHaveLength(1)
     expect(options.messages[0]!.role).toBe('user')
-    expect(options.messages[0]!.source).toEqual({ kind: 'plugin', plugin: 'dsh-idea' })
+    expect(options.messages[0]!.source).toEqual({ kind: 'dsh-idea' })
 
     expect(options.system).toContain('Judge usefulness now, not topical similarity')
     expect(options.system).toContain('prefer zero results over weak matches')

@@ -1,6 +1,6 @@
 /**
  * The continuation-context injector over the real Agent pre-step waterfall:
- * a continued-discussion conversation receives exactly one plugin-sourced
+ * a continued-discussion conversation receives exactly one dsh-idea-sourced
  * durable context message before the first user prompt, non-Idea sessions
  * are transparent, a downstream reject admits nothing, later turns and a
  * simulated restart never re-inject (the durable log is the only
@@ -177,7 +177,7 @@ describe('pre-step injection', () => {
     expect(context).toBeDefined()
     const data = (context as { data: { role: string; source: Record<string, unknown> } }).data
     expect(data.role).toBe('user')
-    expect(data.source).toEqual({ kind: 'plugin', plugin: 'dsh-idea', form: 'recall' })
+    expect(data.source).toEqual({ kind: 'dsh-idea', form: 'recall' })
   })
 
   it('renders the frozen context: draft, history digest, open questions, base version', async () => {

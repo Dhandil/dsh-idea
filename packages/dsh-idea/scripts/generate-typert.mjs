@@ -6,10 +6,11 @@
 // decorator/TypertRemoteService symbols must be declared inside a registered
 // package for marker discovery. A repo outside the Harness tree therefore
 // cannot be analyzed in place, so this script assembles an ephemeral
-// generation workspace that mirrors the monorepo shape: this package's src and
-// the checkout's dsh-typert-protocol src are copied under build/, aggregate
-// tsconfigs reference both, and the artifacts are written back into the real
-// lib/. The workspace is rebuilt from scratch on every run and never
+// generation workspace that mirrors the needed monorepo shape: this package's
+// src, the checkout's dsh-typert-protocol src, and the Session package whose
+// TypertResourceMap merges into the Protocol are copied under build/. The
+// aggregate tsconfig references these packages, and the artifacts are written
+// back into the real lib/. The workspace is rebuilt from scratch on every run and never
 // committed; runtime code always resolves the real shared packages through
 // the setup-dev junctions, so no duplicate Typert instance ever loads.
 //
@@ -17,7 +18,7 @@
 import { cpSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { WorkspaceTypertGenerator } from '@deepseek-ai/dsh-typert-generator'
+import { FaceModelEmitter, WorkspaceAnalyzer } from '@deepseek-ai/dsh-typert-generator'
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -29,19 +30,23 @@ const checkoutPackages = resolve(
 )
 
 const protocolPackage = join(checkoutPackages, 'typert/protocol')
+const sessionPackage = join(checkoutPackages, 'core/session')
 const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
 
 const workspace = join(packageDir, 'build/typert-workspace')
 rmSync(workspace, { recursive: true, force: true })
 const localPackage = join(workspace, 'packages', 'dsh-idea')
 const protocolCopy = join(workspace, 'packages/typert-protocol')
+const sessionCopy = join(workspace, 'packages/dsh-session')
 
-for (const dir of [join(workspace, 'packages'), localPackage, protocolCopy]) mkdirSync(dir, { recursive: true })
+for (const dir of [join(workspace, 'packages'), localPackage, protocolCopy, sessionCopy]) mkdirSync(dir, { recursive: true })
 
 cpSync(join(packageDir, 'src'), join(localPackage, 'src'), { recursive: true })
 cpSync(join(packageDir, 'package.json'), join(localPackage, 'package.json'))
 cpSync(join(protocolPackage, 'src'), join(protocolCopy, 'src'), { recursive: true })
 cpSync(join(protocolPackage, 'package.json'), join(protocolCopy, 'package.json'))
+cpSync(join(sessionPackage, 'src'), join(sessionCopy, 'src'), { recursive: true })
+cpSync(join(sessionPackage, 'package.json'), join(sessionCopy, 'package.json'))
 
 const compilerOptions = {
   target: 'es2024',
@@ -74,42 +79,61 @@ writeFileSync(join(protocolCopy, 'tsconfig.json'), JSON.stringify({
   compilerOptions,
   include: ['src'],
 }, null, 2))
+writeFileSync(join(sessionCopy, 'tsconfig.json'), JSON.stringify({
+  compilerOptions,
+  include: ['src'],
+}, null, 2))
 writeFileSync(join(workspace, 'tsconfig.host.json'), JSON.stringify({
   compilerOptions: {
     ...compilerOptions,
     baseUrl: '.',
-    // Redirect the protocol import to the copied source so the analyzer's
-    // symbol-identity checks (registration membership) hold inside the
-    // workspace. Runtime resolution is untouched: this file exists only here.
-    paths: { '@deepseek-ai/dsh-typert-protocol': ['./packages/typert-protocol/src/index.ts'] },
+    // Redirect the protocol and Session imports to copied sources so the
+    // analyzer sees both sides of the real TypertResourceMap merge. Runtime
+    // resolution is untouched: these paths exist only in this workspace.
+    paths: {
+      '@deepseek-ai/dsh-typert-protocol': ['./packages/typert-protocol/src/index.ts'],
+      '@deepseek-ai/dsh-session': ['./packages/dsh-session/src/index.ts'],
+      '@deepseek-ai/dsh-session/*': ['./packages/dsh-session/src/*'],
+    },
   },
   files: [],
   references: [
     { path: './packages/dsh-idea' },
     { path: './packages/typert-protocol' },
+    { path: './packages/dsh-session' },
   ],
 }, null, 2))
 
-const generator = new WorkspaceTypertGenerator(workspace, { checkDiagnostics: false })
 const faces = ['host']
-const packages = [manifest.name]
 const output = join(packageDir, 'lib')
 mkdirSync(output, { recursive: true })
 
-let emittedRemote = false
-for (const artifact of generator.generate(packages, faces)) {
-  writeFileSync(join(output, `typert.${artifact.face}.js`), artifact.js)
-  writeFileSync(join(output, `typert.${artifact.face}.d.ts`), artifact.dts)
-  console.log(`generate-typert: wrote typert.${artifact.face} (${artifact.package})`)
-  if (artifact.remote !== undefined) {
-    emittedRemote = true
-    writeFileSync(join(output, 'typert.remote-client.js'), artifact.remote.js)
-    writeFileSync(join(output, 'typert.remote-client.d.ts'), artifact.remote.dts)
-    writeFileSync(join(output, 'typert.remote-client.d.ts.map'), artifact.remote.dtsMap)
-    console.log('generate-typert: wrote typert.remote-client')
-  }
+// Analyze only this package for output while registering the real Session
+// source. Harness 0.2.1 adds Session's TypertResourceMap declaration; the
+// workspace generator's full-contributor pass would also emit unrelated
+// Harness packages into this external plugin build.
+const workspaceModel = new WorkspaceAnalyzer({
+  root: workspace,
+  packages: [manifest.name],
+  faces,
+  checkDiagnostics: false,
+}).analyze()
+const host = workspaceModel.faces.find(face => face.face === 'host')
+const artifact = host === undefined ? undefined : new FaceModelEmitter(host).emit(manifest.name)
+if (artifact === undefined) {
+  console.error('generate-typert: no Host artifact was emitted for dsh-idea')
+  process.exit(1)
 }
-if (!emittedRemote) {
+writeFileSync(join(output, 'typert.host.js'), artifact.js)
+writeFileSync(join(output, 'typert.host.d.ts'), artifact.dts)
+console.log(`generate-typert: wrote typert.host (${manifest.name})`)
+if (artifact.remote !== undefined) {
+  writeFileSync(join(output, 'typert.remote-client.js'), artifact.remote.js)
+  writeFileSync(join(output, 'typert.remote-client.d.ts'), artifact.remote.dts)
+  writeFileSync(join(output, 'typert.remote-client.d.ts.map'), artifact.remote.dtsMap)
+  console.log('generate-typert: wrote typert.remote-client')
+}
+if (artifact.remote === undefined) {
   console.error('generate-typert: no Remote methods were discovered — refusing to publish a host manifest without them')
   process.exit(1)
 }

@@ -1,7 +1,7 @@
 /**
  * The Host-side continuation-context injector (`ctx.ideaContinuations`). On
  * the first accepted Agent pre-step of a continued-discussion conversation it
- * prepends exactly one plugin-sourced user-role context message carrying the
+ * prepends exactly one dsh-idea-sourced user-role context message carrying the
  * discussion's frozen `IdeaContinuationContext`; the message becomes durable
  * through the loop's normal admission, and the durable session log — not an
  * in-memory flag — decides whether the context was already delivered, so a
@@ -53,7 +53,7 @@ export class IdeaContinuationService extends Service {
         messages: [
           createUserMessage({
             content: [{ type: 'text', text: renderIdeaContinuationContext(discussion.context) }],
-            source: { kind: 'plugin', plugin: 'dsh-idea', form: 'recall' },
+            source: { kind: 'dsh-idea', form: 'recall' },
           }),
           ...decision.messages,
         ],

@@ -3,7 +3,7 @@
  * The frozen `IdeaContinuationContext` is serialized deterministically and
  * tag-safe (source text cannot close the wrapper), framed as background data
  * rather than instructions. Recognition keys on the stable producer source
- * (`plugin: dsh-idea`, `form: recall`) plus a first-line payload marker, so
+ * (`kind: dsh-idea`, `form: recall`) plus a first-line payload marker, so
  * exactly-once detection survives restarts without any separate flag.
  * @module @dsh-external/dsh-idea/src/continuation/context
  */
@@ -57,8 +57,7 @@ function firstText(content: readonly ContentBlock[]): string {
 
 /** Whether a source is the dsh-idea recall producer. */
 export function isIdeaContinuationSource(source: MessageSource): boolean {
-  return source.kind === 'plugin'
-    && source.plugin === IDEA_PLUGIN_NAME
+  return source.kind === IDEA_PLUGIN_NAME
     && source.form === 'recall'
 }
 

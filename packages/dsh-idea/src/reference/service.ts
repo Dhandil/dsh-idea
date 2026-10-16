@@ -4,7 +4,7 @@
  * (`source.kind === 'user'`) for `@[label](dsh-idea:...)` mentions, resolves
  * each pinned exact Idea/version, rewrites every mention occurrence to a
  * readable `Idea「title」` form keyed by the exact pin, and appends exactly
- * one plugin-sourced user-role recall context carrying the bounded
+ * one dsh-idea-sourced user-role recall context carrying the bounded
  * projections. Malformed, unresolvable, or over-limit (more than
  * `MAX_IDEA_REFERENCES` unique pins) references reject the request loudly
  * instead of silently dropping, slicing, or substituting. The listener
@@ -156,7 +156,7 @@ export class IdeaReferenceService extends Service {
       const lastDirectIndex = findLastIndex(messages, isDirectUserMessage)
       const context = createUserMessage({
         content: [{ type: 'text', text: renderReferencedIdeasContext(projectReferencedIdeas(resolved.map(entry => entry.record))) }],
-        source: { kind: 'plugin', plugin: 'dsh-idea', form: 'recall' },
+        source: { kind: 'dsh-idea', form: 'recall' },
       })
       messages.splice(lastDirectIndex + 1, 0, context)
 

@@ -264,7 +264,7 @@ describe('Judge mute races (R1-A / R1-B evidence)', () => {
       { ideaId: env.ideaId, evaluatedVersionId: env.versionId },
     ]))
     await until(() => env.llm.calls.length === 1, 5000)
-    expect(env.llm.calls[0]!.messages[0]!.source).toEqual({ kind: 'plugin', plugin: 'dsh-idea' })
+    expect(env.llm.calls[0]!.messages[0]!.source).toEqual({ kind: 'dsh-idea' })
 
     // The preference flips while the provider call is in flight.
     await env.ideas.setResurfacingMuted(IdeaId(env.ideaId), true)

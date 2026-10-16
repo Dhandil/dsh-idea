@@ -362,7 +362,7 @@ describe('the single judgment call', () => {
     expect((options as { tools?: unknown }).tools).toBeUndefined()
     expect(options.messages).toHaveLength(1)
     expect(options.messages[0]!.role).toBe('user')
-    expect(options.messages[0]!.source).toEqual({ kind: 'plugin', plugin: 'dsh-idea' })
+    expect(options.messages[0]!.source).toEqual({ kind: 'dsh-idea' })
     const block = options.messages[0]!.content[0] as { type: string; text: string }
     expect(options.system).toBe(JUDGE_SYSTEM_PROMPT)
     expect(block.text).toContain(extra)

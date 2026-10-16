@@ -78,8 +78,13 @@ const select = (
   env.ctx.ideaSemantic.semanticResurfacingCandidates({ sessionId, currentTurn, recentContext }, signal)
 
 /** The selector request's plugin-authored user message text. */
-const userTextOf = (call: GenerateOptions): string =>
-  (call.messages[0] as { content: { type: string; text: string }[] }).content[0]!.text
+const userTextOf = (call: GenerateOptions): string => {
+  const message = call.messages[0]
+  if (message === undefined || !('content' in message)) throw new Error('expected a user message')
+  const block = message.content[0]
+  if (block?.type !== 'text') throw new Error('expected a text block')
+  return block.text
+}
 
 /** The candidate projections inside one selector request payload. */
 const payloadOf = (call: GenerateOptions): { currentTurn: string; recentContext: unknown[]; candidates: { ideaId: string }[] } =>
@@ -126,7 +131,7 @@ describe('llm route reuse', () => {
     expect(env.llm.calls[0]!.model).toBe('default-model')
   })
 
-  it('makes exactly one selector call: plugin-sourced user message, no tools, selector system prompt', async () => {
+  it('makes exactly one selector call: dsh-idea-sourced user message, no tools, selector system prompt', async () => {
     const env = await bootLlm()
     await addIdea(env)
     env.sessionQuery.addProjection(SESSION, { provider: 'p', model: 'm' })
@@ -137,7 +142,7 @@ describe('llm route reuse', () => {
     expect(call.system).toBe(SELECTOR_SYSTEM_PROMPT)
     expect('tools' in call).toBe(false)
     const message = call.messages[0] as unknown as { source: unknown; content: { type: string }[] }
-    expect(message.source).toEqual({ kind: 'plugin', plugin: 'dsh-idea' })
+    expect(message.source).toEqual({ kind: 'dsh-idea' })
     expect(message.content[0]!.type).toBe('text')
     expect(String(call.sessionId)).toBe(SESSION)
   })

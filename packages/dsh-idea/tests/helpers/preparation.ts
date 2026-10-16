@@ -60,7 +60,7 @@ export const systemEvent = (text = 'system prompt', seq: number = ++seqCounter):
     data: {
       turn: 0,
       step: 0,
-      message: { role: 'system', content: [{ type: 'text', text }], source: { kind: 'plugin', plugin: 'test' } },
+      message: { role: 'system', content: [{ type: 'text', text }], source: { kind: 'system-prompt' } },
     },
   }) as unknown as SurfaceEvent
 

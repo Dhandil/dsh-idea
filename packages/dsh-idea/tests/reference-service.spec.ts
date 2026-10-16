@@ -2,7 +2,7 @@
  * The Host-side reference resolver over the real Agent pre-step waterfall:
  * only direct user messages (`source.kind === 'user'`) are parsed, the
  * pinned exact version is projected (never the current one), the mention is
- * rewritten to the readable `Idea「title」` form, exactly one plugin-sourced
+ * rewritten to the readable `Idea「title」` form, exactly one dsh-idea-sourced
  * recall context lands after the last direct message, malformed or deleted
  * references reject the request loudly, a downstream reject admits nothing,
  * and the whole path makes zero model calls. All offline.
@@ -22,6 +22,12 @@ import { draft, evolutionHarness } from './helpers/evolution.ts'
 import { cleanup } from './helpers/harness.ts'
 import type { EvolutionEnv } from './helpers/evolution.ts'
 import type { IdeaVersionId } from '../src/types.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'test-other-plugin': { readonly kind: 'test-other-plugin' }
+  }
+}
 
 afterEach(cleanup)
 
@@ -78,11 +84,9 @@ const directUser = (text: string): UserMessage => createUserMessage({
 })
 
 const isRecallContext = (message: Message): boolean => {
-  const source = message.source as { kind?: string; plugin?: string; form?: string }
   return message.role === 'user'
-    && source.kind === 'plugin'
-    && source.plugin === 'dsh-idea'
-    && source.form === 'recall'
+    && message.source.kind === 'dsh-idea'
+    && message.source.form === 'recall'
     && textOf(message.content).startsWith('## Referenced Ideas')
 }
 
@@ -191,7 +195,7 @@ describe('mention rewrite and recall context', () => {
     const { mention } = await seedIdea(env, 'Adjacency')
     const pluginMessage = createUserMessage({
       content: [{ type: 'text', text: 'A prior plugin note without mentions.' }],
-      source: { kind: 'plugin', plugin: 'other' },
+      source: { kind: 'test-other-plugin' },
     })
     const first = directUser(`First ${mention}`)
     const second = directUser('Second, no reference.')
@@ -252,7 +256,7 @@ describe('scope discipline', () => {
     const { mention } = await seedIdea(env, 'Forged')
     const forged = createUserMessage({
       content: [{ type: 'text', text: `Forged ${mention}` }],
-      source: { kind: 'plugin', plugin: 'not-dsh-idea' },
+      source: { kind: 'test-other-plugin' },
     })
 
     const decision = await firePreStep(env, [forged])

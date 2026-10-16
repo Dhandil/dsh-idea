@@ -116,7 +116,7 @@ export class IdeaRelatedService extends Service {
       ...(route.reasoningEffort !== undefined ? { reasoningEffort: ReasoningEffortId(route.reasoningEffort) } : {}),
       messages: [createUserMessage({
         content: [{ type: 'text', text: prompt.user }],
-        source: { kind: 'plugin', plugin: 'dsh-idea' },
+        source: { kind: 'dsh-idea' },
       })],
       system: prompt.system,
       sessionId: SessionId(sessionId),
