@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import type { MouseEvent } from 'react'
 import { Button, IconCheckOutlineRegular, IconWarningOutlineRegular, Modal, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { IdeaDialogProps } from './slots.ts'
 import { requiredPresent } from './state.ts'
@@ -49,34 +50,48 @@ export function IdeaSaveDialog({
 
   const saveDisabled = state.submitting || modal === null || !requiredPresent(modal.draft)
 
+  // A menu double-click can land its second click on the newly portaled mask.
+  // Capture only that continued pointer sequence; explicit controls, Escape,
+  // and the next ordinary mask click keep the shared Modal's close behavior.
+  const onModalClickCapture = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (event.detail > 1 && target instanceof HTMLElement
+      && target.getAttribute('aria-hidden') === 'true'
+      && target.closest('[role="dialog"]') === null) {
+      event.stopPropagation()
+    }
+  }
+
   return (
     <>
       <span ref={probeRef} hidden />
       {(pending || modal !== null) && (
-        <Modal
-          open
-          title={t('dialog.title')}
-          closeLabel={t('dialog.close')}
-          onClose={cancel}
-          className="dsh-idea-modal"
-          footer={pending ? <Button onClick={cancel}>{t('dialog.cancel')}</Button> : (
-            <>
-              <Button disabled={state.submitting} onClick={cancel}>{t('dialog.cancel')}</Button>
-              <Button variant="primary" disabled={saveDisabled} onClick={submit}>
-                {state.submitting ? t('dialog.saving') : t('dialog.save')}
-              </Button>
-            </>
-          )}
-        >
-          {pending ? <p className="dsh-idea-source" role="status" aria-live="polite">{t('dialog.preparing')}</p> : modal !== null && (
-            <div className="dsh-idea-form" role="form" aria-label={t('dialog.title')}>
-              {modal.source === null
-                ? <p className="dsh-idea-source">{t('dialog.sourceQuick')}</p>
-                : <p className="dsh-idea-source">{t('dialog.source', { count: modal.source.messageCount })}</p>}
-              <IdeaDraftFields draft={modal.draft} disabled={state.submitting} onEdit={editDraft} t={t} />
-            </div>
-          )}
-        </Modal>
+        <div style={{ display: 'contents' }} onClickCapture={onModalClickCapture}>
+          <Modal
+            open
+            title={t('dialog.title')}
+            closeLabel={t('dialog.close')}
+            onClose={cancel}
+            className="dsh-idea-modal"
+            footer={pending ? <Button onClick={cancel}>{t('dialog.cancel')}</Button> : (
+              <>
+                <Button disabled={state.submitting} onClick={cancel}>{t('dialog.cancel')}</Button>
+                <Button variant="primary" disabled={saveDisabled} onClick={submit}>
+                  {state.submitting ? t('dialog.saving') : t('dialog.save')}
+                </Button>
+              </>
+            )}
+          >
+            {pending ? <p className="dsh-idea-source" role="status" aria-live="polite">{t('dialog.preparing')}</p> : modal !== null && (
+              <div className="dsh-idea-form" role="form" aria-label={t('dialog.title')}>
+                {modal.source === null
+                  ? <p className="dsh-idea-source">{t('dialog.sourceQuick')}</p>
+                  : <p className="dsh-idea-source">{t('dialog.source', { count: modal.source.messageCount })}</p>}
+                <IdeaDraftFields draft={modal.draft} disabled={state.submitting} onEdit={editDraft} t={t} />
+              </div>
+            )}
+          </Modal>
+        </div>
       )}
       {toast > 0 && failure === null && (
         <Toast

@@ -839,6 +839,58 @@ describe('preview modal', () => {
 })
 
 describe('prepare lifecycle edges', () => {
+  it('ignores continued clicks on the new mask and keeps exactly one preparation request', async () => {
+    const gate = deferred<unknown>()
+    const face = faceWith(() => gate.promise)
+    const surface = newSurface(face)
+    render(<>
+      <IdeaAssistantActions {...actionProps(surface)} />
+      <IdeaSaveDialog {...dialogProps(surface)} />
+    </>)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '保存为 Idea' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: '总结' }), { detail: 1 }) })
+    const dialog = screen.getByRole('dialog')
+    const mask = dialog.parentElement!.querySelector('[aria-hidden="true"]')!
+    await act(async () => {
+      fireEvent.click(mask, { detail: 2 })
+      fireEvent.click(mask, { detail: 3 })
+    })
+    expect(screen.getByRole('dialog')).toBe(dialog)
+    expect(screen.getByRole('status').textContent).toBe('正在生成 Idea 草稿…')
+    expect(face.prepareFromMessage).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(face.prepareFromMessage).mock.calls[0]?.[1]?.aborted).toBe(false)
+    await act(async () => { gate.resolve(okPreview()) })
+    expect(screen.getByRole('dialog')).toBe(dialog)
+    expect(screen.getByRole('form')).toBeTruthy()
+    expect(face.prepareFromMessage).toHaveBeenCalledTimes(1)
+    // A fresh, ordinary mask click remains a close even after conversion.
+    await act(async () => { fireEvent.click(mask, { detail: 1 }) })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it.each(['cancel', 'close', 'escape', 'mask'] as const)(
+    'preserves immediate %s cancellation and ignores the late response', async (method) => {
+      const gate = deferred<unknown>()
+      const face = faceWith(() => gate.promise)
+      const surface = newSurface(face)
+      render(<IdeaSaveDialog {...dialogProps(surface)} />)
+      await act(async () => { surface.prepare(MSG) })
+      await act(async () => {
+        if (method === 'escape') fireEvent.keyDown(document, { key: 'Escape' })
+        else if (method === 'mask') {
+          fireEvent.click(screen.getByRole('dialog').parentElement!.querySelector('[aria-hidden="true"]')!, { detail: 1 })
+        } else {
+          fireEvent.click(screen.getByRole('button', { name: method === 'cancel' ? '取消' : '关闭' }), { detail: 2 })
+        }
+      })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(vi.mocked(face.prepareFromMessage).mock.calls[0]?.[1]?.aborted).toBe(true)
+      await act(async () => { gate.resolve(okPreview()) })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(face.prepareFromMessage).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it('shows a cancellable dialog immediately, then fills the same dialog after one RPC', async () => {
     const gate = deferred<unknown>()
     const face = faceWith(() => gate.promise)
