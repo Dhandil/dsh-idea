@@ -113,6 +113,8 @@ export type RelatedOverlayProps =
 
 /** Injected business face of the Session's Idea preview modal. */
 export interface IdeaDialogInjected {
+  /** Session identity for teardown when a slot is reused during navigation. */
+  sessionId: string
   hooks: {
     /** The owning Session's Idea interaction state. */
     idea: HostObservable<IdeaSaveState>
@@ -123,6 +125,10 @@ export interface IdeaDialogInjected {
   submit: () => void
   /** Close the modal with zero durable writes. */
   cancel: () => void
+  /** Abort only an in-flight prepare when this Session overlay unmounts. */
+  cancelPending: () => void
+  /** Record a content-free duration after a visible phase commits. */
+  recordRendered: (phase: 'pending' | 'preview') => void
   /** Retire the failure toast. */
   dismissFailure: () => void
   /** Retire the success toast. */

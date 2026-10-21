@@ -9,6 +9,7 @@
 export const zh = {
   'action.tooltip': '保存为 Idea',
   'dialog.title': '保存 Idea',
+  'dialog.preparing': '正在生成 Idea 草稿…',
   'dialog.source': '来源：当前对话 · {count} 条消息',
   'dialog.sourceQuick': '来源：快捷捕获',
   'dialog.close': '关闭',
@@ -177,6 +178,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const en = {
   'action.tooltip': 'Save as Idea',
   'dialog.title': 'Save Idea',
+  'dialog.preparing': 'Preparing Idea draft…',
   'dialog.source': 'Source: current conversation · {count} messages',
   'dialog.sourceQuick': 'Source: quick capture',
   'dialog.close': 'Close',

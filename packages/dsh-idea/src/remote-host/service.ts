@@ -125,11 +125,14 @@ export class IdeaRemoteService extends TypertRemoteService {
    */
   @Remote
   async prepareFromMessage(request: IdeaPrepareRequest, signal?: AbortSignal): Promise<IdeaPreparationPreview> {
+    const startedAt = performance.now()
     try {
       return await this.ctx.ideaPreparations.prepareFromMessage(request.sessionId, request.messageId, signal)
     } catch (error) {
       const remote = remotePreparationError(error)
       throw remote ?? error
+    } finally {
+      this.ctx.ideaPreparations.performance?.record('host.rpc-handler', startedAt)
     }
   }
 

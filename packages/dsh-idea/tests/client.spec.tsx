@@ -110,9 +110,12 @@ function actionProps(
 
 function dialogProps(surface: IdeaSaveSurface): IdeaDialogProps {
   return {
+    sessionId: 'session-1',
     editDraft: (patch: Partial<EditableIdeaDraft>) => { surface.editDraft(patch) },
     submit: () => { surface.submit() },
     cancel: () => { surface.cancel() },
+    cancelPending: () => { surface.cancelPending() },
+    recordRendered: (phase: 'pending' | 'preview') => { surface.recordRendered(phase) },
     dismissFailure: () => { surface.dismissFailure() },
     dismissToast: (seq: number) => { surface.dismissToast(seq) },
     useIdea: useIdeaOf(surface.state),
@@ -836,6 +839,111 @@ describe('preview modal', () => {
 })
 
 describe('prepare lifecycle edges', () => {
+  it('shows a cancellable dialog immediately, then fills the same dialog after one RPC', async () => {
+    const gate = deferred<unknown>()
+    const face = faceWith(() => gate.promise)
+    const surface = newSurface(face)
+    render(<IdeaSaveDialog {...dialogProps(surface)} />)
+
+    await act(async () => { surface.prepare(MSG) })
+    const dialog = screen.getByRole('dialog')
+    expect(screen.getByRole('status').textContent).toBe('正在生成 Idea 草稿…')
+    expect(screen.queryByRole('form')).toBeNull()
+    expect(surface.state.getSnapshot().modal).toBeNull()
+    expect(surface.performance.snapshot()['client.pending-render']?.count).toBe(1)
+
+    await act(async () => { gate.resolve(okPreview()) })
+    expect(screen.getByRole('dialog')).toBe(dialog)
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.getByRole('form')).toBeTruthy()
+    expect((screen.getByLabelText('标题 *') as HTMLInputElement).value).toBe('Model title')
+    expect(face.prepareFromMessage).toHaveBeenCalledTimes(1)
+    expect(surface.performance.snapshot()['client.rpc']?.count).toBe(1)
+    expect(surface.performance.snapshot()['client.preview-render']?.count).toBe(1)
+  })
+
+  it('aborts on Cancel and ignores a successful late response', async () => {
+    const gate = deferred<unknown>()
+    let signal: AbortSignal | undefined
+    const face = faceWith((_req?: unknown, value?: AbortSignal) => {
+      signal = value
+      return gate.promise
+    })
+    const surface = newSurface(face)
+    render(<IdeaSaveDialog {...dialogProps(surface)} />)
+    await act(async () => { surface.prepare(MSG) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '取消' })) })
+    expect(signal?.aborted).toBe(true)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await act(async () => { gate.resolve(okPreview()) })
+    expect(surface.state.getSnapshot().modal).toBeNull()
+    expect(surface.state.getSnapshot().failure).toBeNull()
+  })
+
+  it('allows a fresh prepare after Cancel without letting the old result replace it', async () => {
+    const old = deferred<unknown>()
+    const fresh = deferred<unknown>()
+    let calls = 0
+    const face = faceWith(() => (++calls === 1 ? old.promise : fresh.promise))
+    const surface = newSurface(face)
+    render(<IdeaSaveDialog {...dialogProps(surface)} />)
+    await act(async () => { surface.prepare(MSG) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '取消' })) })
+    await act(async () => { surface.prepare(MSG) })
+    expect(face.prepareFromMessage).toHaveBeenCalledTimes(2)
+    await act(async () => { old.resolve(okPreview()) })
+    expect(surface.state.getSnapshot().modal).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe('正在生成 Idea 草稿…')
+    await act(async () => { fresh.resolve(okPreview()) })
+    expect((screen.getByLabelText('标题 *') as HTMLInputElement).value).toBe('Model title')
+  })
+
+  it('aborts on overlay navigation and does not reopen from a late response', async () => {
+    const gate = deferred<unknown>()
+    let signal: AbortSignal | undefined
+    const face = faceWith((_req?: unknown, value?: AbortSignal) => {
+      signal = value
+      return gate.promise
+    })
+    const surface = newSurface(face)
+    const view = render(<IdeaSaveDialog {...dialogProps(surface)} />)
+    await act(async () => { surface.prepare(MSG) })
+    view.unmount()
+    expect(signal?.aborted).toBe(true)
+    await act(async () => { gate.resolve(okPreview()) })
+    expect(surface.state.getSnapshot().modal).toBeNull()
+    expect(surface.state.getSnapshot().failure).toBeNull()
+  })
+
+  it('aborts the old prepare when the slot switches Session without unmounting', async () => {
+    const gate = deferred<unknown>()
+    let signal: AbortSignal | undefined
+    const face = faceWith((_req?: unknown, value?: AbortSignal) => {
+      signal = value
+      return gate.promise
+    })
+    const oldSurface = newSurface(face)
+    const nextSurface = newSurface(face, 'session-2')
+    const view = render(<IdeaSaveDialog {...dialogProps(oldSurface)} />)
+    await act(async () => { oldSurface.prepare(MSG) })
+    view.rerender(<IdeaSaveDialog {...{ ...dialogProps(nextSurface), sessionId: 'session-2' } as IdeaDialogProps} />)
+    expect(signal?.aborted).toBe(true)
+    await act(async () => { gate.resolve(okPreview()) })
+    expect(oldSurface.state.getSnapshot().modal).toBeNull()
+    expect(nextSurface.state.getSnapshot().modal).toBeNull()
+  })
+
+  it('closes the preparation dialog on failure and retains the existing failure toast', async () => {
+    const face = faceWith(async () => ({ ok: false, error: { code: 'idea/model-failed' } }))
+    const surface = newSurface(face)
+    render(<IdeaSaveDialog {...dialogProps(surface)} />)
+    await act(async () => { surface.prepare(MSG) })
+    await flush()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByText('生成预览失败，请稍后重试')).toBeTruthy()
+    expect(face.prepareFromMessage).toHaveBeenCalledTimes(1)
+  })
+
   it('session unmount cancels a pending prepare without a failure toast', async () => {
     const gate = deferred<unknown>()
     let captured: AbortSignal | undefined

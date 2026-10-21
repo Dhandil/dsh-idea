@@ -10,6 +10,7 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { IdeaPreparationId, IdeaPreparationSourceInfo, QuickCapturePreview, QuickCaptureRouteContext } from '../preparation/types.ts'
 import type { IdeaDraft } from '../types.ts'
+import { IdeaPerfMetrics } from '../perf/metrics.ts'
 
 /** The stable failure kinds the UI knows copy for. */
 export type IdeaUiFailure =
@@ -154,10 +155,14 @@ export interface IdeaRemoteFace {
 export class IdeaSaveSurface {
   /** Observable interaction state; slot components select slices of it. */
   readonly state: SnapshotStore<IdeaSaveState> = createSnapshotStore<IdeaSaveState>({ ...CLOSED })
+  readonly performance = new IdeaPerfMetrics()
 
   private prepareAbort: AbortController | undefined
   private prepareInFlight = false
   private submitInFlight = false
+  private disposed = false
+  private pendingStartedAt: number | undefined
+  private previewReadyAt: number | undefined
 
   constructor(
     private readonly remote: IdeaRemoteFace,
@@ -173,12 +178,13 @@ export class IdeaSaveSurface {
    * no-ops. Session-only: a default-context surface (Settings, T12.3) has no
    * conversation to prepare from and never enters this flow. */
   prepare(messageId: MessageId): void {
-    if (this.context.kind !== 'session') return
+    if (this.context.kind !== 'session' || this.disposed) return
     const { preparingMessageId, modal } = this.state.getSnapshot()
     if (this.prepareInFlight || preparingMessageId !== null || modal !== null) return
     this.prepareInFlight = true
     const controller = new AbortController()
     this.prepareAbort = controller
+    this.pendingStartedAt = performance.now()
     this.state.update((draft) => { draft.preparingMessageId = messageId })
     void this.runPrepare(messageId, controller)
   }
@@ -186,6 +192,7 @@ export class IdeaSaveSurface {
   private async runPrepare(messageId: MessageId, controller: AbortController): Promise<void> {
     let outcome: 'done' | 'cancelled' | 'failed' = 'failed'
     let modal: IdeaModalState | null = null
+    const rpcStartedAt = performance.now()
     try {
       const result = await this.remote.prepareFromMessage(
         { sessionId: this.sessionId, messageId },
@@ -204,15 +211,16 @@ export class IdeaSaveSurface {
     } catch {
       // A thrown carrier error is a failed prepare, not a crash.
     } finally {
-      this.prepareInFlight = false
-      this.prepareAbort = undefined
+      this.performance.record('client.rpc', rpcStartedAt)
+      if (this.prepareAbort === controller) {
+        this.prepareInFlight = false
+        this.prepareAbort = undefined
+      }
     }
-    // Cancellation from session unmount/navigation must not read as failure.
-    if (outcome === 'cancelled') {
-      this.state.update((draft) => { draft.preparingMessageId = null })
-      return
-    }
+    // Cancellation or a superseded request has no authority over a later prepare.
+    if (controller.signal.aborted || this.disposed || outcome === 'cancelled') return
     if (outcome === 'done' && modal !== null) {
+      this.previewReadyAt = performance.now()
       this.state.update((current) => {
         current.preparingMessageId = null
         current.modal = modal
@@ -223,6 +231,19 @@ export class IdeaSaveSurface {
       current.preparingMessageId = null
       current.failure = 'prepare-failed'
     })
+  }
+
+  /** Called after the corresponding React commit; each phase records once. */
+  recordRendered(phase: 'pending' | 'preview'): void {
+    if (phase === 'pending' && this.pendingStartedAt !== undefined
+      && this.state.getSnapshot().preparingMessageId !== null) {
+      this.performance.record('client.pending-render', this.pendingStartedAt)
+      this.pendingStartedAt = undefined
+    } else if (phase === 'preview' && this.previewReadyAt !== undefined
+      && this.state.getSnapshot().modal !== null) {
+      this.performance.record('client.preview-render', this.previewReadyAt)
+      this.previewReadyAt = undefined
+    }
   }
 
   /** Apply one field edit to the open modal's draft. */
@@ -298,10 +319,24 @@ export class IdeaSaveSurface {
   /** Close the modal with zero durable writes; ignored while committing. */
   cancel(): void {
     if (this.submitInFlight) return
+    this.previewReadyAt = undefined
+    if (this.prepareAbort !== undefined) {
+      const controller = this.prepareAbort
+      this.prepareAbort = undefined
+      this.prepareInFlight = false
+      this.pendingStartedAt = undefined
+      controller.abort()
+    }
     this.state.update((current) => {
+      current.preparingMessageId = null
       current.modal = null
       current.failure = null
     })
+  }
+
+  /** Session overlay teardown: abort a pending request without closing a ready draft. */
+  cancelPending(): void {
+    if (this.prepareAbort !== undefined) this.cancel()
   }
 
   /** Retire the failure toast once its hold completes. */
@@ -399,10 +434,13 @@ export class IdeaSaveSurface {
 
   /** Abort any in-flight prepare and reset to the closed state. */
   dispose(): void {
+    this.disposed = true
     this.prepareAbort?.abort()
     this.prepareAbort = undefined
     this.prepareInFlight = false
     this.submitInFlight = false
+    this.pendingStartedAt = undefined
+    this.previewReadyAt = undefined
     this.state.update((current) => {
       current.preparingMessageId = null
       current.modal = null

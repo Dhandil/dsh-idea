@@ -103,13 +103,20 @@ export async function extractModelText(
   options: GenerateOptions,
   sessionId: string,
   signal?: AbortSignal,
+  timing?: { onFirstResponse(): void; onComplete(): void },
 ): Promise<string> {
   const assembler = new BlockAssembler()
+  let firstResponse = false
   try {
     for await (const chunk of llm.stream(options)) {
       signal?.throwIfAborted()
+      if (!firstResponse) {
+        firstResponse = true
+        timing?.onFirstResponse()
+      }
       assembler.push(chunk)
     }
+    timing?.onComplete()
   } catch (error) {
     if (signal?.aborted) {
       throw new IdeaPreparationError('request-cancelled', 'idea preparation was cancelled', { cause: error })

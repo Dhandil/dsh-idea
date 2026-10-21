@@ -238,10 +238,13 @@ function registerUi(ctx: ClientContext): void {
     inject: (sessionId): IdeaDialogInjected => {
       const surface = surfaceFor(sessionId)
       return {
+        sessionId,
         hooks: { idea: surface.state },
         editDraft: (patch) => { surface.editDraft(patch) },
         submit: () => { surface.submit() },
         cancel: () => { surface.cancel() },
+        cancelPending: () => { surface.cancelPending() },
+        recordRendered: phase => { surface.recordRendered(phase) },
         dismissFailure: () => { surface.dismissFailure() },
         dismissToast: (seq) => { surface.dismissToast(seq) },
       }

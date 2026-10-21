@@ -37,6 +37,7 @@ import type {
   QuickCaptureRouteContext,
 } from './types.ts'
 import { ideaDraftSchema, IDEA_LIMITS } from '../schema.ts'
+import { IdeaPerfMetrics } from '../perf/metrics.ts'
 import type { IdeaDraft, SourceDiscussionDraft } from '../types.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -50,6 +51,7 @@ export class IdeaPreparationService extends Service {
 
   /** Host-only ephemeral registry; a later commit task resolves through it. */
   readonly preparations: IdeaPreparationRegistry
+  readonly performance = new IdeaPerfMetrics()
 
   constructor(ctx: Context) {
     super(ctx, 'ideaPreparations')
@@ -70,49 +72,68 @@ export class IdeaPreparationService extends Service {
     anchorMessageId: string,
     signal?: AbortSignal,
   ): Promise<IdeaPreparationPreview> {
-    checkCancelled(signal)
+    const totalStartedAt = performance.now()
+    try {
+      checkCancelled(signal)
 
-    const surface = await readSessionSurface(this.ctx.sessionQuery, sessionId)
-    checkCancelled(signal)
+      const readStartedAt = performance.now()
+      let surface: Awaited<ReturnType<typeof readSessionSurface>>
+      try {
+        surface = await readSessionSurface(this.ctx.sessionQuery, sessionId)
+      } finally {
+        this.performance.record('host.session-read', readStartedAt)
+      }
+      checkCancelled(signal)
 
-    const captured = captureDiscussionFromSurface(surface.events, anchorMessageId)
+      const captureStartedAt = performance.now()
+      const captured = captureDiscussionFromSurface(surface.events, anchorMessageId)
+      this.performance.record('host.capture', captureStartedAt)
 
-    const route = await resolveModelRoute(this.ctx.sessionQuery, this.ctx.agentDefaultModel, sessionId, signal)
-    checkCancelled(signal)
+      const routeStartedAt = performance.now()
+      let route: IdeaPreparationModelRoute
+      try {
+        route = await resolveModelRoute(this.ctx.sessionQuery, this.ctx.agentDefaultModel, sessionId, signal)
+      } finally {
+        this.performance.record('host.route', routeStartedAt)
+      }
+      checkCancelled(signal)
 
-    const draft = await this.extractDraft(captured.messages, sessionId, route, signal)
-    // The chat-extraction flow keeps its own stricter check (T12 D1): the
-    // schema allows an empty motivation for quick-capture drafts, but a
-    // proposal distilled from a discussion must state why it is worth keeping.
-    if (draft.motivation.trim().length === 0) {
-      throw new IdeaPreparationError('invalid-model-output', 'model proposal carries no motivation')
-    }
+      const draft = await this.extractDraft(captured.messages, sessionId, route, signal)
+      // The chat-extraction flow keeps its own stricter check (T12 D1): the
+      // schema allows an empty motivation for quick-capture drafts, but a
+      // proposal distilled from a discussion must state why it is worth keeping.
+      if (draft.motivation.trim().length === 0) {
+        throw new IdeaPreparationError('invalid-model-output', 'model proposal carries no motivation')
+      }
 
-    checkCancelled(signal)
-    const preparedSource: SourceDiscussionDraft = {
-      sessionId,
-      anchorMessageId,
-      startSeq: captured.startSeq,
-      endSeq: captured.endSeq,
-      capturedContext: captured.messages,
-    }
-    const entry: PreparedIdeaSource = {
-      origin: { kind: 'conversation', source: preparedSource, model: route },
-      createdAt: Date.now(),
-    }
-    const preparationId = this.preparations.register(entry)
-    return {
-      preparationId,
-      draft,
-      source: {
+      checkCancelled(signal)
+      const preparedSource: SourceDiscussionDraft = {
         sessionId,
         anchorMessageId,
         startSeq: captured.startSeq,
         endSeq: captured.endSeq,
-        messageCount: captured.messages.length,
-        characterCount: captured.characterCount,
-      },
-      model: route,
+        capturedContext: captured.messages,
+      }
+      const entry: PreparedIdeaSource = {
+        origin: { kind: 'conversation', source: preparedSource, model: route },
+        createdAt: Date.now(),
+      }
+      const preparationId = this.preparations.register(entry)
+      return {
+        preparationId,
+        draft,
+        source: {
+          sessionId,
+          anchorMessageId,
+          startSeq: captured.startSeq,
+          endSeq: captured.endSeq,
+          messageCount: captured.messages.length,
+          characterCount: captured.characterCount,
+        },
+        model: route,
+      }
+    } finally {
+      this.performance.record('host.prepare-total', totalStartedAt)
     }
   }
 
@@ -139,7 +160,17 @@ export class IdeaPreparationService extends Service {
       sessionId: SessionId(sessionId),
       ...(signal !== undefined ? { signal } : {}),
     }
-    return parseIdeaDraftOutput(await extractModelText(this.ctx.llm, options, sessionId, signal))
+    const modelStartedAt = performance.now()
+    const output = await extractModelText(this.ctx.llm, options, sessionId, signal, {
+      onFirstResponse: () => { this.performance.record('host.model-first-response', modelStartedAt) },
+      onComplete: () => { this.performance.record('host.model-complete', modelStartedAt) },
+    })
+    const parseStartedAt = performance.now()
+    try {
+      return parseIdeaDraftOutput(output)
+    } finally {
+      this.performance.record('host.parse', parseStartedAt)
+    }
   }
 
   /**
