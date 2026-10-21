@@ -19,14 +19,14 @@
 
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Button, Pill, RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, Pill, RiskConfirmation, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IdeaHoverCard } from './hover-card.tsx'
 import type { IdeaDetail, IdeaListRow, IdeaVersionSummary } from '../remote-host/types.ts'
 import type { IdeaVersionReason } from '../types.ts'
-import { durableFrom, requiredPresent, sameIdeaDraft } from './state.ts'
+import { durableFrom, editableFrom, requiredPresent, sameIdeaDraft } from './state.ts'
 import type { EditableIdeaDraft } from './state.ts'
 import { detailDraftOf } from './read-state.ts'
-import { IDEA_FORM_FIELDS } from './IdeaSaveDialog.tsx'
+import { IDEA_FORM_FIELDS, IdeaAutoTextarea, IdeaDraftFields } from './IdeaDraftForm.tsx'
 import type { IdeaDeletionState, IdeaEditState, IdeaReadState, IdeaProposalState } from './read-state.ts'
 import type { IdeaSectionProps } from './slots.ts'
 import type { IdeaLocaleKey } from './locales.ts'
@@ -49,22 +49,6 @@ const REASON_LABELS: Readonly<Record<IdeaVersionReason, IdeaLocaleKey>> = {
   'continued-discussion': 'read.reason.continued-discussion',
 }
 
-/** The seven editable draft fields, mirroring the save dialog's order; shared
- * by the evolution proposal preview and the manual-edit editor. */
-const DRAFT_FIELDS: ReadonlyArray<{
-  key: keyof EditableIdeaDraft
-  label: IdeaLocaleKey
-  multiline: boolean
-}> = [
-  { key: 'title', label: 'field.title', multiline: false },
-  { key: 'core', label: 'field.core', multiline: true },
-  { key: 'motivation', label: 'field.motivation', multiline: true },
-  { key: 'currentConclusion', label: 'read.field.currentConclusion', multiline: true },
-  { key: 'possibleValue', label: 'read.field.possibleValue', multiline: true },
-  { key: 'useWhenText', label: 'field.useWhen', multiline: true },
-  { key: 'openQuestionsText', label: 'field.openQuestions', multiline: true },
-]
-
 /**
  * The Ideas library section: list and detail, nothing else.
  * @param props - the injected verbs, the read-state hook, and the locale seat.
@@ -81,6 +65,7 @@ export function IdeaSection({
   const state = useIdeaRead(view => view)
   const quickState = useLibraryQuick(view => view)
   const saveState = useLibrarySave(view => view)
+  const [confirmLeaveEdit, setConfirmLeaveEdit] = useState(false)
   useEffect(() => { load() }, [load])
 
   // T12.3: the create subview covers both the raw capture form and the AI
@@ -118,24 +103,7 @@ export function IdeaSection({
         {modal !== null ? (
           <div className="dsh-idea-form" role="form" aria-label={t('dialog.title')}>
             <p className="dsh-idea-source">{t('dialog.sourceQuick')}</p>
-            {IDEA_FORM_FIELDS.map(field => (
-              <label key={field.key} className="dsh-idea-field">
-                <span>{t(field.label)}</span>
-                {field.multiline ? (
-                  <textarea
-                    rows={field.key === 'core' ? 6 : 3}
-                    value={modal.draft[field.key]}
-                    onChange={event => { librarySave.editDraft({ [field.key]: event.target.value }) }}
-                  />
-                ) : (
-                  <input
-                    type="text"
-                    value={modal.draft[field.key]}
-                    onChange={event => { librarySave.editDraft({ [field.key]: event.target.value }) }}
-                  />
-                )}
-              </label>
-            ))}
+            <IdeaDraftFields draft={modal.draft} disabled={saveState.submitting} onEdit={librarySave.editDraft} t={t} />
             {saveState.failure !== null && <p className="dsh-idea-state">{t('read.error')}</p>}
             <div className="dsh-idea-quick-actions">
               <Button disabled={saveState.submitting} onClick={librarySave.cancelQuick}>{t('dialog.cancel')}</Button>
@@ -146,7 +114,7 @@ export function IdeaSection({
           </div>
         ) : (
           <>
-            <textarea
+            <IdeaAutoTextarea
               className="dsh-idea-quick-input"
               value={quickState.text}
               placeholder={t('quick.placeholder')}
@@ -186,11 +154,33 @@ export function IdeaSection({
 
   if (state.detailId !== null) {
     const editing = state.edit.status !== 'idle' && state.edit.ideaId === state.detailId
+    const originalDraft = state.detail === null ? null : editableFrom(detailDraftOf(state.detail))
+    const editDirty = editing && state.edit.draft !== null && originalDraft !== null
+      && IDEA_FORM_FIELDS.some(field => state.edit.draft?.[field.key] !== originalDraft[field.key])
+    const backFromEdit = () => {
+      if (state.edit.status === 'committing') return
+      if (editDirty) setConfirmLeaveEdit(true)
+      else cancelEdit()
+    }
     return (
       <div className="dsh-idea-library">
         <div className="dsh-idea-back-row">
-          <Button variant="outline" onClick={closeDetail}>{t('read.back')}</Button>
+          <Button variant="outline" disabled={editing && state.edit.status === 'committing'}
+            onClick={editing ? backFromEdit : closeDetail}>
+            {editing ? t('read.edit.back') : t('read.back')}
+          </Button>
         </div>
+        {confirmLeaveEdit && editing && (
+          <Modal open title={t('read.edit.leave.title')} closeLabel={t('read.edit.leave.stay')}
+            onClose={() => { setConfirmLeaveEdit(false) }} footer={<>
+              <Button onClick={() => { setConfirmLeaveEdit(false) }}>{t('read.edit.leave.stay')}</Button>
+              <Button variant="primary" onClick={() => { setConfirmLeaveEdit(false); cancelEdit() }}>
+                {t('read.edit.leave.discard')}
+              </Button>
+            </>}>
+            <p>{t('read.edit.leave.description')}</p>
+          </Modal>
+        )}
         {state.detailStatus === 'loading' && <p className="dsh-idea-state">{t('read.loading')}</p>}
         {state.detailStatus === 'error' && (
           <p className="dsh-idea-state">
@@ -482,13 +472,12 @@ function IdeaDetailView(
           <span className="dsh-idea-reminder-state">
             {detail.resurfacingMuted ? t('read.reminder.off') : t('read.reminder.on')}
           </span>
-          <Button
-            variant="outline"
+          <Switch
+            checked={!detail.resurfacingMuted}
             disabled={reminderStatus === 'loading'}
-            onClick={() => { setResurfacingMuted(detail.id, !detail.resurfacingMuted) }}
-          >
-            {detail.resurfacingMuted ? t('read.reminder.resume') : t('read.reminder.pause')}
-          </Button>
+            label={detail.resurfacingMuted ? t('read.reminder.resume') : t('read.reminder.pause')}
+            onChange={enabled => { setResurfacingMuted(detail.id, !enabled) }}
+          />
         </div>
       )}
       {reminderStatus === 'error' && <p className="dsh-idea-state">{t('read.reminder.error')}</p>}
@@ -550,47 +539,6 @@ function IdeaDetailList({ label, items }: { label: string, items: readonly strin
         {items.map(item => <li key={item}>{item}</li>)}
       </ul>
     </div>
-  )
-}
-
-/** The shared seven-field editable draft form (evolution preview + manual edit). */
-function IdeaDraftFields(
-  {
-    draft, disabled, onEdit, t,
-  }: {
-    draft: EditableIdeaDraft
-    disabled: boolean
-    onEdit: (patch: Partial<EditableIdeaDraft>) => void
-    t: (key: IdeaLocaleKey, params?: Record<string, unknown>) => string
-  },
-): ReactNode {
-  return (
-    <>
-      {DRAFT_FIELDS.map(field =>
-        field.multiline
-          ? (
-              <label key={field.key} className="dsh-idea-field">
-                {t(field.label)}
-                <textarea
-                  value={draft[field.key]}
-                  readOnly={disabled}
-                  onChange={event => { onEdit({ [field.key]: event.target.value }) }}
-                />
-              </label>
-            )
-          : (
-              <label key={field.key} className="dsh-idea-field">
-                {t(field.label)}
-                <input
-                  type="text"
-                  value={draft[field.key]}
-                  readOnly={disabled}
-                  onChange={event => { onEdit({ [field.key]: event.target.value }) }}
-                />
-              </label>
-            )
-      )}
-    </>
   )
 }
 

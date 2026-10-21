@@ -90,7 +90,62 @@ const CSS = `
 }
 .dsh-idea-field > textarea {
   min-height: 56px;
-  resize: vertical;
+  resize: none;
+}
+.dsh-idea-auto-textarea {
+  max-height: min(240px, 40vh);
+  overflow-y: auto;
+}
+.dsh-idea-list-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.dsh-idea-list-field > legend {
+  padding: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-idea-list-field > button {
+  align-self: flex-start;
+}
+.dsh-idea-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.dsh-idea-list-item > textarea {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--dsw-alias-border-primary, rgba(127, 127, 127, 0.35));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  resize: none;
+}
+.dsh-idea-list-item > button {
+  flex-shrink: 0;
+}
+.dsh-idea-reminder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.dsh-idea-reminder-state {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
 }
 .dsh-idea-field > input:disabled,
 .dsh-idea-field > textarea:disabled {
@@ -482,7 +537,7 @@ body[data-ds-dark-theme] .dsh-idea-search {
   font: inherit;
   font-size: 13px;
   line-height: 20px;
-  resize: vertical;
+  resize: none;
 }
 .dsh-idea-quick-actions {
   display: flex;

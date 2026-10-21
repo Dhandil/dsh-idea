@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useState } from 'react'
-import { Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IdeaLightbulbIcon } from './icons.tsx'
 import type { UnifiedActionProps } from './slots.ts'
 
@@ -49,19 +49,18 @@ export function IdeaAssistantActions({ messageId, prepare, findRelated, useIdea,
         else onFindRelated()
       }}
       onClose={() => { setMenuOpen(false) }}
-      anchor={(
+      anchor={<Tooltip portal label={t('action.tooltip')} side="bottom" delayMs={500}>
         <button
           type="button"
           className="dsh-idea-action"
           aria-label={t('action.tooltip')}
-          title={t('action.tooltip')}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           onClick={() => { setMenuOpen(open => !open) }}
         >
           <IdeaLightbulbIcon size={15} />
         </button>
-      )}
+      </Tooltip>}
     />
   )
 }

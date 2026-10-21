@@ -330,6 +330,35 @@ describe('Ideas section: anchored hover card', () => {
 })
 
 describe('Ideas section: manual edit', () => {
+  it('returns to detail directly when unchanged and confirms before discarding edits', async () => {
+    const face = faceWith()
+    await openDetail(face)
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+    fireEvent.click(screen.getByRole('button', { name: '← 返回 Idea 详情' }))
+    expect(screen.getByRole('heading', { name: 'Saved idea' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+    fireEvent.change(screen.getByDisplayValue('Saved idea'), { target: { value: 'Unsaved title' } })
+    fireEvent.click(screen.getByRole('button', { name: '← 返回 Idea 详情' }))
+    expect(screen.getByRole('dialog', { name: '放弃未保存的修改？' })).toBeTruthy()
+    fireEvent.click(screen.getByText('继续编辑'))
+    expect((screen.getByDisplayValue('Unsaved title') as HTMLInputElement).value).toBe('Unsaved title')
+    fireEvent.click(screen.getByRole('button', { name: '← 返回 Idea 详情' }))
+    fireEvent.click(screen.getByRole('button', { name: '放弃修改' }))
+    expect(screen.getByRole('heading', { name: 'Saved idea' })).toBeTruthy()
+    expect(face.manualEdit).not.toHaveBeenCalled()
+  })
+
+  it('confirms when an unsaved empty list row is visible even though Save remains disabled', async () => {
+    const face = faceWith()
+    await openDetail(face)
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+    fireEvent.click(screen.getByRole('button', { name: '添加适用场景' }))
+    expect((screen.getByRole('button', { name: '保存为新版本' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '← 返回 Idea 详情' }))
+    expect(screen.getByRole('dialog', { name: '放弃未保存的修改？' })).toBeTruthy()
+  })
+
   it('opens the editor with the seven current fields and disables Save until a change', async () => {
     const face = faceWith()
     await openDetail(face)
@@ -341,8 +370,9 @@ describe('Ideas section: manual edit', () => {
     expect(screen.getByDisplayValue('Why kept')).toBeTruthy()
     expect(screen.getByDisplayValue('Conclusion text')).toBeTruthy()
     expect(screen.getByDisplayValue('Value text')).toBeTruthy()
-    expect((screen.getByLabelText('适用场景（每行一条）') as HTMLTextAreaElement).value).toBe('use one\nuse two')
-    expect((screen.getByLabelText('待解决问题（每行一条）') as HTMLTextAreaElement).value).toBe('question one')
+    expect((screen.getByRole('textbox', { name: '适用场景第 1 条' }) as HTMLTextAreaElement).value).toBe('use one')
+    expect((screen.getByRole('textbox', { name: '适用场景第 2 条' }) as HTMLTextAreaElement).value).toBe('use two')
+    expect((screen.getByRole('textbox', { name: '待解决问题第 1 条' }) as HTMLTextAreaElement).value).toBe('question one')
 
     const save = screen.getByRole('button', { name: '保存为新版本' }) as HTMLButtonElement
     expect(save.disabled).toBe(true)

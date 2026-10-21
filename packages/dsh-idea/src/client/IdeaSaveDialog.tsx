@@ -11,27 +11,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { Button, IconCheckOutlineRegular, IconWarningOutlineRegular, Modal, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { IdeaDialogProps } from './slots.ts'
 import { requiredPresent } from './state.ts'
-import type { EditableIdeaDraft } from './state.ts'
-import type { IdeaLocaleKey } from './locales.ts'
-
-/** The editable fields, in modal order. Shared with the T12.3 library
- * proposal editor so the seven-field contract lives in exactly one place. */
-export const IDEA_FORM_FIELDS: ReadonlyArray<{
-  key: keyof EditableIdeaDraft
-  label: IdeaLocaleKey
-  multiline: boolean
-}> = [
-  { key: 'title', label: 'field.title', multiline: false },
-  { key: 'core', label: 'field.core', multiline: true },
-  { key: 'motivation', label: 'field.motivation', multiline: true },
-  { key: 'currentConclusion', label: 'field.currentConclusion', multiline: true },
-  { key: 'possibleValue', label: 'field.possibleValue', multiline: true },
-  { key: 'useWhenText', label: 'field.useWhen', multiline: true },
-  { key: 'openQuestionsText', label: 'field.openQuestions', multiline: true },
-] as const
-
-/** The modal-order alias the dialog renders. */
-const FIELDS = IDEA_FORM_FIELDS
+import { IdeaDraftFields } from './IdeaDraftForm.tsx'
 
 /**
  * The Session's Idea preview modal plus its toasts.
@@ -85,30 +65,7 @@ export function IdeaSaveDialog({
             {modal.source === null
               ? <p className="dsh-idea-source">{t('dialog.sourceQuick')}</p>
               : <p className="dsh-idea-source">{t('dialog.source', { count: modal.source.messageCount })}</p>}
-            {FIELDS.map(field => (
-              field.multiline
-                ? (
-                    <label key={field.key} className="dsh-idea-field">
-                      {t(field.label)}
-                      <textarea
-                        value={modal.draft[field.key]}
-                        readOnly={state.submitting}
-                        onChange={event => { editDraft({ [field.key]: event.target.value }) }}
-                      />
-                    </label>
-                  )
-                : (
-                    <label key={field.key} className="dsh-idea-field">
-                      {t(field.label)}
-                      <input
-                        type="text"
-                        value={modal.draft[field.key]}
-                        readOnly={state.submitting}
-                        onChange={event => { editDraft({ [field.key]: event.target.value }) }}
-                      />
-                    </label>
-                  )
-            ))}
+            <IdeaDraftFields draft={modal.draft} disabled={state.submitting} onEdit={editDraft} t={t} />
           </div>
         </Modal>
       )}

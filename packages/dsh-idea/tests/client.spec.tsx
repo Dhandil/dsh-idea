@@ -641,7 +641,9 @@ describe('unified idea action', () => {
       </div>,
     )
     expect(screen.getByRole('button', { name: 'echo' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '保存为 Idea' })).toBeTruthy()
+    const ideaAction = screen.getByRole('button', { name: '保存为 Idea' })
+    expect(ideaAction).toBeTruthy()
+    expect(ideaAction.getAttribute('title')).toBeNull() // native DSH Tooltip owns the hint
   })
 })
 
@@ -659,8 +661,9 @@ describe('preview modal', () => {
     expect((screen.getByLabelText('为什么值得保留 *') as HTMLTextAreaElement).value).toBe('Model motivation')
     expect((screen.getByLabelText('当前结论') as HTMLTextAreaElement).value).toBe('Model conclusion')
     expect((screen.getByLabelText('可能价值') as HTMLTextAreaElement).value).toBe('Model value')
-    expect((screen.getByLabelText('适用场景（每行一条）') as HTMLTextAreaElement).value).toBe('u1\nu2')
-    expect((screen.getByLabelText('待解决问题（每行一条）') as HTMLTextAreaElement).value).toBe('q1')
+    expect((screen.getByRole('textbox', { name: '适用场景第 1 条' }) as HTMLTextAreaElement).value).toBe('u1')
+    expect((screen.getByRole('textbox', { name: '适用场景第 2 条' }) as HTMLTextAreaElement).value).toBe('u2')
+    expect((screen.getByRole('textbox', { name: '待解决问题第 1 条' }) as HTMLTextAreaElement).value).toBe('q1')
   })
 
   it('updates the local draft while editing', async () => {
@@ -671,11 +674,38 @@ describe('preview modal', () => {
 
     await act(async () => {
       fireEvent.change(screen.getByLabelText('标题 *'), { target: { value: 'Edited title' } })
-      fireEvent.change(screen.getByLabelText('适用场景（每行一条）'), { target: { value: 'u1\n  u2 \n\n u3 ' } })
+      fireEvent.change(screen.getByRole('textbox', { name: '适用场景第 1 条' }), { target: { value: 'u1\n  u2 \n\n u3 ' } })
     })
     const draft = surface.state.getSnapshot().modal?.draft
     expect(draft?.title).toBe('Edited title')
-    expect(draft?.useWhenText).toBe('u1\n  u2 \n\n u3 ')
+    expect(draft?.useWhenText).toBe('u1\n  u2 \n\n u3 \nu2')
+    expect(screen.getAllByRole('textbox', { name: /适用场景第/ })).toHaveLength(5)
+  })
+
+  it('adds and removes list rows while preserving the normalized durable array', async () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    await openModal(surface, face)
+    render(<IdeaSaveDialog {...dialogProps(surface)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '删除适用场景第 1 条' }))
+    expect((screen.getByRole('textbox', { name: '适用场景第 1 条' }) as HTMLTextAreaElement).value).toBe('u2')
+    fireEvent.click(screen.getByRole('button', { name: '添加适用场景' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '适用场景第 2 条' }), { target: { value: 'new use' } })
+    expect(durableFrom(surface.state.getSnapshot().modal!.draft).useWhen).toEqual(['u2', 'new use'])
+  })
+
+  it('Enter splits a list row at the keyboard caret', async () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    await openModal(surface, face)
+    render(<IdeaSaveDialog {...dialogProps(surface)} />)
+    const first = screen.getByRole('textbox', { name: '适用场景第 1 条' }) as HTMLTextAreaElement
+    first.setSelectionRange(1, 1)
+    fireEvent.keyDown(first, { key: 'Enter' })
+    expect((screen.getByRole('textbox', { name: '适用场景第 1 条' }) as HTMLTextAreaElement).value).toBe('u')
+    expect((screen.getByRole('textbox', { name: '适用场景第 2 条' }) as HTMLTextAreaElement).value).toBe('1')
+    expect(durableFrom(surface.state.getSnapshot().modal!.draft).useWhen).toEqual(['u', '1', 'u2'])
   })
 
   it('cancels with zero durable writes', async () => {

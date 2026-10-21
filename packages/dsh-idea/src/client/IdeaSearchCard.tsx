@@ -15,6 +15,7 @@
 
 import { useEffect, useRef } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IdeaAutoTextarea } from './IdeaDraftForm.tsx'
 import type { SearchCardProps } from './slots.ts'
 
 /**
@@ -76,7 +77,7 @@ export function IdeaSearchCard({ setQuery, select, retry, add, back, close, useS
         </header>
         {capture ? (
           <div className="dsh-idea-quick-form">
-            <textarea
+            <IdeaAutoTextarea
               className="dsh-idea-quick-input"
               value={quickState.text}
               placeholder={t('quick.placeholder')}
