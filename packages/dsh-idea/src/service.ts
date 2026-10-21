@@ -748,6 +748,17 @@ export class IdeaService extends Service {
     return undefined
   }
 
+  /** Read the active discussion for the Idea's current version, if any. */
+  findCurrentDiscussion(ideaId: IdeaId): IdeaDiscussion | undefined {
+    const currentVersionId = this.get(ideaId).idea.currentVersionId
+    for (const [, discussion] of this.workspaces.entries()) {
+      if (discussion.ideaId === ideaId && discussion.baseVersionId === currentVersionId && discussion.status === 'active') {
+        return structuredClone(discussion)
+      }
+    }
+    return undefined
+  }
+
   /**
    * Read the durable one-surface proactive-resurfacing budget of one
    * conversation, synchronously from memory over the `resurfacing_budgets`

@@ -11,7 +11,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import { textStream } from './helpers/preparation.ts'
-import { evolutionDraft, evolutionHarness, seedDiscussion } from './helpers/evolution.ts'
+import { discussionEvents, evolutionDraft, evolutionHarness, seedDiscussion } from './helpers/evolution.ts'
 import { cleanup, storedBytes } from './helpers/harness.ts'
 import IdeaRemoteService from '../src/remote-host/index.ts'
 import IdeaRelatedService from '../src/related/index.ts'
@@ -22,8 +22,8 @@ afterEach(cleanup)
 const draftText = JSON.stringify(evolutionDraft())
 
 /** Evolution stack plus the mounted remote controller. */
-async function remoteHarness() {
-  const env = await evolutionHarness()
+async function remoteHarness(root?: string) {
+  const env = await evolutionHarness(root)
   env.ctx.provide('ideaPreparations', {
     preparations: { resolve: () => { throw new Error('evolution never resolves preparations') } },
   } as never)
@@ -38,6 +38,45 @@ async function remoteHarness() {
   await env.ctx.plugin(IdeaRemoteService)
   return { ...env, idea: env.ctx.idea }
 }
+
+describe('continued discussion read-only projections', () => {
+  it('reconstructs the linked card on re-entry and distinguishes pending from delivered context', async () => {
+    const env = await remoteHarness()
+    const { discussion } = await seedDiscussion(env, [])
+    expect(await env.idea.getDiscussionCard({ conversationId: 'unbound-session' })).toBeNull()
+    expect(await env.idea.getDiscussionCard({ conversationId: discussion.conversationId })).toMatchObject({
+      discussionId: discussion.discussionId, title: discussion.context.idea.title, injection: 'pending',
+    })
+
+    const reopened = await remoteHarness(env.root)
+    reopened.sessionQuery.add(discussion.conversationId, [])
+    expect(await reopened.idea.getDiscussionCard({ conversationId: discussion.conversationId })).toMatchObject({
+      discussionId: discussion.discussionId, injection: 'pending',
+    })
+    reopened.sessionQuery.add(discussion.conversationId, [{
+      type: 'user/message', seq: 1, time: 0,
+      data: { source: { kind: 'dsh-idea', form: 'recall' }, content: [{ type: 'text', text: 'dsh-idea continuation context v1\nseed' }] },
+    } as never])
+    expect(await reopened.idea.getDiscussionCard({ conversationId: discussion.conversationId })).toMatchObject({
+      discussionId: discussion.discussionId, injection: 'delivered',
+    })
+    expect(reopened.llm.calls).toHaveLength(0)
+  })
+
+  it('blocks empty discussions without a model call and enables only usable text', async () => {
+    const env = await remoteHarness()
+    const { ideaId, discussion } = await seedDiscussion(env, [])
+    expect(await env.idea.getEvolutionReadiness({ id: ideaId })).toEqual({
+      ready: false, discussionId: discussion.discussionId, reason: 'empty-discussion',
+    })
+    expect(env.llm.calls).toHaveLength(0)
+    env.sessionQuery.add(discussion.conversationId, discussionEvents())
+    expect(await env.idea.getEvolutionReadiness({ id: ideaId })).toEqual({
+      ready: true, discussionId: discussion.discussionId,
+    })
+    expect(env.llm.calls).toHaveLength(0)
+  })
+})
 
 /** The stable code of the RemoteError a call rejects with. */
 const remoteCodeOf = async (run: () => Promise<unknown>): Promise<string | undefined> => {

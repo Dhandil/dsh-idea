@@ -140,15 +140,21 @@ const previewOf = (): { ok: true; value: IdeaEvolutionProposalPreview } => ({
 function faceWith(overrides: {
   prepareEvolution?: () => Promise<unknown>
   commitEvolution?: () => Promise<unknown>
+  getEvolutionReadiness?: () => Promise<unknown>
 } = {}) {
+  let discussed = false
   return {
     list: vi.fn(async () => ({ ok: true as const, value: [row()] })),
     get: vi.fn(async () => ({ ok: true as const, value: detail() })),
     getVersions: vi.fn(async () => ({ ok: true as const, value: versions() })),
-    continueDiscussion: vi.fn(async () => ({
-      ok: true as const,
-      value: { discussionId: 'idea_dis_1', conversationId: 'session-new', baseVersionId: 'idea_ver_1' },
-    })),
+    continueDiscussion: vi.fn(async () => {
+      discussed = true
+      return { ok: true as const,
+        value: { discussionId: 'idea_dis_1', conversationId: 'session-new', baseVersionId: 'idea_ver_1' } }
+    }),
+    getEvolutionReadiness: vi.fn(overrides.getEvolutionReadiness ?? (async ({ id }: { id: string }) => ({ ok: true as const, value: discussed && id === 'idea_1'
+      ? { ready: true, discussionId: 'idea_dis_1' }
+      : { ready: false, reason: 'no-discussion' as const } }))),
     prepareEvolution: vi.fn(overrides.prepareEvolution ?? (async () => previewOf())),
     commitEvolution: vi.fn(overrides.commitEvolution ?? (async () => ({
       ok: true as const,
@@ -205,16 +211,30 @@ async function openProposalPreview(face: ReturnType<typeof faceWith>) {
 }
 
 describe('Ideas section: evolution entry', () => {
-  it('hides the evolution entry until a discussion exists, then shows it', async () => {
+  it('keeps empty discussions disabled and does not call prepare', async () => {
+    const face = faceWith({ getEvolutionReadiness: async () => ({ ok: true as const,
+      value: { ready: false, discussionId: 'idea_dis_1', reason: 'empty-discussion' } }) })
+    const { surface } = await openDiscussedDetail(face)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
+    await flush()
+    const button = screen.getByRole('button', { name: '生成演化提案' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(screen.getByText('讨论尚无有效消息；先在会话中交流，再生成提案。')).toBeTruthy()
+    surface.prepareEvolution()
+    expect(face.prepareEvolution).not.toHaveBeenCalled()
+  })
+
+  it('disables evolution until a discussion is ready, then enables it', async () => {
     const face = faceWith()
     const { surface } = await openDiscussedDetail(face)
-    expect(screen.queryByRole('button', { name: '生成演化提案' })).toBeNull()
+    expect((screen.getByRole('button', { name: '生成演化提案' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText('请先点击「讨论」并在会话中交流，再生成提案。')).toBeTruthy()
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
     await flush()
 
     expect(surface.state.getSnapshot().discussionId).toBe('idea_dis_1')
-    expect(screen.getByRole('button', { name: '生成演化提案' })).toBeTruthy()
+    expect((screen.getByRole('button', { name: '生成演化提案' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('shows a disabled preparing state, then the proposal preview on success', async () => {
@@ -258,13 +278,39 @@ describe('Ideas section: evolution entry', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '生成演化提案' })) })
     await flush()
     expect(surface.state.getSnapshot().evolutionStatus).toBe('error')
-    expect(screen.getByText('生成演化提案失败，请稍后重试')).toBeTruthy()
+    expect(screen.getByText('模型请求失败，请稍后重试。')).toBeTruthy()
 
     failing = false
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '生成演化提案' })) })
     await flush()
     expect(face.prepareEvolution).toHaveBeenCalledTimes(2)
     expect(screen.getByText('演化提案')).toBeTruthy()
+  })
+
+  it.each([
+    ['idea/source-unavailable', '无法读取有效讨论内容，请检查会话后重试。'],
+    ['idea/model-unavailable', '当前没有可用模型；请先配置模型。'],
+    ['idea/model-failed', '模型请求失败，请稍后重试。'],
+    ['idea/invalid-model-output', '模型未生成有效提案，请重试。'],
+    ['idea/version-conflict', 'Idea 已更新，请从最新版本重新开始继续讨论。'],
+  ])('classifies preparation failure %s', async (code, message) => {
+    const face = faceWith({ prepareEvolution: async () => ({ ok: false as const, error: { code } }) })
+    await openDiscussedDetail(face)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '生成演化提案' })) })
+    await flush()
+    expect(screen.getByText(message)).toBeTruthy()
+  })
+
+  it('returns to idle after a carrier cancellation', async () => {
+    const face = faceWith({ prepareEvolution: async () => ({ ok: false as const, error: { code: 'gateway/cancelled' } }) })
+    const { surface } = await openDiscussedDetail(face)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
+    await flush()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '生成演化提案' })) })
+    await flush()
+    expect(surface.state.getSnapshot().evolutionStatus).toBe('idle')
   })
 })
 

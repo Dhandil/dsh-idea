@@ -405,6 +405,25 @@ body[data-ds-dark-theme] .dsh-idea-hover-card {
   flex-direction: column;
   gap: 6px;
 }
+.dsh-idea-discussion-card {
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  width: min(100%, 480px);
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-primary, rgba(127, 127, 127, 0.35));
+  border-radius: 10px;
+  background: var(--dsw-alias-surface-secondary, transparent);
+  color: var(--dsw-alias-label-primary, inherit);
+}
+.dsh-idea-discussion-card strong { overflow-wrap: anywhere; }
+.dsh-idea-discussion-card-label,
+.dsh-idea-discussion-card-status {
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: 12px;
+}
 .dsh-idea-evolution-actions {
   display: flex;
   gap: 8px;

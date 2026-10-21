@@ -24,6 +24,7 @@ import type {
   IdeaDeleteResult,
   IdeaDetail,
   IdeaEvolutionProposalPreview,
+  IdeaEvolutionReadinessResult,
   IdeaLifecycleResult,
   IdeaListRow,
   IdeaManualEditResult,
@@ -51,6 +52,7 @@ export interface IdeaReadFace {
   setResurfacingMuted(request: { id: string; muted: boolean }): Promise<RemoteRead<{ muted: boolean }>>
   getVersions(request: { id: string }): Promise<RemoteRead<readonly IdeaVersionSummary[]>>
   continueDiscussion(request: { id: string; workspaceId?: string }): Promise<RemoteRead<IdeaContinueDiscussionResult>>
+  getEvolutionReadiness(request: { id: string }): Promise<RemoteRead<IdeaEvolutionReadinessResult>>
   prepareEvolution(
     request: { discussionId: string },
     signal?: AbortSignal,
@@ -156,10 +158,11 @@ export interface IdeaReadState {
   continueStatus: 'idle' | 'loading' | 'error'
   /** The discussion workspace this detail's evolution flow reads from. */
   discussionId: string | null
+  evolutionReadiness: { status: 'loading' | 'ready' | 'blocked' | 'error'; reason: IdeaEvolutionReadinessResult['reason'] | null }
   /** The evolution proposal flow's lifecycle. */
   evolutionStatus: IdeaEvolutionStatus
   /** Which half failed last, when `evolutionStatus` is `error`; `stale` marks a superseded discussion base. */
-  evolutionFailure: 'prepare' | 'stale' | 'commit' | null
+  evolutionFailure: 'prepare' | 'stale' | 'commit' | 'source' | 'model-unavailable' | 'model-failed' | 'invalid-output' | null
   /** The proposal under review, present only while reviewing. */
   proposal: IdeaProposalState | null
   /** The manual-edit editor state. */
@@ -190,6 +193,7 @@ const INITIAL: IdeaReadState = {
   detailVersions: [],
   continueStatus: 'idle',
   discussionId: null,
+  evolutionReadiness: { status: 'blocked', reason: 'no-discussion' },
   evolutionStatus: 'idle',
   evolutionFailure: null,
   proposal: null,
@@ -411,6 +415,7 @@ export class IdeaReadSurface {
       draft.detailVersions = []
       draft.continueStatus = 'idle'
       draft.discussionId = null
+      draft.evolutionReadiness = { status: 'loading', reason: null }
       draft.evolutionStatus = 'idle'
       draft.evolutionFailure = null
       draft.proposal = null
@@ -421,6 +426,29 @@ export class IdeaReadSurface {
     })
     void this.runOpen(id, controller)
     void this.runVersions(id, controller)
+    void this.runReadiness(id, controller)
+  }
+
+  private async runReadiness(id: string, controller: AbortController): Promise<void> {
+    let value: IdeaEvolutionReadinessResult | undefined
+    try {
+      const result = await this.remote.getEvolutionReadiness({ id })
+      if (result.ok) value = result.value
+    } catch {
+      // An unreadable gate stays disabled; the prepare call is never guessed.
+    }
+    if (controller.signal.aborted) return
+    this.state.update(draft => {
+      if (draft.detailId !== id) return
+      if (value === undefined) {
+        draft.evolutionReadiness = { status: 'error', reason: null }
+      } else {
+        draft.discussionId = value.discussionId ?? null
+        draft.evolutionReadiness = value.ready
+          ? { status: 'ready', reason: null }
+          : { status: 'blocked', reason: value.reason ?? 'source-unavailable' }
+      }
+    })
   }
 
   private async runOpen(id: string, controller: AbortController): Promise<void> {
@@ -515,6 +543,7 @@ export class IdeaReadSurface {
       draft.detailVersions = []
       draft.continueStatus = 'idle'
       draft.discussionId = null
+      draft.evolutionReadiness = { status: 'blocked', reason: 'no-discussion' }
       draft.evolutionStatus = 'idle'
       draft.evolutionFailure = null
       draft.proposal = null
@@ -570,6 +599,9 @@ export class IdeaReadSurface {
         draft.discussionId = discussionId
       }
     })
+    if (conversationId !== undefined && this.detailAbort !== undefined) {
+      void this.runReadiness(id, this.detailAbort)
+    }
   }
 
   /**
@@ -578,8 +610,9 @@ export class IdeaReadSurface {
    * a previous Continue Discussion. Zero durable writes happen on this path.
    */
   prepareEvolution(): void {
-    const { discussionId, evolutionStatus } = this.state.getSnapshot()
-    if (discussionId === null || evolutionStatus === 'preparing' || evolutionStatus === 'reviewing' || evolutionStatus === 'committing') return
+    const { discussionId, evolutionReadiness, evolutionStatus } = this.state.getSnapshot()
+    if (discussionId === null || evolutionReadiness.status !== 'ready'
+      || evolutionStatus === 'preparing' || evolutionStatus === 'reviewing' || evolutionStatus === 'committing') return
     const controller = new AbortController()
     this.evolutionAbort = controller
     this.state.update((draft) => {
@@ -595,15 +628,21 @@ export class IdeaReadSurface {
     let cancelled = false
     try {
       const result = await this.remote.prepareEvolution({ discussionId }, controller.signal)
-      if (controller.signal.aborted) cancelled = true
+      if (controller.signal.aborted || (!result.ok && result.error.code === 'gateway/cancelled')) cancelled = true
       else if (result.ok) preview = result.value
       else failureCode = result.error.code
     } catch {
+      if (controller.signal.aborted) cancelled = true
       // A thrown carrier failure renders as the prepare error state.
     } finally {
       this.evolutionAbort = undefined
     }
-    if (cancelled) return
+    if (cancelled) {
+      if (!controller.signal.aborted) this.state.update(draft => {
+        if (draft.discussionId === discussionId) draft.evolutionStatus = 'idle'
+      })
+      return
+    }
     this.state.update((draft) => {
       if (draft.discussionId !== discussionId) return
       if (preview !== undefined) {
@@ -615,7 +654,11 @@ export class IdeaReadSurface {
         }
       } else {
         draft.evolutionStatus = 'error'
-        draft.evolutionFailure = failureCode === 'idea/version-conflict' ? 'stale' : 'prepare'
+        draft.evolutionFailure = failureCode === 'idea/version-conflict' ? 'stale'
+          : failureCode === 'idea/source-not-found' || failureCode === 'idea/source-unavailable' ? 'source'
+            : failureCode === 'idea/model-unavailable' ? 'model-unavailable'
+              : failureCode === 'idea/model-failed' ? 'model-failed'
+                : failureCode === 'idea/invalid-model-output' ? 'invalid-output' : 'prepare'
       }
     })
   }

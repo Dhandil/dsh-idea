@@ -218,6 +218,25 @@ export interface IdeaContinueDiscussionResult {
   baseVersionId: string
 }
 
+/** Read-only projection of the Host's durable conversation → Idea binding. */
+export interface IdeaDiscussionCardRequest { conversationId: string }
+export interface IdeaDiscussionCardResult {
+  discussionId: string
+  ideaId: string
+  baseVersionId: string
+  title: string
+  /** Derived from the durable Session log, never inferred from the binding. */
+  injection: 'pending' | 'delivered' | 'unknown'
+}
+
+/** Read-only gate for proposing evolution from the current version. */
+export interface IdeaEvolutionReadinessRequest { id: string }
+export interface IdeaEvolutionReadinessResult {
+  ready: boolean
+  discussionId?: string
+  reason?: 'no-discussion' | 'empty-discussion' | 'source-unavailable'
+}
+
 /** `idea.prepareEvolution` request: the continued discussion to evolve from. */
 export interface IdeaPrepareEvolutionRequest {
   discussionId: string

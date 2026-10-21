@@ -29,8 +29,9 @@ import {
   resolveModelRoute,
 } from '../preparation/pipeline.ts'
 import { IdeaEvolutionRegistry } from './registry.ts'
-import { EvolutionProposalId, IdeaDiscussionId } from '../types.ts'
+import { EvolutionProposalId, IdeaDiscussionId, IdeaId } from '../types.ts'
 import { IdeaError } from '../errors.ts'
+import { IdeaPreparationError } from '../preparation/errors.ts'
 import type { IdeaEvolutionPreview, PreparedEvolution } from './types.ts'
 import type { IdeaPreparationModelRoute } from '../preparation/types.ts'
 import type {
@@ -56,6 +57,27 @@ export class IdeaEvolutionService extends Service {
   constructor(ctx: Context) {
     super(ctx, 'ideaEvolutions')
     this.proposals = new IdeaEvolutionRegistry()
+  }
+
+  /** Read-only readiness for the current version's continued discussion. */
+  async readiness(ideaId: string): Promise<{ ready: boolean; discussionId?: string; reason?: 'no-discussion' | 'empty-discussion' | 'source-unavailable' }> {
+    const discussion = this.ctx.ideaService.findCurrentDiscussion(IdeaId(ideaId))
+    if (discussion === undefined) return { ready: false, reason: 'no-discussion' }
+    let surface: Awaited<ReturnType<typeof readSessionSurface>>
+    try {
+      surface = await readSessionSurface(this.ctx.sessionQuery, discussion.conversationId)
+    } catch {
+      return { ready: false, discussionId: discussion.discussionId, reason: 'source-unavailable' }
+    }
+    try {
+      collectDiscussionFromSurface(surface.events)
+      return { ready: true, discussionId: discussion.discussionId }
+    } catch (error) {
+      if (error instanceof IdeaPreparationError && error.code === 'source-unavailable') {
+        return { ready: false, discussionId: discussion.discussionId, reason: 'empty-discussion' }
+      }
+      return { ready: false, discussionId: discussion.discussionId, reason: 'source-unavailable' }
+    }
   }
 
   /**

@@ -220,6 +220,7 @@ export function IdeaSection({
                     versionsStatus={state.detailVersionsStatus}
                     continueStatus={state.continueStatus}
                     discussionId={state.discussionId}
+                    evolutionReadiness={state.evolutionReadiness}
                     evolutionStatus={state.evolutionStatus}
                     evolutionFailure={state.evolutionFailure}
                     archiveStatus={state.archiveStatus}
@@ -398,7 +399,7 @@ export function IdeaPreviewCard(
  * archived: Restore — plus the detail-only permanent delete for both). */
 function IdeaDetailView(
   {
-    detail, versions, versionsStatus, continueStatus, discussionId, evolutionStatus, evolutionFailure,
+    detail, versions, versionsStatus, discussionId, evolutionReadiness, continueStatus, evolutionStatus, evolutionFailure,
     archiveStatus, restoreStatus, continueIdea, prepareEvolution, openEditor, archiveIdea, restoreIdea, requestDelete,
     reminderStatus, setResurfacingMuted, t,
   }: {
@@ -407,6 +408,7 @@ function IdeaDetailView(
     versionsStatus: 'loading' | 'ready' | 'error'
     continueStatus: 'idle' | 'loading' | 'error'
     discussionId: IdeaReadState['discussionId']
+    evolutionReadiness: IdeaReadState['evolutionReadiness']
     evolutionStatus: IdeaReadState['evolutionStatus']
     evolutionFailure: IdeaReadState['evolutionFailure']
     archiveStatus: IdeaReadState['archiveStatus']
@@ -481,20 +483,31 @@ function IdeaDetailView(
         </div>
       )}
       {reminderStatus === 'error' && <p className="dsh-idea-state">{t('read.reminder.error')}</p>}
-      {!archived && discussionId !== null && (
+      {!archived && (
         <div className="dsh-idea-evolution">
           <Button
             variant="outline"
-            disabled={evolutionStatus === 'preparing'}
+            disabled={evolutionReadiness.status !== 'ready' || discussionId === null || evolutionStatus === 'preparing'}
             onClick={prepareEvolution}
           >
             {evolutionStatus === 'preparing' ? t('read.evolve.loading') : t('read.evolve')}
           </Button>
+          {evolutionReadiness.status !== 'ready' && (
+            <p className="dsh-idea-state">{t(evolutionReadiness.status === 'loading' ? 'read.evolve.checking'
+              : evolutionReadiness.status === 'error' ? 'read.evolve.readinessError'
+                : evolutionReadiness.reason === 'no-discussion' ? 'read.evolve.noDiscussion'
+                  : evolutionReadiness.reason === 'empty-discussion' ? 'read.evolve.emptyDiscussion'
+                    : 'read.evolve.sourceUnavailable')}</p>
+          )}
           {evolutionStatus === 'error' && evolutionFailure === 'stale' && (
             <p className="dsh-idea-state">{t('read.evolve.staleError')}</p>
           )}
-          {evolutionStatus === 'error' && evolutionFailure === 'prepare' && (
-            <p className="dsh-idea-state">{t('read.evolve.prepareError')}</p>
+          {evolutionStatus === 'error' && evolutionFailure !== null && evolutionFailure !== 'stale' && evolutionFailure !== 'commit' && (
+            <p className="dsh-idea-state">{t(evolutionFailure === 'source' ? 'read.evolve.sourceUnavailable'
+              : evolutionFailure === 'model-unavailable' ? 'read.evolve.modelUnavailable'
+                : evolutionFailure === 'model-failed' ? 'read.evolve.modelFailed'
+                  : evolutionFailure === 'invalid-output' ? 'read.evolve.invalidOutput'
+                    : 'read.evolve.prepareError')}</p>
           )}
         </div>
       )}

@@ -31,6 +31,8 @@
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { SessionCreateRequest } from '@deepseek-ai/dsh-api-session-controller'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { isIdeaContinuationContextMessage } from '../continuation/context.ts'
 import { ideaDraftSchema } from '../schema.ts'
 import { IdeaPreparationError } from '../preparation/errors.ts'
 import type { IdeaPreparationId, PreparedIdeaSource } from '../preparation/types.ts'
@@ -53,6 +55,10 @@ import type {
   IdeaCommitEvolutionResult,
   IdeaContinueDiscussionRequest,
   IdeaContinueDiscussionResult,
+  IdeaDiscussionCardRequest,
+  IdeaDiscussionCardResult,
+  IdeaEvolutionReadinessRequest,
+  IdeaEvolutionReadinessResult,
   IdeaCreateRequest,
   IdeaCreateResult,
   IdeaDeleteRequest,
@@ -338,6 +344,39 @@ export class IdeaRemoteService extends TypertRemoteService {
         conversationId: discussion.conversationId,
         baseVersionId: discussion.baseVersionId,
       }
+    } catch (error) {
+      throw remoteDomainError(error) ?? error
+    }
+  }
+
+  /** Resolve the persisted binding; Session history alone proves delivery. */
+  @Remote
+  async getDiscussionCard(request: IdeaDiscussionCardRequest): Promise<IdeaDiscussionCardResult | null> {
+    const discussion = this.ctx.ideaService.findDiscussionByConversationId(request.conversationId)
+    if (discussion === undefined) return null
+    let injection: IdeaDiscussionCardResult['injection'] = 'unknown'
+    try {
+      const surface = await this.ctx.get('sessionQuery')?.readSurface(SessionId(request.conversationId))
+      if (surface === undefined) throw new Error('session query unavailable')
+      injection = surface.events.some(event => event.type === 'user/message' && isIdeaContinuationContextMessage(event.data))
+        ? 'delivered' : 'pending'
+    } catch {
+      // An unreadable Session cannot be advertised as injected.
+    }
+    return {
+      discussionId: discussion.discussionId,
+      ideaId: discussion.ideaId,
+      baseVersionId: discussion.baseVersionId,
+      title: discussion.context.idea.title,
+      injection,
+    }
+  }
+
+  /** No model route resolution or model call occurs in this gate. */
+  @Remote
+  async getEvolutionReadiness(request: IdeaEvolutionReadinessRequest): Promise<IdeaEvolutionReadinessResult> {
+    try {
+      return await this.ctx.ideaEvolutions.readiness(request.id)
     } catch (error) {
       throw remoteDomainError(error) ?? error
     }

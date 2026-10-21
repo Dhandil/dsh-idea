@@ -352,6 +352,8 @@ describe('generated contributions', () => {
       '@dsh-external/dsh-idea#idea/deleteIdea',
       '@dsh-external/dsh-idea#idea/evaluateResurfacing',
       '@dsh-external/dsh-idea#idea/get',
+      '@dsh-external/dsh-idea#idea/getDiscussionCard',
+      '@dsh-external/dsh-idea#idea/getEvolutionReadiness',
       '@dsh-external/dsh-idea#idea/getResurfacingBudget',
       '@dsh-external/dsh-idea#idea/getVersion',
       '@dsh-external/dsh-idea#idea/getVersions',

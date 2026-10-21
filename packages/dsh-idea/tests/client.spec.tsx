@@ -196,6 +196,8 @@ describe('client plugin mount', () => {
       '@dsh-external/dsh-idea#idea/deleteIdea',
       '@dsh-external/dsh-idea#idea/evaluateResurfacing',
       '@dsh-external/dsh-idea#idea/get',
+      '@dsh-external/dsh-idea#idea/getDiscussionCard',
+      '@dsh-external/dsh-idea#idea/getEvolutionReadiness',
       '@dsh-external/dsh-idea#idea/getResurfacingBudget',
       '@dsh-external/dsh-idea#idea/getVersion',
       '@dsh-external/dsh-idea#idea/getVersions',
@@ -217,6 +219,7 @@ describe('client plugin mount', () => {
       'conversation.input.overlay',
       'conversation.input.overlay',
       'conversation.input.overlay',
+      'conversation.input.dock',
       'conversation.input.dock',
       'settings.section',
     ])
@@ -275,7 +278,7 @@ describe('client plugin mount', () => {
     const section = slotRegistrations.find(entry => entry.id === 'ideas')
     expect(section).toMatchObject({ name: 'settings.section', order: 25, locale: 'idea' })
     expect(typeof (section as unknown as { label?: unknown } | undefined)?.label).toBe('function')
-    expect(slotComponents).toHaveLength(6)
+    expect(slotComponents).toHaveLength(7)
 
     const sectionInjected = section !== undefined
       ? (section as unknown as { inject: () => unknown }).inject() as {
