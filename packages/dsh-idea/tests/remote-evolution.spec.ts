@@ -45,13 +45,14 @@ describe('continued discussion read-only projections', () => {
     const { discussion } = await seedDiscussion(env, [])
     expect(await env.idea.getDiscussionCard({ conversationId: 'unbound-session' })).toBeNull()
     expect(await env.idea.getDiscussionCard({ conversationId: discussion.conversationId })).toMatchObject({
-      discussionId: discussion.discussionId, title: discussion.context.idea.title, injection: 'pending',
+      discussionId: discussion.discussionId, title: discussion.context.idea.title,
+      baseVersionOrdinal: 1, injection: 'pending',
     })
 
     const reopened = await remoteHarness(env.root)
     reopened.sessionQuery.add(discussion.conversationId, [])
     expect(await reopened.idea.getDiscussionCard({ conversationId: discussion.conversationId })).toMatchObject({
-      discussionId: discussion.discussionId, injection: 'pending',
+      discussionId: discussion.discussionId, baseVersionOrdinal: 1, injection: 'pending',
     })
     reopened.sessionQuery.add(discussion.conversationId, [{
       type: 'user/message', seq: 1, time: 0,

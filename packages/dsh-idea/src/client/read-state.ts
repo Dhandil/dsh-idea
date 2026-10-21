@@ -231,6 +231,7 @@ export class IdeaReadSurface {
   private listAborts: Record<IdeaViewKey, AbortController | undefined> = { current: undefined, archived: undefined }
   private searchAbort: AbortController | undefined
   private detailAbort: AbortController | undefined
+  private readinessGeneration = 0
   /** T13.1 R3: request generation for reminder preference mutations. */
   private reminderGeneration = 0
   private evolutionAbort: AbortController | undefined
@@ -430,6 +431,9 @@ export class IdeaReadSurface {
   }
 
   private async runReadiness(id: string, controller: AbortController): Promise<void> {
+    if (controller.signal.aborted || this.detailAbort !== controller || this.state.getSnapshot().detailId !== id) return
+    const generation = ++this.readinessGeneration
+    this.state.update(draft => { draft.evolutionReadiness = { status: 'loading', reason: null } })
     let value: IdeaEvolutionReadinessResult | undefined
     try {
       const result = await this.remote.getEvolutionReadiness({ id })
@@ -437,7 +441,7 @@ export class IdeaReadSurface {
     } catch {
       // An unreadable gate stays disabled; the prepare call is never guessed.
     }
-    if (controller.signal.aborted) return
+    if (controller.signal.aborted || generation !== this.readinessGeneration) return
     this.state.update(draft => {
       if (draft.detailId !== id) return
       if (value === undefined) {
@@ -599,7 +603,7 @@ export class IdeaReadSurface {
         draft.discussionId = discussionId
       }
     })
-    if (conversationId !== undefined && this.detailAbort !== undefined) {
+    if (conversationId !== undefined && this.detailAbort !== undefined && this.state.getSnapshot().detailId === id) {
       void this.runReadiness(id, this.detailAbort)
     }
   }

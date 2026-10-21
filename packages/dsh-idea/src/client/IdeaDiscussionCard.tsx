@@ -38,7 +38,8 @@ export function IdeaDiscussionCard({ read, events, t }: DiscussionCardProps) {
     : card.injection === 'pending' ? t('discussion.card.pending') : t('discussion.card.unknown')
   return <aside className="dsh-idea-discussion-card" aria-label={t('discussion.card.title')}>
     <span className="dsh-idea-discussion-card-label">{t('discussion.card.title')}</span>
-    <strong>{card.title}</strong>
+    <strong className="dsh-idea-discussion-card-title">{card.title}</strong>
+    <span className="dsh-idea-discussion-card-version">v{card.baseVersionOrdinal}</span>
     <span className="dsh-idea-discussion-card-status">{status}</span>
   </aside>
 }

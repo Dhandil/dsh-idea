@@ -224,6 +224,8 @@ export interface IdeaDiscussionCardResult {
   discussionId: string
   ideaId: string
   baseVersionId: string
+  /** Human-readable ordinal of the pinned Idea version. */
+  baseVersionOrdinal: number
   title: string
   /** Derived from the durable Session log, never inferred from the binding. */
   injection: 'pending' | 'delivered' | 'unknown'

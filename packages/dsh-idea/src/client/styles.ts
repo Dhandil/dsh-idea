@@ -419,6 +419,16 @@ body[data-ds-dark-theme] .dsh-idea-hover-card {
   color: var(--dsw-alias-label-primary, inherit);
 }
 .dsh-idea-discussion-card strong { overflow-wrap: anywhere; }
+.dsh-idea-discussion-card-title { min-width: 0; }
+.dsh-idea-discussion-card-version {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--dsw-alias-border-primary, rgba(127, 127, 127, 0.35));
+  border-radius: 6px;
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: 12px;
+}
+.dsh-idea-discussion-card-status { flex-basis: 100%; }
 .dsh-idea-discussion-card-label,
 .dsh-idea-discussion-card-status {
   color: var(--dsw-alias-label-secondary, inherit);

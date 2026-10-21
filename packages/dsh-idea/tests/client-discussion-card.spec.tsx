@@ -11,6 +11,7 @@ afterEach(cleanup)
 const t = ((key: keyof typeof zh) => zh[key]) as never
 const card: IdeaDiscussionCardResult = {
   ideaId: 'idea_1', discussionId: 'idea_dis_1', baseVersionId: 'idea_ver_1',
+  baseVersionOrdinal: 1,
   title: 'Saved idea', injection: 'pending',
 }
 const flush = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
@@ -37,18 +38,19 @@ describe('continued discussion card', () => {
     kind = 'append'
     await act(async () => { for (const listener of listeners) listener() })
     await flush()
-    expect(screen.getByLabelText('关联 Idea').textContent).toContain('上下文尚未注入')
+    expect(screen.getByLabelText('关联 Idea').textContent).toContain('v1')
+    expect(screen.getByLabelText('关联 Idea').textContent).toContain('关联已建立；Idea 上下文尚未注入会话')
     first.unmount()
     expect(listeners.size).toBe(0)
 
     render(<IdeaDiscussionCard read={read} events={events} t={t} />)
     await flush()
     expect(screen.getAllByLabelText('关联 Idea')).toHaveLength(1)
-    expect(screen.getByLabelText('关联 Idea').textContent).toContain('上下文尚未注入')
+    expect(screen.getByLabelText('关联 Idea').textContent).toContain('关联已建立；Idea 上下文尚未注入会话')
     value = { ...card, injection: 'delivered' }
     await act(async () => { for (const listener of listeners) listener() })
     await flush()
-    expect(screen.getByLabelText('关联 Idea').textContent).toContain('上下文已注入')
+    expect(screen.getByLabelText('关联 Idea').textContent).toContain('关联已建立；Idea 上下文已注入会话')
     expect(screen.getAllByLabelText('关联 Idea')).toHaveLength(1)
   })
 })

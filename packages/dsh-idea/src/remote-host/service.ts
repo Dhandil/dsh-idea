@@ -367,6 +367,7 @@ export class IdeaRemoteService extends TypertRemoteService {
       discussionId: discussion.discussionId,
       ideaId: discussion.ideaId,
       baseVersionId: discussion.baseVersionId,
+      baseVersionOrdinal: this.ctx.ideaService.getVersion(discussion.ideaId, discussion.baseVersionId).ordinal,
       title: discussion.context.idea.title,
       injection,
     }

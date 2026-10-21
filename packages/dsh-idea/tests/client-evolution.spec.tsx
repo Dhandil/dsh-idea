@@ -211,6 +211,30 @@ async function openProposalPreview(face: ReturnType<typeof faceWith>) {
 }
 
 describe('Ideas section: evolution entry', () => {
+  it('keeps the newer readiness result when an older read completes later', async () => {
+    let finishOld: ((result: unknown) => void) | undefined
+    const oldRead = new Promise<unknown>(resolve => { finishOld = resolve })
+    let reads = 0
+    const face = faceWith({ getEvolutionReadiness: () => {
+      reads += 1
+      return reads === 1 ? oldRead : Promise.resolve({ ok: true as const,
+        value: { ready: true, discussionId: 'idea_dis_1' } })
+    } })
+    const { surface } = await openDiscussedDetail(face)
+    expect(reads).toBe(1)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '讨论' })) })
+    await flush()
+    expect(reads).toBe(2)
+    expect(surface.state.getSnapshot().evolutionReadiness.status).toBe('ready')
+    expect(surface.state.getSnapshot().discussionId).toBe('idea_dis_1')
+
+    await act(async () => { finishOld?.({ ok: true, value: { ready: false, reason: 'no-discussion' } }) })
+    await flush()
+    expect(surface.state.getSnapshot().evolutionReadiness.status).toBe('ready')
+    expect(surface.state.getSnapshot().discussionId).toBe('idea_dis_1')
+    expect((screen.getByRole('button', { name: '生成演化提案' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
   it('keeps empty discussions disabled and does not call prepare', async () => {
     const face = faceWith({ getEvolutionReadiness: async () => ({ ok: true as const,
       value: { ready: false, discussionId: 'idea_dis_1', reason: 'empty-discussion' } }) })
