@@ -157,7 +157,7 @@ export function IdeaSection({
     const originalDraft = state.detail === null ? null : editableFrom(detailDraftOf(state.detail))
     const editDirty = editing && state.edit.draft !== null && originalDraft !== null
       && IDEA_FORM_FIELDS.some(field => state.edit.draft?.[field.key] !== originalDraft[field.key])
-    const backFromEdit = () => {
+    const leaveEdit = () => {
       if (state.edit.status === 'committing') return
       if (editDirty) setConfirmLeaveEdit(true)
       else cancelEdit()
@@ -166,7 +166,7 @@ export function IdeaSection({
       <div className="dsh-idea-library">
         <div className="dsh-idea-back-row">
           <Button variant="outline" disabled={editing && state.edit.status === 'committing'}
-            onClick={editing ? backFromEdit : closeDetail}>
+            onClick={editing ? leaveEdit : closeDetail}>
             {editing ? t('read.edit.back') : t('read.back')}
           </Button>
         </div>
@@ -194,7 +194,7 @@ export function IdeaSection({
                   detail={state.detail}
                   edit={state.edit}
                   onEditDraft={editDraft}
-                  onCancel={cancelEdit}
+                  onCancel={leaveEdit}
                   onSave={saveEdit}
                   t={t}
                 />

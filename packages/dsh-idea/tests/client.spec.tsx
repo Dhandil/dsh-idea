@@ -17,11 +17,12 @@ import { useSyncExternalStore } from 'react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
-import { IdeaSaveSurface, durableFrom, listItemsOf } from '../src/client/state.ts'
+import { IdeaSaveSurface, durableFrom, editableFrom, listItemsOf } from '../src/client/state.ts'
 import type { EditableIdeaDraft, IdeaRemoteFace, IdeaSaveState } from '../src/client/state.ts'
 import { zh } from '../src/client/locales.ts'
 import { IdeaAssistantActions } from '../src/client/IdeaAssistantActions.tsx'
 import { IdeaSaveDialog } from '../src/client/IdeaSaveDialog.tsx'
+import { IdeaDraftFields } from '../src/client/IdeaDraftForm.tsx'
 import { formatIdeaReferenceMention } from '../src/reference/uri.ts'
 import type { UnifiedActionProps, IdeaDialogProps } from '../src/client/slots.ts'
 import type { IdeaDraft } from '../src/types.ts'
@@ -706,6 +707,28 @@ describe('preview modal', () => {
     expect((screen.getByRole('textbox', { name: '适用场景第 1 条' }) as HTMLTextAreaElement).value).toBe('u')
     expect((screen.getByRole('textbox', { name: '适用场景第 2 条' }) as HTMLTextAreaElement).value).toBe('1')
     expect(durableFrom(surface.state.getSnapshot().modal!.draft).useWhen).toEqual(['u', '1', 'u2'])
+  })
+
+  it('keeps IME confirmation Enter inside the current list row', async () => {
+    const face = faceWith()
+    const surface = newSurface(face)
+    await openModal(surface, face)
+    render(<IdeaSaveDialog {...dialogProps(surface)} />)
+    const first = screen.getByRole('textbox', { name: '适用场景第 1 条' })
+    fireEvent.keyDown(first, { key: 'Enter', isComposing: true })
+    fireEvent.keyDown(first, { key: 'Enter', keyCode: 229 })
+    expect(screen.getAllByRole('textbox', { name: /适用场景第/ })).toHaveLength(2)
+    expect(surface.state.getSnapshot().modal?.draft.useWhenText).toBe('u1\nu2')
+  })
+
+  it('focuses the existing blank row when adding to an empty list', () => {
+    const onEdit = vi.fn()
+    render(<IdeaDraftFields draft={{ ...editableFrom(previewDraft), useWhenText: '' }} disabled={false} onEdit={onEdit} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '添加适用场景' }))
+    const rows = screen.getAllByRole('textbox', { name: /适用场景第/ })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toBe(document.activeElement)
+    expect(onEdit).not.toHaveBeenCalled()
   })
 
   it('cancels with zero durable writes', async () => {

@@ -330,6 +330,26 @@ describe('Ideas section: anchored hover card', () => {
 })
 
 describe('Ideas section: manual edit', () => {
+  it('uses the same leave confirmation for bottom Cancel and returns directly when unchanged', async () => {
+    const face = faceWith()
+    await openDetail(face)
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog', { name: '放弃未保存的修改？' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Saved idea' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+    fireEvent.change(screen.getByDisplayValue('Saved idea'), { target: { value: 'Unsaved title' } })
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.getByRole('dialog', { name: '放弃未保存的修改？' })).toBeTruthy()
+    fireEvent.click(screen.getByText('继续编辑'))
+    expect((screen.getByDisplayValue('Unsaved title') as HTMLInputElement).value).toBe('Unsaved title')
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    fireEvent.click(screen.getByRole('button', { name: '放弃修改' }))
+    expect(screen.getByRole('heading', { name: 'Saved idea' })).toBeTruthy()
+    expect(face.manualEdit).not.toHaveBeenCalled()
+  })
+
   it('returns to detail directly when unchanged and confirms before discarding edits', async () => {
     const face = faceWith()
     await openDetail(face)
@@ -378,13 +398,15 @@ describe('Ideas section: manual edit', () => {
     expect(save.disabled).toBe(true)
   })
 
-  it('cancel discards the editor with zero Host writes', async () => {
+  it('confirmed cancel discards the editor with zero Host writes', async () => {
     const face = faceWith()
     await openDetail(face)
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '编辑' })) })
 
     await act(async () => { fireEvent.change(screen.getByDisplayValue('Saved idea'), { target: { value: 'Discarded' } }) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '取消' })) })
+    expect(screen.getByRole('dialog', { name: '放弃未保存的修改？' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '放弃修改' }))
 
     expect(face.manualEdit).not.toHaveBeenCalled()
     expect(screen.getByRole('heading', { name: 'Saved idea' })).toBeTruthy()

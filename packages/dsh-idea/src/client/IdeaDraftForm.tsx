@@ -74,7 +74,7 @@ function IdeaListField({ label, value, disabled, onChange, t }: {
             readOnly={disabled}
             onChange={(event: ChangeEvent<HTMLTextAreaElement>) => { update(index, event.target.value) }}
             onKeyDown={event => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
                 event.preventDefault()
                 const start = event.currentTarget.selectionStart
                 const end = event.currentTarget.selectionEnd
@@ -95,6 +95,10 @@ function IdeaListField({ label, value, disabled, onChange, t }: {
         </div>
       ))}
       <Button variant="outline" aria-label={t('field.list.addAria', { label })} disabled={disabled} onClick={() => {
+        if (value === '') {
+          setFocusRow(0)
+          return
+        }
         onChange(`${value}\n`)
         setFocusRow(rows.length)
       }}>{t('field.list.add')}</Button>

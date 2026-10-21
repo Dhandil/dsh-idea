@@ -141,7 +141,8 @@ const CSS = `
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  column-gap: 12px;
+  row-gap: 8px;
 }
 .dsh-idea-reminder-state {
   color: var(--dsw-alias-label-secondary);
