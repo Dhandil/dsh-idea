@@ -42,7 +42,6 @@ import { IdeaAssistantActions } from './IdeaAssistantActions.tsx'
 import { IdeaRelatedOverlay } from './IdeaRelatedOverlay.tsx'
 import { IdeaSearchCard } from './IdeaSearchCard.tsx'
 import { IdeaResurfaceStrip } from './IdeaResurfaceStrip.tsx'
-import { IdeaDiscussionCard } from './IdeaDiscussionCard.tsx'
 import { IdeaSection } from './IdeaSection.tsx'
 import { IdeaLightbulbIcon } from './icons.tsx'
 import { installIdeaNavIcon } from './nav-icon.ts'
@@ -323,20 +322,6 @@ function registerUi(ctx: ClientContext): void {
       }
     },
   }, IdeaResurfaceStrip))
-
-  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
-    name: 'conversation.input.dock',
-    id: 'idea-discussion-card',
-    order: 14,
-    locale: NS,
-    inject: (sessionId) => ({
-      read: () => ctx.remote.idea.getDiscussionCard({ conversationId: sessionId }),
-      events: sessions.binding(sessionId)?.eventSource ?? {
-        subscribe: () => () => {},
-        getSnapshot: () => ({ change: { kind: 'replace' } }),
-      },
-    }),
-  }, IdeaDiscussionCard))
 
   // The `idea` command: the single composer `+`-menu entry opening the
   // search card. The action only opens the card; attaching happens through

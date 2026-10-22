@@ -148,6 +148,9 @@ describe('client plugin mount', () => {
     const commandRegisters: unknown[] = []
     const triggerSources: unknown[] = []
     let remoteUnmounts = 0
+    const readDiscussionCard = vi.fn()
+    const eventSource = createSnapshotStore({ entries: [], change: { kind: 'replace' }, revision: 1 })
+    const inputState = createSnapshotStore({ draftRev: 0, occurrences: [] })
     ctx.provide('remote', {
       $mount: vi.fn(async (contribution: { package?: string, descriptors?: Array<{ id: string }> }) => {
         mountedContributions.push(contribution)
@@ -156,6 +159,7 @@ describe('client plugin mount', () => {
           create: vi.fn(),
           get: vi.fn(),
           search: vi.fn(),
+          getDiscussionCard: readDiscussionCard,
         } as never)
         return async () => { remoteUnmounts += 1 }
       }),
@@ -173,7 +177,8 @@ describe('client plugin mount', () => {
     } as never)
     ctx.provide('sessions', {
       refresh: vi.fn(async () => {}),
-      scope: vi.fn(() => undefined),
+      scope: vi.fn(() => ctx),
+      binding: vi.fn(() => ({ eventSource })),
       // The 0.1.6-alpha.2 SessionListState shape: no `current`, and no
       // `open()` on the service — navigation moved to uiWorkspace.
       list: { getSnapshot: () => ({ ids: [], byId: {}, phase: 'ready' }) },
@@ -181,7 +186,7 @@ describe('client plugin mount', () => {
     ctx.provide('uiWorkspace', { openSession: vi.fn() } as never)
     ctx.provide('commandUi', { register: vi.fn((registration: unknown) => { commandRegisters.push(registration) }) } as never)
     ctx.provide('inputTriggers', { registerSource: vi.fn((source: unknown) => { triggerSources.push(source) }) } as never)
-    ctx.provide('conversation', { input: { for: vi.fn() } } as never)
+    ctx.provide('conversation', { input: { for: vi.fn(() => ({ state: inputState })) } } as never)
 
     const { apply } = await import('../src/client/index.ts')
     const dispose = await apply(ctx)
@@ -222,7 +227,6 @@ describe('client plugin mount', () => {
       'conversation.input.overlay',
       'conversation.input.overlay',
       'conversation.input.overlay',
-      'conversation.input.dock',
       'conversation.input.dock',
       'settings.section',
     ])
@@ -281,7 +285,18 @@ describe('client plugin mount', () => {
     const section = slotRegistrations.find(entry => entry.id === 'ideas')
     expect(section).toMatchObject({ name: 'settings.section', order: 25, locale: 'idea' })
     expect(typeof (section as unknown as { label?: unknown } | undefined)?.label).toBe('function')
-    expect(slotComponents).toHaveLength(7)
+    expect(slotComponents).toHaveLength(6)
+    // Re-entering an already linked conversation mounts the remaining dock
+    // surface only: no association card and no card-specific read/subscription.
+    expect(slotRegistrations.some(entry => entry.id === 'idea-discussion-card')).toBe(false)
+    const dock = slotRegistrations.filter(entry => entry.name === 'conversation.input.dock')
+    expect(dock.map(entry => entry.id)).toEqual(['idea-resurface'])
+    for (const sessionId of ['previously-linked-session', 'other-session', 'previously-linked-session']) {
+      const injected = (dock[0] as unknown as { inject: (id: string) => { hooks: { resurface: unknown } } }).inject(sessionId)
+      expect(injected.hooks.resurface).toBeDefined()
+    }
+
+    expect(readDiscussionCard).not.toHaveBeenCalled()
 
     const sectionInjected = section !== undefined
       ? (section as unknown as { inject: () => unknown }).inject() as {
