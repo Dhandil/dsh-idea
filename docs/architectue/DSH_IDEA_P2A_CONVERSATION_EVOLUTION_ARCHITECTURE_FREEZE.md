@@ -4,7 +4,16 @@
 
 基线：`c0194edf477d836e6a8b2099b19db20717723b60`。只读 Harness 参照：`86a402200d95fecef4529d969836f1fe13c6cb0d`（0.2.1-alpha.4）。配套：[Implementation Instructions](../implements/DSH_IDEA_P2A_CONVERSATION_EVOLUTION_IMPLEMENTATION_INSTRUCTIONS.md)。
 
-设计依据：本次用户给出的 P2A 范围与禁止事项。所称“本次 ChatGPT P2 方案”完整正文未附在当前任务中，已请求补充；本文不能宣称已逐条比对该正文。下列具体交互、保守的历史版本策略及 RPC 名称是供本次审查确认的决策，不是对未提供方案的转述。补充方案如与本文冲突，应先修订并重审，不由实现者自行取舍。
+设计依据：用户在本任务补充的完整 ChatGPT P2 产品方案（此前仅存在于 ChatGPT 对话，未有仓库文件）。核心链路为 `+ → Idea 固定版本引用 → 普通 DSH 对话 → 灯泡总结 → 新 Idea / 更新已有 Idea → 可编辑预览 → 明确保存`；P2 完成并验收前保留旧讨论入口及后端。下列保守的历史版本策略、跨轮证明等级及 RPC 名称是由源码核查提出的冻结候选，待 ChatGPT 独立架构审查确认，不能宣称已验收。
+
+| 产品方案重点 | 本文对应 |
+| --- | --- |
+| 普通引用的持久化与可靠关联 | 第 2、3 节：raw inbox、admission 和引用采用证据；捕获没有 recall，不从标题猜测。 |
+| 多候选、跨轮、历史版本、来源范围 | 第 3 节：按 pin 去重、明确选择、较早轮次仅弱候选、历史 pin 不自动换最新版。 |
+| 灯泡 prepareFromMessage → create 扩展 | 第 4、6 节：无可靠关联保持现有新建准备流程；有明确关联才提供分支选择。 |
+| 复用 prepareEvolution → commitEvolution | 第 4、5 节：新增普通锚点入口，复用原演进服务；不造专用会话、不复用旧全尾部捕获。 |
+| 并发、幂等、失败及旧数据兼容 | 第 5 节：同队列、原子零变化、临时 receipt；旧 RPC、格式及数据不变。 |
+| UI 与必要验证 | 第 6 节及配套 Instructions A01–A32。 |
 
 ## 1. 目标与不变量
 
@@ -60,12 +69,15 @@ Host 只读取请求指定的 Session，不做全局会话搜索。以 `observeS
 
 ### 3.3 候选选择与历史版本
 
-候选按 `(ideaId, referencedVersionId)` 去重，顺序仅用于展示，不构成优先级；同一 Idea 的不同版本不合并。展示 Host 标题、可读 ordinal、当前/历史标记及不可用原因。首版只接受已证明引用候选，不顺带新增全库手工选目标。
+候选按 `(ideaId, referencedVersionId)` 去重，顺序仅用于展示，不构成优先级；同一 Idea 的不同版本不合并。展示 Host 标题、可读 ordinal、当前/历史标记、引用所属轮次及不可用原因。首版只接受已证明引用候选，不顺带新增全库手工选目标。
+
+**跨轮相关性不是“窗口里只有一个就算唯一关联”：**锚点所属 Turn 的已 admitted 直接用户显式引用为本轮证据；capture 内更早 Turn 的引用仅为较早轮次候选，不自动延续为当前主题。只有唯一 pin 且有本轮证据、没有其他候选歧义时，才允许更新目标预选。较早轮次即使只剩一个，也必须由用户主动进入更新并重新确认目标；默认仍为新 Idea。时间久远或 capture 外的引用不会通过扫描全 Session 补入。连续讨论可通过该显式确认使用窗口内跨轮证据，但系统不做模型语义分类，不宣称已判断“继续”或新话题的真实含义。
 
 | 候选情况 | 冻结交互及 Host 行为 |
 | --- | --- |
-| 无可证明候选 | 默认新 Idea；更新禁用并说明需先在当前对话范围内引用目标。零识别模型调用。 |
-| 唯一可用、当前版本候选 | 可预选更新目标；仍需用户明确选择更新模式并生成草稿，不自动提交。 |
+| 无可证明候选 / 关联无法可靠恢复 | 直接沿用现有新 Idea 准备、可编辑预览及 create，不增加必经的模式选择步骤；更新不可用原因可见。识别 0 模型，新建准备仍最多一次提取。 |
+| 唯一可用、当前版本且有本轮证据的候选 | 提供「更新已有 Idea / 保存为新 Idea」，可预选目标；用户明确选择后才生成草稿，不自动提交。 |
+| 仅有 capture 内较早轮次证据 | 不自动选中目标，不以其判定本轮明确关联；沿用新建默认路径。用户若主动更新，必须明确确认历史候选仍属于本次讨论，并由 Host 重验当前版本。 |
 | 多候选（含同 Idea 不同版本） | 必须明确选一个，不默认第一条、最后一条、语义最近或“最新”。 |
 | 仅历史版本引用 | 显示引用 vN / 当前 vM；不生成更新草稿，提示先明确引用当前版本或选择新 Idea。不静默 rebase。 |
 | 同时有历史和当前候选 | 明确选中当前候选才允许更新，仍展示旧引用存在；不得声称捕获含全部历史 recall。 |
@@ -79,9 +91,9 @@ inspect 时保存的 current version 不是永久授权。prepare 前再检查�
 
 | 入口 | 输入 / 输出及约束 |
 | --- | --- |
-| 新增 `idea/inspectMessageSave` | `{sessionId,messageId}` → Host `captureId`、有界统计、候选及原因；0 模型、0 Idea durable 写入。captureId 是不透明的临时凭据，不是 preparation/proposal ID。 |
+| 新增 `idea/inspectMessageSave` | `{sessionId,messageId}` → Host `captureId`、有界统计、候选（含本轮/较早轮次证据标记）及原因；0 模型、0 Idea durable 写入。captureId 是不透明的临时凭据，不是 preparation/proposal ID。 |
 | 扩展 `idea/prepareFromMessage` 的可选 `captureId` | 新 UI 的「新 Idea」携带 captureId，Host 校验 Session/anchor 并使用冻结捕获；仍复用原提取/create 流程。老调用无此字段时保持原路径。一次明确生成至多一次模型请求，无隐藏重试。 |
-| 新增 `idea/prepareMessageEvolution` | `{captureId,candidateId}` → `{proposalId,ideaId,baseVersionId,draft,sourceStats}`。candidateId 只能解析至该 capture 的 Host 候选；不接受 browser 提供的标题、base draft、来源正文、seq 或 reason。 |
+| 新增 `idea/prepareMessageEvolution` | `{captureId,candidateId,confirmEarlierReference?}` → `{proposalId,ideaId,baseVersionId,draft,sourceStats}`。较早轮次候选必须显式确认，否则 Host 拒绝且 0 模型；该确认仅代表本次选择意图，不构成来源证明。candidateId 只能解析至该 capture 的 Host 候选；不接受 browser 提供的标题、base draft、来源正文、seq 或 reason。 |
 | 新增 `idea/commitMessageEvolution` | `{proposalId,expectedCurrentVersionId,draft}` → `{outcome:'committed'|'unchanged',ideaId,currentVersionId,ordinal}`；只提交编辑内容与期望版本，目标、来源、reason 全从 Host proposal 取。 |
 
 capture registry 使用已有有界临时 registry 模式，64 项、30 分钟，实例隔离；验证调用归属时沿用现有 Remote principal/Host 权限，不把 token 当作新增跨用户授权。capture/proposal 数据不写 Storage 或 Session；Host 重启、TTL 或驱逐后返回 expired，不伪造恢复。取消后不注册可提交的迟到 proposal。
@@ -106,9 +118,9 @@ receipt 有界且临时；提案结算后不可重新成为 prepared。网络结
 
 ## 6. Client 流程与错误反馈
 
-`关闭 → inspecting → 选择模式/目标 → preparing-new 或 preparing-update → 对应可编辑预览 → 明确保存 → 结果`。
+`关闭 → inspecting → 无可靠关联时沿用 preparing-new，或有候选时选择模式/目标 → preparing-new / preparing-update → 对应可编辑预览 → 明确保存 → 结果`。
 
-- 点击「总结」立即在原 Modal 显示读取/准备态；inspect 不调用模型。默认展示新 Idea；唯一当前候选可在更新页预选，多候选不预选。用户确认模式/目标后「生成草稿」，准备与正式预览为不同状态，不伪造 ID。
+- 点击「总结」立即在原 Modal 显示读取/准备态；inspect 不调用模型。无可靠关联直接沿用原新建准备流程，不增加一次确认或二次提取。有明确关联时展示模式选择；只有本轮唯一当前候选可预选，多候选及较早轮次候选不预选。选择后才生成一种草稿，准备与正式预览为不同状态，不伪造 ID。若先完成新草稿后用户另行主动选择更新，必须明确提示这是一次新的提案生成，不把它隐藏成目标识别开销或自动第二次调用。
 - 更新预览显示 Host 目标、基线 vN、来源锚点范围及截断提示；七字段可编辑，按钮明确「保存为新版本」。新模式仍为保存新 Idea，绝不将同一 ID 混给另一条提交接口。
 - 切换模式/目标、取消、关闭、Escape、导航或 Session 卸载都 abort；generation + Session + anchor + mode + target 共同过滤迟到响应。保留打开瞬间双击遮罩保护；同状态重复点击只有一个请求。
 - 提交中阻止重复操作；结果未知保留同一 proposal/payload；明确失败保留编辑，冲突解释基线已过期并只读刷新，不自动 rebase。用户另存新 Idea 必须显式重新选择，并走自己的 preparation，不能复用更新 proposal 绕过来源。
@@ -119,7 +131,7 @@ receipt 有界且临时；提案结算后不可重新成为 prepared。网络结
 
 | 风险 | 影响及审查决策 |
 | --- | --- |
-| 缺少 ChatGPT P2 正文 | 尚不能证明方案逐条一致；须在开工前补齐并比对。尤其确认选择模式发生在模型调用前、首版仅引用候选、历史 pin 拒绝策略。 |
+| 具体产品取舍待确认 | 完整 P2 方案已收到并映射；首版仅引用候选、跨轮主动确认、历史 pin 重新引用当前版本的策略，以及有明确关联时先选择再拟稿，仍需独立审查确认。无可靠关联保持现有新建路径。 |
 | 旧输入与 admission 的可证明对应关系 | 公开事件具备素材，但未做新 resolver 的离线可执行证明；必须先通过 inbox 编辑/取消/steering/claim 崩溃/插件变换矩阵，不能以源码存在推定任何日志都可自动识别。 |
 | 截断、compaction、fork 与超长 raw log | 有意保守禁用部分更新；公开 observation 可能物化整个指定 Session，不能承诺按 capture 大小的内存成本。不得为此扫描其他会话或绕过投影；必要时另议只读索引接口。 |
 | reason 与幂等边界 | 需接受 existing reason 的中性“对话演进”含义及仅同一 Host 生命周期内 receipt；强跨重启幂等不在无 Storage 修改方案内。 |

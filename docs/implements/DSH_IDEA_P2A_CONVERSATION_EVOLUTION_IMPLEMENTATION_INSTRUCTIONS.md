@@ -2,7 +2,7 @@
 
 状态：**待审实施说明，本轮不执行**。日期：2026-10-22。基线 `c0194edf477d836e6a8b2099b19db20717723b60`。
 
-唯一配套冻结：[Architecture Freeze](../architectue/DSH_IDEA_P2A_CONVERSATION_EVOLUTION_ARCHITECTURE_FREEZE.md)。若正文、源码与本说明不一致，停止并提交差异；不得自行放宽 Host 来源、候选或版本检查。本任务中的“ChatGPT P2 方案”正文尚未提供，这是开工前的设计依据核对门槛。
+唯一配套冻结：[Architecture Freeze](../architectue/DSH_IDEA_P2A_CONVERSATION_EVOLUTION_ARCHITECTURE_FREEZE.md)。若正文、源码与本说明不一致，停止并提交差异；不得自行放宽 Host 来源、候选或版本检查。本任务已收到完整 ChatGPT P2 产品方案，Freeze 开篇给出逐项映射；开工须等待该冻结候选的独立架构审查，不得将产品方案已经确定等同于本文技术方案已经验收。
 
 ## 1. 开工顺序与最小文件范围
 
@@ -10,7 +10,7 @@
 
 | 顺序 | 候选范围 | 交付与退出条件 |
 | --- | --- | --- |
-| 0 | 设计依据核对 | 补充并逐条核对 ChatGPT P2 正文，确认 Freeze 第 7 节决策；未确认不得把本文当作已接受设计开工。 |
+| 0 | 独立架构审查 | 对照已收到的完整 ChatGPT P2 产品方案，确认 Freeze 第 7 节技术取舍；未确认不得把本文当作已接受设计开工。 |
 | 1 | `preparation/context.ts` 及新 Host source/target resolver；仅内存 types/helper | 用真实离线 Loop 生成日志，证明 canonical 输入 → claim → admitted user → 锚点有界 capture → Host pin 的对应关系。没有可靠证明则 STOP；不得先写 UI 猜目标。 |
 | 2 | `evolution/service.ts`、`types.ts`、registry；共享 preparation pipeline/prompt | 新锚点入口复用已有提取服务；Host 捕获、candidate、base 和 proposal 绑定；零识别模型请求，生成至多一次提取。旧 prepare/readiness 不改为新流程。 |
 | 3 | `service.ts` 原域写入边界、必要比较 helper；新入口 flight/receipt | 原 mutation 队列内 conflict-before-noop；有变化复用现有 evolve 原子写入，无变化零写；新入口同 proposal 并发、重放与 indeterminate 安全。不得另造写表路径。 |
@@ -32,6 +32,7 @@
 
 ### B. 提案与提交
 
+- 对较早轮次候选，Host 还须校验本次明确确认字段，缺少确认时不得调用模型；该字段不能替代 Host 引用证明。
 - captureId/candidateId/proposalId 各有独立类型和状态，不互相替代；candidateId 只在对应 capture 内有效。capture 与 proposal 都是有界临时状态，不改变 durable schema。
 - 模型只收到 Host 选中 baseline、bounded history 和本次 source；使用现有 user-role JSON 证据封装，原 System prompt 安全约束与 parser 不放宽。不得把 recall、模型输出或 Client echo 当作权威 Idea/来源。
 - 调用模型之前和写入之前都重新验证 active/base；准备失败或取消不能产生 durable 写入。切换目标不能重用旧 proposal。
@@ -43,7 +44,7 @@
 
 建议采用判别联合：`closed | inspecting | choosing | preparing-new | preparing-update | preview-new | preview-update | submitting | outcome-unknown`；失败必须保留所属 capture/anchor/mode/target，禁止共用一个模糊的 pending ID。
 
-点击灯泡「总结」即显示 Modal；inspect 不调用模型。用户选择新建或更新并明确点击生成后才允许模型调用。新建沿用原 editable draft / create；更新显示目标与 vN、source 范围并走新 commit。多候选必须选定；0 候选及历史版本原因可见。
+点击灯泡「总结」即显示 Modal；inspect 不调用模型。无可靠关联时直接沿用现有新建 prepare → editable draft → create，不新增必经模式确认。明确关联场景先选择新建或更新，再生成一种草稿；更新显示目标与 vN、source 范围并走新 commit。多候选必须选定；capture 内较早轮次候选即使只有一个也不能自动预选，需主动更新及确认相关性。0 候选及历史版本原因可见。跨轮确认只授权所选 Host 候选，不扩展来源窗口或替换历史版本。
 
 abort 连接实际 RPC，按 Session + anchor + generation + mode + candidate 过滤所有 resolve/reject/finally；迟到响应不能重新打开 Modal、覆盖新目标或产生 toast。保留双击开窗遮罩防护、关闭、取消、Escape 及正常后续遮罩关闭。导航/卸载清理 lease 与 pending；Client 没有权限自行注销或篡改他人 Host proposal。
 
@@ -55,13 +56,13 @@ abort 连接实际 RPC，按 Session + anchor + generation + mode + candidate �
 
 | 编号 | 场景 | 必须证明 |
 | --- | --- | --- |
-| A01 | 无引用总结 | inspect 0 模型；新建可用、更新有禁用原因。 |
+| A01 | 无引用或关联不可恢复的总结 | inspect 0 模型；直接进入现有新建准备/预览，无新增必经确认、无重复提取；更新有不可用原因。 |
 | A02 | 单个 `+ → Idea` 当前 pin | admitted 原始输入可追踪，唯一 Host 候选；生成/提交仍需用户操作。 |
 | A03 | 多 Idea / 同 Idea 多版本 | 不隐式选第一、最后或最新；显式选择当前候选。 |
 | A04 | 同 pin 重复 mention | 按精确 pin 去重，不重复注入或多次提取。 |
 | A05 | 只有历史 pin | 0 更新模型调用、不自动换版本；可以新建。 |
 | A06 | prepare 前 / prepare 中 / commit 前版本变化 | 全部拒绝过期 base；中途模型已完成也不能写入。 |
-| A07 | 引用在锚点之后 / capture 之外 | 不计入候选、不进入本次来源。 |
+| A07 | 引用在锚点之后 / capture 之外；范围内较早 Turn | 前两者不计入候选/来源；较早轮次即使唯一也不预选，主动确认才更新，不靠久远引用判定当前主题。 |
 | A08 | 巨大锚点 / 截断 human message | 保留预算；截断输入不参与自动目标推导；无正文锚点不退化成总结更早消息。 |
 | A09 | recall、runtime context、工具、reasoning | 不进入 capturedContext；有 recall 但无真实来源证明不能更新。 |
 | A10 | mention 被改写为标题 | 原始输入与 admitted ID、claim、引用采用证据对应；不按标题匹配。 |
@@ -98,4 +99,4 @@ abort 连接实际 RPC，按 Session + anchor + generation + mode + candidate �
 
 ## 6. 本轮文档落地记录
 
-仅核查指定基线和本地 Harness 源码，未读取真实用户 Session/配置，未运行测试或 Provider，未启动浏览器/Web。新分支仅新增本说明及配套 Freeze；保留其他分支和无关 drift，不合并 main。以上矩阵是验收要求，所有实现步骤均未开始。
+已依据用户补充的完整 ChatGPT P2 产品方案修订，并核查指定基线和本地 Harness 源码；未读取真实用户 Session/配置，未运行测试或 Provider，未启动浏览器/Web。新分支仅新增本说明及配套 Freeze；保留其他分支和无关 drift，不合并 main。以上矩阵是验收要求，所有实现步骤均未开始。
