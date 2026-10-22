@@ -1,19 +1,21 @@
 # P2A Architecture Freeze：普通对话中的 Idea 版本演进
 
-状态：`DSH_IDEA_P2A_ARCHITECTURE_READY_FOR_REVIEW`，**待架构审查的冻结候选，不是实施完成或已批准开工**。日期：2026-10-22。
+状态：`DSH_IDEA_P2A_REPAIR_READY_FOR_FINAL_ARCHITECTURE_REVIEW`，**待最终架构审查的冻结候选，不是实施完成或已批准开工**。日期：2026-10-22。
+
+定点修订参照：`d572488c201f85b44c169de5675537a6bcbad260`；审查结论 `DSH_IDEA_P2A_REVIEW_BLOCKED_TARGET_SELECTION`。本次仅纠正主动选目标、历史版本显式确认及单快照证明三项，保留其他主要架构。
 
 基线：`c0194edf477d836e6a8b2099b19db20717723b60`。只读 Harness 参照：`86a402200d95fecef4529d969836f1fe13c6cb0d`（0.2.1-alpha.4）。配套：[Implementation Instructions](../implements/DSH_IDEA_P2A_CONVERSATION_EVOLUTION_IMPLEMENTATION_INSTRUCTIONS.md)。
 
-设计依据：用户在本任务补充的完整 ChatGPT P2 产品方案（此前仅存在于 ChatGPT 对话，未有仓库文件）。核心链路为 `+ → Idea 固定版本引用 → 普通 DSH 对话 → 灯泡总结 → 新 Idea / 更新已有 Idea → 可编辑预览 → 明确保存`；P2 完成并验收前保留旧讨论入口及后端。下列保守的历史版本策略、跨轮证明等级及 RPC 名称是由源码核查提出的冻结候选，待 ChatGPT 独立架构审查确认，不能宣称已验收。
+设计依据：用户在本任务补充的完整 ChatGPT P2 产品方案（此前仅存在于 ChatGPT 对话，未有仓库文件）。核心链路为 `+ → Idea 固定版本引用 → 普通 DSH 对话 → 灯泡总结 → 新 Idea / 更新已有 Idea → 可编辑预览 → 明确保存`；P2 完成并验收前保留旧讨论入口及后端。下列历史版本显式确认策略、跨轮证明等级及 RPC 名称是由源码核查提出的冻结候选，待 ChatGPT 独立架构审查确认，不能宣称已验收。
 
 | 产品方案重点 | 本文对应 |
 | --- | --- |
 | 普通引用的持久化与可靠关联 | 第 2、3 节：raw inbox、admission 和引用采用证据；捕获没有 recall，不从标题猜测。 |
-| 多候选、跨轮、历史版本、来源范围 | 第 3 节：按 pin 去重、明确选择、较早轮次仅弱候选、历史 pin 不自动换最新版。 |
-| 灯泡 prepareFromMessage → create 扩展 | 第 4、6 节：无可靠关联保持现有新建准备流程；有明确关联才提供分支选择。 |
+| 多候选、跨轮、历史版本、来源范围 | 第 3 节：自动候选按 pin 去重，支持 Idea 库主动选择；较早轮次仅弱候选，历史 pin 经明确确认才使用当前基线。 |
+| 灯泡 prepareFromMessage → create 扩展 | 第 4、6 节：无自动关联保持新建默认，但始终可主动选择已有 Idea 更新；目标与来源独立验证。 |
 | 复用 prepareEvolution → commitEvolution | 第 4、5 节：新增普通锚点入口，复用原演进服务；不造专用会话、不复用旧全尾部捕获。 |
 | 并发、幂等、失败及旧数据兼容 | 第 5 节：同队列、原子零变化、临时 receipt；旧 RPC、格式及数据不变。 |
-| UI 与必要验证 | 第 6 节及配套 Instructions A01–A32。 |
+| UI 与必要验证 | 第 6 节及配套 Instructions A01–A38。 |
 
 ## 1. 目标与不变量
 
@@ -25,7 +27,7 @@
 2. 保留固定版本引用、Prompt V2 的资格判定与跨轮历史边界、不可信数据封装、原权限与 Provider 路由。
 3. 复用现有准备/演进 parser、prompt、route/stream、proposal registry 和 `IdeaService` 单写入路径；不得让 Client 或新 Remote 直接写 Storage。
 4. 不变更持久化 schema、域版本、Migration、线性历史、`sourceDiscussionIds` 或现有 reason 枚举。
-5. 保留旧讨论按钮、讨论后端和现有 RPC；P1 已移除的关联卡片不恢复。普通对话新路径不得调用 `continueDiscussion`、Session create 或旧的全讨论尾部捕获来替代锚点捕获。
+5. 保留旧讨论按钮、讨论后端和现有 RPC；P1 已移除的关联卡片不恢复。普通对话新路径不得调用 `continueDiscussion`、创建 live 会话的 `ctx.sessions.create` / Session Controller create，或用旧的全讨论尾部捕获替代锚点捕获。3.1 的公开 detached `Session.create` 仅用于只读重放，不注册 live 会话，不属于新建讨论。
 
 ## 2. 源码核查：现状与需要补足之处
 
@@ -34,7 +36,7 @@
 | 已核实位置 | 当前行为 | 对 P2 的约束 |
 | --- | --- | --- |
 | `src/preparation/context.ts:85` | 按 assistant ID 找锚点，向前取最多 12 条 / 12,000 字符，只收真实 `source.kind=user` 及 assistant 的 text；插件 recall、工具及 reasoning 不入捕获。 | 捕获不等于模型当时的全部上下文，不能从缺失 recall 推断“未引用”。新解析器还须先独立校验锚点有可用 text；现收集循环不能代替该前置校验。 |
-| `src/reference/service.ts:64` | 解析 canonical pin，Host 按精确版本取值；直接用户 mention 被改写为可读标题；另外追加一条带不可信 wrapper 的 recall。 | 捕获正文通常不再有 canonical pin；不能按标题、客户端 label 或自然语言识别写入目标。 |
+| `src/reference/service.ts:64` | 解析 canonical pin，Host 按精确版本取值；直接用户 mention 被改写为可读标题；另外追加一条带不可信 wrapper 的 recall。 | 捕获正文通常不再有 canonical pin；自动发现不能按标题、客户端 label 或自然语言猜目标。主动库选择是用户本次意图，不需要历史引用证明。 |
 | `src/preparation/service.ts:70`、`src/remote-host/service.ts:146` | 一次总结为一次直接模型提取；Host registry 持有来源；create 按 preparation ID 合并并发和重放结果。 | 新 Idea 保留既有保存语义；来源仍不能从 Client 回传正文取信。 |
 | `src/evolution/service.ts:63,101` | readiness / prepare 依赖专用 `IdeaDiscussion`；prepare 捕获整段讨论当前尾部，用 continuation 中冻结的基线。 | 普通对话需要新的 preparation 入口；不能伪造 discussion ID 或借调用旧入口隐式创建会话。 |
 | `src/evolution/service.ts:198`、`src/evolution/registry.ts:38` | base 校验后调用 evolve，成功消费 proposal；重复提交报 proposal-not-found。registry 64 项、30 分钟，重启丢失。 | 不得宣称已有“重复请求返回同一成功结果”；P2 要单独定义提案提交 receipt。 |
@@ -50,13 +52,52 @@ Harness 公开接口核查：`packages/session-query/session-query/src/index.ts:
 
 ### 3.1 同一快照和有界锚点
 
-Host 只读取请求指定的 Session，不做全局会话搜索。以 `observeSession(..., projectionMode: 'none')` 固定 raw cut，再取官方 `readSurface`；必须核对 Session/header、`capturedThroughSeq === observation.cursor`，否则返回 `source-changed`，不调用模型。所有 lease 在 finally 释放。不得把两个不同 cursor 的读取假定为一次原子观察，也不得复制 Harness 私有 surface fold 绕过插件投影。
+Host 只读取请求指定的 Session，不做全局会话搜索。**撤销“固定 observation + 独立 readSurface 的 cursor 相等即可证明同一内容”的规则。**cursor 是某个日志代的序列位置，不是内容标识；两个实例、冷存储 revision 或日志代可以有相同 cursor 而内容不同。header/ID 相等也不足以补足这一证明。
+
+采用**单个 observation → 公开 detached replay → 同源 raw/surface**：从同一 lease 物化并复制 header、events、inheritedEventCount；通过公开 `Session.create` 和 `@deepseek-ai/dsh-session-format-catalog/message-projections` 的 `currentSessionMessageProjections` 验证并重建 surface，来源捕获和自动引用证明都只消费这份 cut。不得在生产路径拼接另一份 `readSurface` 的正文，不调用私有 corpus/tracing，不手写 surface fold、不省略 projection 定义。
+
+只读核查依据：Harness `SessionObservation` 契约（`observation.ts:17`）及 live 实现（`:275`）固定 append-only 前缀；`Session.create`（`packages/core/session/src/index.ts:583`）提供带 projection 定义的 detached replay，`surface.nodes`、`eventAt`、`isSurfaceEvent`、`snapshotSessionEvent` 均公开导出。官方 `readSurface` 的 `tracing.currentSurfaceEvents` 使用相同 catalogue fold 后，按当前 nodes 返回 **raw SurfaceEvent 副本**，不是 `deriveMessages()` 的全部 projected 模型文本。实现必须匹配这个既有捕获契约，不能混称为模型全部上下文。
+
+以下是未来 Gate 使用的可执行 JS 适配方案，**本轮只写入文档，未执行**：
+
+```js
+import { Session, SessionId, isSurfaceEvent, snapshotSessionEvent } from '@deepseek-ai/dsh-session'
+import { currentSessionMessageProjections } from '@deepseek-ai/dsh-session-format-catalog/message-projections'
+
+async function readFrozenSource(sessionQuery, id, signal) {
+  const sessionId = SessionId(id)
+  const lease = await sessionQuery.observeSession(sessionId, { projectionMode: 'none', signal })
+  try {
+    signal?.throwIfAborted()
+    const header = structuredClone(lease.header)
+    const raw = structuredClone(lease.events)
+    const inherited = lease.inheritedEventCount
+    if (header.id !== sessionId || (raw.at(-1)?.seq ?? -1) !== lease.cursor) {
+      throw new Error('source-cut-invalid')
+    }
+    const replay = Session.create(sessionId, raw, header, inherited, currentSessionMessageProjections)
+    const surface = replay.surface.nodes.map(seq => {
+      const event = replay.eventAt(seq)
+      if (!event || event.seq !== seq || !isSurfaceEvent(event)) throw new Error('source-cut-invalid')
+      return snapshotSessionEvent(event)
+    })
+    signal?.throwIfAborted()
+    return { header, raw, surface, inheritedEventCount: inherited, cursor: lease.cursor }
+  } finally {
+    lease[Symbol.dispose]()
+  }
+}
+```
+
+该校验的内容一致性来自**同一个 events 前缀和官方重放**，不是例中 cursor 的完整性断言。detached replay 不注册为 live Session，不创建讨论、不写日志或 Storage。未知 projection/事件或重放失败时来源不可用，0 模型、0 写，不退回无 projection 的解析。依赖须通过公开 package export 并与 Harness 固定版本一致；新增 catalogue 的显式依赖声明属于未来实现范围，本轮不改依赖或源码。
+
+**前置 Gate G-SNAPSHOT（实施前必须通过，本轮未运行）：**在隔离、无 Provider 的官方运行时夹具中执行上述适配器；静止源上与 `readSurface` 做逐字段深比较（nodes 顺序、完整事件/source/content、header、inherited 边界与 capture），而不是只比 cursor。覆盖 live、cold prepared、fork、surface replacement、image-offload projection 和未知 projection 拒绝；在 lease 后追加/替代事件或更换冷日志代，结果仍只能来自旧 lease。另构造相同 ID/header/cursor、不同内容的两代，明确证明二者不能混配。成功、取消和异常分支均检查 lease 释放。差异验证仅在受控静止源做；生产一致性不依赖第二次读取。Gate 未通过则停止所有新提案入口，不用双读 cursor 比较兜底。
 
 锚点必须是当前 surface 上唯一匹配的、已结算且具有可用 text 的 `assistant/message`，不是 live chunk、attempt、tool-only 回复、替代后已隐藏的消息或别的 Session 的 ID。capture 含锚点，绝不含锚点之后的回复/引用；若当前 surface 在锚点之前的位置含有 raw seq 晚于锚点的替代内容，保守返回 `source-changed`，不混入未来内容。首版更新路径拒绝 inherited/fork 前缀中的锚点；普通本地锚点可使用其逻辑 Session 的有界前文，来源只归属于当前逻辑 Session，不能冒称原父 Session 的新讨论。
 
 复用 12 条 / 12,000 字符预算及既有规范化、截断规则；新增 **仅内存** 的每条 selected event seq、message ID、截断标志，用于证明候选与实际捕获的对应关系。durable `capturedContext` 仍只有 `{role,text}`。`startSeq/endSeq` 是捕获边界，不代表其中每个原始事件都被纳入，也不代表未截断。
 
-### 3.2 引用证明
+### 3.2 Host 自动发现的引用证明（不约束主动库选择）
 
 针对捕获实际选中的 human event：
 
@@ -65,25 +106,34 @@ Host 只读取请求指定的 Session，不做全局会话搜索。以 `observeS
 3. 无原始输入、缺少 admission 证明、纯文本伪造 wrapper、只有 assistant/其他插件提及目标、格式异常，均不能产生可写候选。原始 canonical mention 仍完整保留在 admitted 用户事件时，可直接证明，无须强行要求 inbox 格式一致；仍须检查真实 user source 和 Host 版本解析。
 4. 截断的人类消息不用于自动目标推导，避免用模型根本没见到的截断片段作判断；UI 提示范围不足。锚点以后的输入，以及 capture 范围以外更早引用，一律不补入。
 
-若旧日志缺少上述证据，更新入口显示明确不可用原因，允许「新 Idea」沿用既有流程，不新增 Session 事件来补造历史、不迁移日志、不偷偷扩大全会话扫描。实现首个离线 spike 必须证明官方日志足以支持上述关联；不能证明时停止更新路径实施并报告，不降级成标题匹配或“相信 recall”。
+若旧日志缺少上述证据，仅将**自动发现**标为 unavailable，保持新建默认并提供「从 Idea 库选择已有 Idea」。不新增 Session 事件补造历史、不迁移日志、不扩大来源扫描。G-REFERENCE 需通过官方离线日志关联矩阵后才可开启自动推荐；失败只阻止自动推荐，不能把缺少历史 pin 变成主动库选择的禁止条件。单快照来源本身不可用时，两种更新路径都不能生成提案。
 
-### 3.3 候选选择与历史版本
+### 3.3 自动候选与用户主动选择是两种目标来源
 
-候选按 `(ideaId, referencedVersionId)` 去重，顺序仅用于展示，不构成优先级；同一 Idea 的不同版本不合并。展示 Host 标题、可读 ordinal、当前/历史标记、引用所属轮次及不可用原因。首版只接受已证明引用候选，不顺带新增全库手工选目标。
+自动候选按 `(ideaId, referencedVersionId)` 去重，同 Idea 不同 pin 不合并；展示 Host 标题、ordinal、当前/历史标记和轮次。范围仍限于锚点 capture；较早 Turn 即使只有一个，也不能自动预选或宣称当前主题延续。仅本轮唯一且无歧义的引用可作预选建议，仍由用户选择模式和批准提交。
 
-**跨轮相关性不是“窗口里只有一个就算唯一关联”：**锚点所属 Turn 的已 admitted 直接用户显式引用为本轮证据；capture 内更早 Turn 的引用仅为较早轮次候选，不自动延续为当前主题。只有唯一 pin 且有本轮证据、没有其他候选歧义时，才允许更新目标预选。较早轮次即使只剩一个，也必须由用户主动进入更新并重新确认目标；默认仍为新 Idea。时间久远或 capture 外的引用不会通过扫描全 Session 补入。连续讨论可通过该显式确认使用窗口内跨轮证据，但系统不做模型语义分类，不宣称已判断“继续”或新话题的真实含义。
+**用户主动选择不依赖历史引用：**无近期引用、长对话、旧日志不支持自动恢复、截断丢失 pin，均可点击「更新已有 Idea → 从 Idea 库选择」。复用现有只读 `idea/search` / `idea/get` / 版本读取，搜索不调用模型，也不扩大 Session 来源窗口。客户端提交的 ideaId 只是本次选择意图，Host 必须重新读取其存在性、权限、active 状态及完整当前版本，生成绑定 capture 的 selection token；不接收客户端标题、base draft 或来源正文作为事实。
 
-| 候选情况 | 冻结交互及 Host 行为 |
+仅内存标记 `selectionKind: 'reference-candidate' | 'explicit-library'`，与 `source.capture` 分开。主动选择无需伪造 canonical mention、admission、recall 或“曾经引用过”；来源仍只有 Host 捕获的当前 Session/anchor/range。选择不证明整段讨论都在讲该 Idea，必须在预览中标明目标由用户选择，并由用户审阅修改。不得向用户历史插入假消息来证明此意图。
+
+| 情况 | 冻结交互及 Host 行为 |
 | --- | --- |
-| 无可证明候选 / 关联无法可靠恢复 | 直接沿用现有新 Idea 准备、可编辑预览及 create，不增加必经的模式选择步骤；更新不可用原因可见。识别 0 模型，新建准备仍最多一次提取。 |
-| 唯一可用、当前版本且有本轮证据的候选 | 提供「更新已有 Idea / 保存为新 Idea」，可预选目标；用户明确选择后才生成草稿，不自动提交。 |
-| 仅有 capture 内较早轮次证据 | 不自动选中目标，不以其判定本轮明确关联；沿用新建默认路径。用户若主动更新，必须明确确认历史候选仍属于本次讨论，并由 Host 重验当前版本。 |
-| 多候选（含同 Idea 不同版本） | 必须明确选一个，不默认第一条、最后一条、语义最近或“最新”。 |
-| 仅历史版本引用 | 显示引用 vN / 当前 vM；不生成更新草稿，提示先明确引用当前版本或选择新 Idea。不静默 rebase。 |
-| 同时有历史和当前候选 | 明确选中当前候选才允许更新，仍展示旧引用存在；不得声称捕获含全部历史 recall。 |
-| archived / deleted / missing / 不可读 / 映射不明 | 对应候选不可用，更新零模型调用；新 Idea 是否可用由原总结来源检查决定。 |
+| 无自动候选 / 无近期引用 / 无法恢复旧引用 | 保持新建默认，主动更新及库选择可用；自动发现失败与捕获来源失败分开反馈。 |
+| 本轮唯一、当前版本候选 | 提供更新/新建，可建议目标；Host 重验后方可生成。 |
+| 多候选或仅较早轮次候选 | 不自动预选；明确选择候选并确认相关性，或主动从库选择其他目标。 |
+| 主动库选择且没有任何历史 pin | Host 从当前 Idea 读取新基线并展示；用户确认目标即可生成，无需补造历史引用或额外模型分类。 |
+| 历史 pin / 同 Idea 多版本 | 保留原始 pin；按 3.4 明确确认当前基线，不能强制重新引用后才能更新。 |
+| archived / deleting / deleted / 不可读或无权限 | 对应目标不可更新，0 模型；用户可换目标或走合法的新建流程。 |
 
-inspect 时保存的 current version 不是永久授权。prepare 前再检查目标仍 active 且 currentVersionId 等于选中 pin；commit 再做同一乐观检查。版本漂移返回冲突，不自动换目标、重拟稿或重试模型。
+### 3.4 历史版本：明确确认当前基线，禁止静默 rebase
+
+选择引用 vN 的 Idea 时，Host 保留 `referencedVersionId=vN` 作为引用事实，另读 `currentVersionId=vM`。展示“讨论引用 vN，将以当前 vM 为新基线生成提案；旧版本保留”，由用户明确确认；此确认不是提交，也不改原始 mention。
+
+Host 为这次选择生成 targetToken，绑定 captureId、ideaId、**Host 当前 baseVersionId=vM**、选择方式、原始引用 pins 及是否需要历史基线确认。prepare 只有在 `confirmBaseVersionId` 精确等于 token 的 vM 时才能越过历史基线确认门；不能用可复用的 `true` 代替版本绑定。选择库中同一 Idea 不得隐藏当前 capture 中已证明的旧 pin。没有历史引用的主动选择展示 Host 当前版本，不要求证明不存在未知的更早引用。
+
+prepare 前再次检查当前版本仍是 vM；若确认后已变成 vK，返回 version-conflict、0 模型，须重新读取并明确确认新基线，不自动把确认延伸至 vK。模型生成中或 commit 前再次漂移也冲突，不自动重拟稿或提交。提案和 commit 的 expected/base 都是用户确认的 vM，不是 vN。
+
+模型证据明确区分 Host 当前 baseline 与历史引用信息；如使用历史版本正文，必须由 Host 按原 pin 读取、有界封装为独立不可信参考，不替换 currentDraft，也不混进对话 capturedContext。没有历史引用证据的主动选择不编造历史数据。无论选择方式，生成都至多一次模型调用，确认/发现/库搜索均为 0 模型。
 
 ## 4. 提议的最小 RPC 与信任边界
 
@@ -93,12 +143,13 @@ inspect 时保存的 current version 不是永久授权。prepare 前再检查�
 | --- | --- |
 | 新增 `idea/inspectMessageSave` | `{sessionId,messageId}` → Host `captureId`、有界统计、候选（含本轮/较早轮次证据标记）及原因；0 模型、0 Idea durable 写入。captureId 是不透明的临时凭据，不是 preparation/proposal ID。 |
 | 扩展 `idea/prepareFromMessage` 的可选 `captureId` | 新 UI 的「新 Idea」携带 captureId，Host 校验 Session/anchor 并使用冻结捕获；仍复用原提取/create 流程。老调用无此字段时保持原路径。一次明确生成至多一次模型请求，无隐藏重试。 |
-| 新增 `idea/prepareMessageEvolution` | `{captureId,candidateId,confirmEarlierReference?}` → `{proposalId,ideaId,baseVersionId,draft,sourceStats}`。较早轮次候选必须显式确认，否则 Host 拒绝且 0 模型；该确认仅代表本次选择意图，不构成来源证明。candidateId 只能解析至该 capture 的 Host 候选；不接受 browser 提供的标题、base draft、来源正文、seq 或 reason。 |
+| 新增 `idea/selectMessageEvolutionTarget` | `{captureId, selection: {kind:'reference-candidate',candidateId} 或 {kind:'explicit-library',ideaId}}` → Host targetToken、当前基线版本/ordinal、历史 pin 提示及确认要求。库搜索复用现有 RPC；Host 校验身份、目标和当前版本，0 模型。不接受客户端基线正文。 |
+| 新增 `idea/prepareMessageEvolution` | `{captureId,targetToken,confirmBaseVersionId?,confirmEarlierReference?}` → `{proposalId,ideaId,baseVersionId,draft,sourceStats}`。Host 核对 token 所属 capture、目标、当前 base；历史版本确认缺失/错误时 0 模型；较早自动候选仍需相关性确认。主动库选择不需要历史引用证明。不接受 browser 来源正文、seq 或 reason。 |
 | 新增 `idea/commitMessageEvolution` | `{proposalId,expectedCurrentVersionId,draft}` → `{outcome:'committed'|'unchanged',ideaId,currentVersionId,ordinal}`；只提交编辑内容与期望版本，目标、来源、reason 全从 Host proposal 取。 |
 
-capture registry 使用已有有界临时 registry 模式，64 项、30 分钟，实例隔离；验证调用归属时沿用现有 Remote principal/Host 权限，不把 token 当作新增跨用户授权。capture/proposal 数据不写 Storage 或 Session；Host 重启、TTL 或驱逐后返回 expired，不伪造恢复。取消后不注册可提交的迟到 proposal。
+capture registry 使用已有有界临时 registry 模式，64 项、30 分钟，实例隔离；验证调用归属时沿用现有 Remote principal/Host 权限，不把 token 当作新增跨用户授权。capture/selection/proposal 数据不写 Storage 或 Session；Host 重启、TTL 或驱逐后返回 expired，不伪造恢复。取消后不注册可提交的迟到 proposal。
 
-生成更新草稿复用 `IdeaEvolutionService` 的 prompt/parser/route/stream 与 proposal registry：**选中且仍为当前的 Host draft + bounded history digest + 本次锚点捕获**，不是插件 recall 全文或浏览器 draft。全部按既有 prompt 作为不可信 JSON 证据；与当前 baseline 无关的讨论内容不应覆盖其未被证据否定的字段。生成至多一个直接模型请求，没有目标分类调用、Agent 工具循环或自动重试。
+生成更新草稿复用 `IdeaEvolutionService` 的 prompt/parser/route/stream 与 proposal registry：**用户选中并确认、且仍为当前的 Host draft + bounded history digest + 本次锚点捕获**，不是插件 recall 全文或浏览器 draft。全部按既有 prompt 作为不可信 JSON 证据；与当前 baseline 无关的讨论内容不应覆盖其未被证据否定的字段。生成至多一个直接模型请求，没有目标分类调用、Agent 工具循环或自动重试。
 
 ## 5. 线性提交、无变化、幂等与来源
 
@@ -118,23 +169,25 @@ receipt 有界且临时；提案结算后不可重新成为 prepared。网络结
 
 ## 6. Client 流程与错误反馈
 
-`关闭 → inspecting → 无可靠关联时沿用 preparing-new，或有候选时选择模式/目标 → preparing-new / preparing-update → 对应可编辑预览 → 明确保存 → 结果`。
+`关闭 → inspecting → 新建默认 / 主动选择更新 → 自动候选或 Idea 库选择目标 → 必要的当前基线确认 → preparing-new / preparing-update → 可编辑预览 → 明确保存 → 结果`。
 
-- 点击「总结」立即在原 Modal 显示读取/准备态；inspect 不调用模型。无可靠关联直接沿用原新建准备流程，不增加一次确认或二次提取。有明确关联时展示模式选择；只有本轮唯一当前候选可预选，多候选及较早轮次候选不预选。选择后才生成一种草稿，准备与正式预览为不同状态，不伪造 ID。若先完成新草稿后用户另行主动选择更新，必须明确提示这是一次新的提案生成，不把它隐藏成目标识别开销或自动第二次调用。
-- 更新预览显示 Host 目标、基线 vN、来源锚点范围及截断提示；七字段可编辑，按钮明确「保存为新版本」。新模式仍为保存新 Idea，绝不将同一 ID 混给另一条提交接口。
+- 点击「总结」立即在原 Modal 显示读取/准备态；inspect 不调用模型。无自动关联直接沿用原新建默认流程，同时始终保留主动库选择更新入口；不以没有历史 pin 禁用更新。有明确关联时展示模式选择；只有本轮唯一当前候选可预选，多候选及较早轮次候选不预选。选择后才生成一种草稿，准备与正式预览为不同状态，不伪造 ID。若先完成新草稿后用户另行主动选择更新，必须明确提示这是一次新的提案生成，不把它隐藏成目标识别开销或自动第二次调用。
+- 主动选择复用 Idea 库搜索，不自动向聊天输入插入引用；历史 pin 先完成 3.4 的当前基线确认。更新预览分别显示原引用版本（若有）、经确认的当前基线、Host 目标、选择方式、来源锚点范围及截断提示；七字段可编辑，按钮明确「保存为新版本」。新模式仍为保存新 Idea，绝不将同一 ID 混给另一条提交接口。
 - 切换模式/目标、取消、关闭、Escape、导航或 Session 卸载都 abort；generation + Session + anchor + mode + target 共同过滤迟到响应。保留打开瞬间双击遮罩保护；同状态重复点击只有一个请求。
 - 提交中阻止重复操作；结果未知保留同一 proposal/payload；明确失败保留编辑，冲突解释基线已过期并只读刷新，不自动 rebase。用户另存新 Idea 必须显式重新选择，并走自己的 preparation，不能复用更新 proposal 绕过来源。
 - 无变化显示「内容无变化，未创建新版本」；成功 receipt 重放后重新只读加载当前状态，不能把旧 receipt 的版本当成最新。
-- 目标未选、多候选、历史 pin、来源不可证明/变化/不可用、归档/删除、过期、模型不可用/失败/非法输出、取消、版本冲突、无变化、保存结果未知须有不同提示。所有 disabled 说明可读，明暗主题、窄窗口和键盘导航均覆盖。
+- 目标未选、多候选、历史基线未确认、自动引用证据不足（可主动选）、捕获来源变化/不可用、归档/删除、过期、模型不可用/失败/非法输出、取消、版本冲突、无变化、保存结果未知须有不同提示。所有 disabled 说明可读，明暗主题、窄窗口和键盘导航均覆盖。
 
 ## 7. 待决风险与实施门槛
 
 | 风险 | 影响及审查决策 |
 | --- | --- |
-| 具体产品取舍待确认 | 完整 P2 方案已收到并映射；首版仅引用候选、跨轮主动确认、历史 pin 重新引用当前版本的策略，以及有明确关联时先选择再拟稿，仍需独立审查确认。无可靠关联保持现有新建路径。 |
-| 旧输入与 admission 的可证明对应关系 | 公开事件具备素材，但未做新 resolver 的离线可执行证明；必须先通过 inbox 编辑/取消/steering/claim 崩溃/插件变换矩阵，不能以源码存在推定任何日志都可自动识别。 |
-| 截断、compaction、fork 与超长 raw log | 有意保守禁用部分更新；公开 observation 可能物化整个指定 Session，不能承诺按 capture 大小的内存成本。不得为此扫描其他会话或绕过投影；必要时另议只读索引接口。 |
+| 快照实现 Gate | 单 observation 的公开 replay 方案已给出，但尚未执行 G-SNAPSHOT；未通过不得声称与 readSurface 的内容契约一致。cursor 相等只用于完整性检查，不是跨读取内容证明。 |
+| 旧输入与 admission 的可证明对应关系 | 公开事件具备素材，但未做新 resolver 的离线可执行证明；自动发现必须先通过 G-REFERENCE 的 inbox 编辑/取消/steering/claim 崩溃/插件变换矩阵；失败应关闭自动推荐，不阻止有合法 Host 捕获的主动库选择。 |
+| 截断、compaction、fork 与超长 raw log | 自动候选不完整时仍允许主动选；捕获来源不可用时两路径均停止。公开 observation 可能物化整个指定 Session，不能承诺按 capture 大小的内存成本。不得为此扫描其他会话或绕过投影；必要时另议只读索引接口。 |
 | reason 与幂等边界 | 需接受 existing reason 的中性“对话演进”含义及仅同一 Host 生命周期内 receipt；强跨重启幂等不在无 Storage 修改方案内。 |
 | 多主题普通对话 | 确定性识别只能证明引用及选择，不能证明每段正文都只讨论该目标。用户预览、可编辑及明确批准是必要门槛，不宣称自动语义归属已经解决。 |
 
 本文件与配套 Instructions 需独立架构审查后才可作为实施依据。本轮仅文档；没有产品、Harness、Storage、真实 Profile 变更，没有 Provider 或测试调用。工作区无关 drift 与其他分支保留。
+
+本次定点修订仅更新本 Freeze 和配套 Instructions。G-SNAPSHOT/G-REFERENCE 是后续实施前置验证，未在本轮执行；没有实施源码或修改正常 Profile。
