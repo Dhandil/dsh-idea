@@ -8,7 +8,7 @@
  * projections. Malformed, unresolvable, or over-limit (more than
  * `MAX_IDEA_REFERENCES` unique pins) references reject the request loudly
  * instead of silently dropping, slicing, or substituting. The listener
- * always delegates through `next()` first, so later policy listeners keep
+ * delegates through `next()` before admission, so later policy listeners keep
  * authority; a downstream reject admits nothing. No model call happens here.
  * @module @dsh-external/dsh-idea/src/reference/service
  */
@@ -19,6 +19,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { IdeaId, IdeaVersionId } from '../types.ts'
 import { renderReferencedIdeasContext } from './context.ts'
+import { captureEvaluationInput, shouldGuideEvaluation } from './evaluation-guidance.ts'
 import { MAX_IDEA_REFERENCES, projectReferencedIdeas } from './projection.ts'
 import { parseIdeaReferenceText } from './uri.ts'
 import type { IdeaReferencePin } from './uri.ts'
@@ -68,7 +69,9 @@ export class IdeaReferenceService extends Service {
   }
 
   protected [Service.init](): void {
-    this.ctx.on('agent/pre-step', async ({ signal }, next): Promise<PreStepDecision> => {
+    this.ctx.on('agent/pre-step', async ({ messages: claimed, signal }, next): Promise<PreStepDecision> => {
+      let evaluation: ReturnType<typeof captureEvaluationInput>
+      try { evaluation = captureEvaluationInput(claimed) } catch { /* Optional guidance fails to the baseline. */ }
       const decision = await next()
       if (decision.kind === 'reject') return decision
       if (signal.aborted) return decision
@@ -154,8 +157,16 @@ export class IdeaReferenceService extends Service {
       })
 
       const lastDirectIndex = findLastIndex(messages, isDirectUserMessage)
+      const projections = projectReferencedIdeas(resolved.map(entry => entry.record))
+      let contextText: string | undefined
+      try {
+        if (shouldGuideEvaluation(evaluation, decision.messages)) {
+          contextText = renderReferencedIdeasContext(projections, true)
+        }
+      } catch { /* Preserve the baseline context if optional classification/rendering fails. */ }
+      contextText ??= renderReferencedIdeasContext(projections)
       const context = createUserMessage({
-        content: [{ type: 'text', text: renderReferencedIdeasContext(projectReferencedIdeas(resolved.map(entry => entry.record))) }],
+        content: [{ type: 'text', text: contextText }],
         source: { kind: 'dsh-idea', form: 'recall' },
       })
       messages.splice(lastDirectIndex + 1, 0, context)

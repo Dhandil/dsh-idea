@@ -25,6 +25,12 @@ const LINKS = [
   ['@deepseek-ai/dsh-session-query', 'packages/session-query/session-query'],
   ['@deepseek-ai/dsh-llm', 'packages/llm/llm'],
   ['@deepseek-ai/dsh-agent', 'packages/core/agent'],
+  // Offline reference-guidance integration uses the actual loop and durable resume.
+  ['@deepseek-ai/dsh-agent-loop', 'packages/core/agent-loop'],
+  ['@deepseek-ai/dsh-system-prompt', 'packages/core/system-prompt'],
+  ['@deepseek-ai/dsh-tools', 'packages/core/tools'],
+  ['@deepseek-ai/dsh-session-projection', 'packages/session/session-projection'],
+  ['@deepseek-ai/dsh-session-persistence-jsonl', 'packages/session/session-persistence-jsonl'],
   ['@deepseek-ai/dsh-agent-default-model', 'packages/core/agent-default-model'],
   ['@deepseek-ai/dsh-api-session-controller', 'packages/api/session-controller'],
   ['@deepseek-ai/dsh-typert-protocol', 'packages/typert/protocol'],
