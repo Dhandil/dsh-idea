@@ -46,7 +46,8 @@ import type {
   IdeaDraft,
   IdeaVersion,
 } from '../types.ts'
-import { remoteDomainError, remoteEvolutionError, remotePreparationError } from './errors.ts'
+import { remoteDomainError, remoteEvolutionError, remotePreparationError, remoteUpdateError } from './errors.ts'
+import type { IdeaPrepareUpdateRequest, IdeaCommitUpdateRequest, IdeaUpdatePreview, IdeaUpdateResult } from './types.ts'
 import { EmbeddingCancelledError } from '../semantic/provider.ts'
 import type { ResurfacingMediumAtomicSignal, ResurfacingSignalType } from '../resurfacing/types.ts'
 import type {
@@ -133,6 +134,26 @@ export class IdeaRemoteService extends TypertRemoteService {
       throw remote ?? error
     } finally {
       this.ctx.ideaPreparations.performance?.record('host.rpc-handler', startedAt)
+    }
+  }
+
+  /** Explicit library selection, one Host capture and one direct proposal call. */
+  @Remote
+  async prepareUpdateFromMessage(request: IdeaPrepareUpdateRequest, signal?: AbortSignal): Promise<IdeaUpdatePreview> {
+    try {
+      return await this.ctx.ideaPreparations.updates.prepare(request, signal)
+    } catch (error) {
+      throw remoteUpdateError(error) ?? remotePreparationError(error) ?? remoteDomainError(error) ?? error
+    }
+  }
+
+  /** Commit only the target/base/source already bound by the Host update ticket. */
+  @Remote
+  async commitPreparedUpdate(request: IdeaCommitUpdateRequest, signal?: AbortSignal): Promise<IdeaUpdateResult> {
+    try {
+      return await this.ctx.ideaPreparations.updates.commit(request.updateId, request.draft, signal)
+    } catch (error) {
+      throw remoteUpdateError(error) ?? remotePreparationError(error) ?? remoteDomainError(error) ?? error
     }
   }
 

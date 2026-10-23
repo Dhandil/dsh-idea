@@ -14,9 +14,16 @@ import type { IdeaErrorCode } from '../errors.ts'
 import { IdeaPreparationError } from '../preparation/errors.ts'
 import type { IdeaPreparationErrorCode } from '../preparation/errors.ts'
 import { IdeaEvolutionError } from '../evolution/errors.ts'
+import { IdeaUpdateError } from '../preparation/update-types.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface RemoteErrorDetailsMap {
+    'idea/invalid-update-request': {}
+    'idea/update-not-found': {}
+    'idea/update-request-conflict': {}
+    'idea/update-payload-conflict': {}
+    'idea/update-capacity': {}
+    'idea/update-result-uncertain': {}
     /** The Session or the requested assistant message does not exist. */
     'idea/source-not-found': {}
     /** The source exists but is unreadable or carries no usable visible text. */
@@ -59,6 +66,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
  * package's public surface for generated-client consumers.
  */
 export const IDEA_REMOTE_ERROR_CODES = [
+  'idea/invalid-update-request',
+  'idea/update-not-found',
+  'idea/update-request-conflict',
+  'idea/update-payload-conflict',
+  'idea/update-capacity',
+  'idea/update-result-uncertain',
   'idea/source-not-found',
   'idea/source-unavailable',
   'idea/model-unavailable',
@@ -79,6 +92,12 @@ export const IDEA_REMOTE_ERROR_CODES = [
 ] as const satisfies readonly (keyof RemoteErrorDetailsMap)[]
 
 export type IdeaRemoteErrorCode = (typeof IDEA_REMOTE_ERROR_CODES)[number]
+
+/** Update tickets never fall back to a fresh preparation or an unbound write. */
+export function remoteUpdateError(error: unknown): RemoteError | undefined {
+  if (!(error instanceof IdeaUpdateError)) return undefined
+  return new RemoteError(`idea/${error.code}`, error.message, {}, { cause: error })
+}
 
 /** Preparation codes that map one-to-one onto `idea/*` wire codes. */
 const DIRECT_PREPARATION_CODES: readonly IdeaPreparationErrorCode[] = [

@@ -552,6 +552,8 @@ export class IdeaService extends Service {
    * mismatch rejects with `version-conflict` and writes nothing.
    * @param reason - Why the Idea evolved (`manual-edit` or
    * `continued-discussion`; the initial save is never an evolution).
+   * @param options.skipUnchanged - Opt-in semantic no-op protection; omitted
+   * or false preserves legacy source/version append behavior.
    * @returns the stored aggregate after the evolve.
    */
   async evolve(
@@ -560,49 +562,68 @@ export class IdeaService extends Service {
     source: SourceDiscussionDraft,
     expectedCurrentVersionId: IdeaVersionId,
     reason: IdeaEvolutionReason,
+    options?: { skipUnchanged?: boolean },
   ): Promise<IdeaAggregate> {
     const validatedDraft = parseDraft(ideaDraftSchema, draft)
     const validatedSource = parseDraft(sourceDiscussionDraftSchema, source)
-    return await this.enqueueIdeaMutation(ideaId, async () => await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => {
-      if (current.idea.status === 'archived') {
-        throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before evolving`)
+    const skipUnchanged = options?.skipUnchanged === true
+    return await this.enqueueIdeaMutation(ideaId, async () => {
+      // Opt-in only: legacy evolution still records a new source/version even
+      // for identical content. Keep the authoritative check in this queue slot
+      // and exit BEFORE update(), whose identity transform can still write.
+      if (skipUnchanged) {
+        const current = this.get(ideaId)
+        if (current.idea.currentVersionId !== expectedCurrentVersionId) {
+          throw new IdeaError('version-conflict', 'the idea changed before the update; nothing was written')
+        }
+        if (current.idea.status === 'archived') {
+          throw new IdeaError('archived', 'restore the idea before updating it')
+        }
+        const version = current.versions.find(entry => entry.versionId === current.idea.currentVersionId)
+        if (version === undefined) throw new IdeaError('invalid-input', 'the current idea content is unavailable')
+        if (sameIdeaDraft(version.draft, validatedDraft)) return current
       }
-      const versionId = IdeaVersionId(createId('idea_ver'))
-      const sourceDiscussionId = SourceDiscussionId(createId('idea_src'))
-      const discussion: SourceDiscussion = {
-        sourceDiscussionId,
-        ideaId: current.idea.ideaId,
-        sessionId: validatedSource.sessionId,
-        ...(validatedSource.anchorMessageId !== undefined ? { anchorMessageId: validatedSource.anchorMessageId } : {}),
-        ...(validatedSource.startSeq !== undefined ? { startSeq: validatedSource.startSeq } : {}),
-        ...(validatedSource.endSeq !== undefined ? { endSeq: validatedSource.endSeq } : {}),
-        capturedContext: validatedSource.capturedContext.map(message => ({ ...message })),
-        capturedAt: now,
-      }
-      const version: IdeaVersion = {
-        versionId,
-        ideaId: current.idea.ideaId,
-        ordinal: (current.versions.at(-1)?.ordinal ?? 0) + 1,
-        draft: validatedDraft,
-        reason,
-        sourceDiscussionIds: [sourceDiscussionId],
-        createdAt: now,
-      }
-      const event: IdeaEvolutionEvent = {
-        evolutionEventId: EvolutionEventId(createId('idea_evo')),
-        ideaId: current.idea.ideaId,
-        fromVersionId: current.idea.currentVersionId,
-        toVersionId: versionId,
-        reason,
-        createdAt: now,
-      }
-      return {
-        idea: { ...current.idea, currentVersionId: versionId, updatedAt: now },
-        versions: [...current.versions, version],
-        sourceDiscussions: [...current.sourceDiscussions, discussion],
-        evolutionEvents: [...current.evolutionEvents, event],
-      }
-    }))
+      return await this.mutate(ideaId, expectedCurrentVersionId, (current, now) => {
+        if (current.idea.status === 'archived') {
+          throw new IdeaError('archived', `idea '${ideaId}' is archived; restore it before evolving`)
+        }
+        const versionId = IdeaVersionId(createId('idea_ver'))
+        const sourceDiscussionId = SourceDiscussionId(createId('idea_src'))
+        const discussion: SourceDiscussion = {
+          sourceDiscussionId,
+          ideaId: current.idea.ideaId,
+          sessionId: validatedSource.sessionId,
+          ...(validatedSource.anchorMessageId !== undefined ? { anchorMessageId: validatedSource.anchorMessageId } : {}),
+          ...(validatedSource.startSeq !== undefined ? { startSeq: validatedSource.startSeq } : {}),
+          ...(validatedSource.endSeq !== undefined ? { endSeq: validatedSource.endSeq } : {}),
+          capturedContext: validatedSource.capturedContext.map(message => ({ ...message })),
+          capturedAt: now,
+        }
+        const version: IdeaVersion = {
+          versionId,
+          ideaId: current.idea.ideaId,
+          ordinal: (current.versions.at(-1)?.ordinal ?? 0) + 1,
+          draft: validatedDraft,
+          reason,
+          sourceDiscussionIds: [sourceDiscussionId],
+          createdAt: now,
+        }
+        const event: IdeaEvolutionEvent = {
+          evolutionEventId: EvolutionEventId(createId('idea_evo')),
+          ideaId: current.idea.ideaId,
+          fromVersionId: current.idea.currentVersionId,
+          toVersionId: versionId,
+          reason,
+          createdAt: now,
+        }
+        return {
+          idea: { ...current.idea, currentVersionId: versionId, updatedAt: now },
+          versions: [...current.versions, version],
+          sourceDiscussions: [...current.sourceDiscussions, discussion],
+          evolutionEvents: [...current.evolutionEvents, event],
+        }
+      })
+    })
   }
 
   /**

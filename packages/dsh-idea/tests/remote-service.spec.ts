@@ -336,6 +336,8 @@ describe('generated contributions', () => {
     expect(record).toContain('idea/continueDiscussion')
     expect(record).toContain('idea/prepareEvolution')
     expect(record).toContain('idea/commitEvolution')
+    expect(record).toContain('idea/prepareUpdateFromMessage')
+    expect(record).toContain('idea/commitPreparedUpdate')
     expect(record).toContain('IdeaRemoteService')
   })
 
@@ -347,6 +349,7 @@ describe('generated contributions', () => {
       '@dsh-external/dsh-idea#idea/archive',
       '@dsh-external/dsh-idea#idea/claimResurfacingBudget',
       '@dsh-external/dsh-idea#idea/commitEvolution',
+      '@dsh-external/dsh-idea#idea/commitPreparedUpdate',
       '@dsh-external/dsh-idea#idea/continueDiscussion',
       '@dsh-external/dsh-idea#idea/create',
       '@dsh-external/dsh-idea#idea/deleteIdea',
@@ -363,6 +366,7 @@ describe('generated contributions', () => {
       '@dsh-external/dsh-idea#idea/prepareEvolution',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
       '@dsh-external/dsh-idea#idea/prepareQuickCapture',
+      '@dsh-external/dsh-idea#idea/prepareUpdateFromMessage',
       '@dsh-external/dsh-idea#idea/relatedFromMessage',
       '@dsh-external/dsh-idea#idea/restore',
       '@dsh-external/dsh-idea#idea/search',
@@ -377,6 +381,8 @@ describe('generated contributions', () => {
       const cancellable = descriptor.id.endsWith('#idea/create')
         || descriptor.id.endsWith('#idea/prepareFromMessage')
         || descriptor.id.endsWith('#idea/prepareQuickCapture')
+        || descriptor.id.endsWith('#idea/prepareUpdateFromMessage')
+        || descriptor.id.endsWith('#idea/commitPreparedUpdate')
         || descriptor.id.endsWith('#idea/setResurfacingMuted')
         || descriptor.id.endsWith('#idea/prepareEvolution')
         || descriptor.id.endsWith('#idea/relatedFromMessage')

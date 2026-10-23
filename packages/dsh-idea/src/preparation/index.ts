@@ -16,6 +16,11 @@ export { parseIdeaDraftOutput } from './parser.ts'
 export { buildIdeaExtractionPrompt } from './prompt.ts'
 export type { IdeaExtractionPrompt } from './prompt.ts'
 export { IdeaPreparationId } from './types.ts'
+export { IdeaUpdatePipeline } from './update.ts'
+export { IdeaUpdateRegistry, IDEA_UPDATE_LIMITS } from './update-registry.ts'
+export type { IdeaUpdateRegistryOptions } from './update-registry.ts'
+export { IdeaUpdateError } from './update-types.ts'
+export type { IdeaUpdateId, IdeaUpdatePreview, IdeaUpdateResult, IdeaPrepareUpdateRequest, IdeaCommitUpdateRequest, IdeaUpdateErrorCode } from './update-types.ts'
 export type {
   IdeaPreparationModelRoute,
   IdeaPreparationPreview,

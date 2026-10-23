@@ -9,6 +9,7 @@
 
 import type { IdeaDraft, IdeaEvolutionReason, IdeaId, IdeaStatus, IdeaVersionId, IdeaVersionReason } from '../types.ts'
 import type { IdeaPreparationId, IdeaPreparationPreview } from '../preparation/types.ts'
+export type { IdeaPrepareUpdateRequest, IdeaCommitUpdateRequest, IdeaUpdatePreview, IdeaUpdateResult } from '../preparation/update-types.ts'
 
 export type {
   IdeaDraft,

@@ -38,6 +38,7 @@ import type {
 } from './types.ts'
 import { ideaDraftSchema, IDEA_LIMITS } from '../schema.ts'
 import { IdeaPerfMetrics } from '../perf/metrics.ts'
+import { IdeaUpdatePipeline } from './update.ts'
 import type { IdeaDraft, SourceDiscussionDraft } from '../types.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -47,15 +48,17 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export class IdeaPreparationService extends Service {
-  static inject = ['sessionQuery', 'agentDefaultModel', 'llm']
+  static inject = ['sessionQuery', 'agentDefaultModel', 'llm', 'ideaService']
 
   /** Host-only ephemeral registry; a later commit task resolves through it. */
   readonly preparations: IdeaPreparationRegistry
-  readonly performance = new IdeaPerfMetrics()
+  readonly performance: IdeaPerfMetrics = new IdeaPerfMetrics()
+  readonly updates: IdeaUpdatePipeline
 
   constructor(ctx: Context) {
     super(ctx, 'ideaPreparations')
     this.preparations = new IdeaPreparationRegistry()
+    this.updates = new IdeaUpdatePipeline(this.ctx)
   }
 
   /**
