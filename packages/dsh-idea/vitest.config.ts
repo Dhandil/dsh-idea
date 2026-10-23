@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import ts from 'typescript'
+import { requireRun } from '../../scripts/dev-runtime.mjs'
 
 const decoratorSyntax = /^\s*@[A-Za-z_$][\w$]*/m
 
@@ -39,6 +40,7 @@ function standardDecoratorPlugin() {
 }
 
 export default defineConfig({
+  cacheDir: requireRun().paths.cache + '/vite',
   plugins: [standardDecoratorPlugin()],
   resolve: {
     // One React instance across the package and the harness-linked
@@ -49,6 +51,7 @@ export default defineConfig({
     ],
   },
   test: {
+    coverage: { reportsDirectory: requireRun().paths.logs + '/coverage' },
     environment: 'node',
     include: ['tests/**/*.spec.ts', 'tests/**/*.spec.tsx'],
   },

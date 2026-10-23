@@ -85,11 +85,11 @@
   },
   "scripts": {
     "setup:dev": "node scripts/setup-dev.mjs",
-    "generate:typert": "node scripts/generate-typert.mjs",
-    "build": "tsc -p tsconfig.build.json",
-    "build:client": "tsdown -c tsdown.client.config.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "generate:typert": "node ../../scripts/dev-run.mjs -- node scripts/generate-typert.mjs",
+    "build": "node ../../scripts/dev-run.mjs -- tsc -p tsconfig.build.json",
+    "build:client": "node ../../scripts/dev-run.mjs -- tsdown -c tsdown.client.config.ts",
+    "typecheck": "node ../../scripts/dev-run.mjs -- tsc -p tsconfig.json --noEmit",
+    "test": "node ../../scripts/dev-run.mjs -- vitest run --configLoader native",
     "verify": "pnpm generate:typert && pnpm typecheck && pnpm test && pnpm build && pnpm build:client"
   },
   "peerDependencies": {

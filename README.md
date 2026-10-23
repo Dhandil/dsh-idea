@@ -48,6 +48,11 @@ plugin `Config` is schemastery per Harness convention (T1 declares none).
 
 ## Development
 
+Execution resources use the ignored `.dev/runs/<run-id>/` lifecycle. Common
+validation scripts below are automatically wrapped; use
+`pnpm dev:run -- <command> [args...]` for other task commands. See
+[the runtime guide](docs/DEV_RUNTIME.md) for paths, cleanup checks and exceptions.
+
 Requires a local DeepSeek Harness checkout (installed and built) — it is the authoritative
 API baseline and provides the packages this plugin composes at runtime.
 

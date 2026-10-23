@@ -8,17 +8,18 @@
 // cannot be analyzed in place, so this script assembles an ephemeral
 // generation workspace that mirrors the needed monorepo shape: this package's
 // src, the checkout's dsh-typert-protocol src, and the Session package whose
-// TypertResourceMap merges into the Protocol are copied under build/. The
+// TypertResourceMap merges into the Protocol are copied under the owned run. The
 // aggregate tsconfig references these packages, and the artifacts are written
 // back into the real lib/. The workspace is rebuilt from scratch on every run and never
 // committed; runtime code always resolves the real shared packages through
 // the setup-dev junctions, so no duplicate Typert instance ever loads.
 //
-// Usage: node scripts/generate-typert.mjs
-import { cpSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+// Usage: pnpm generate:typert (the wrapper owns and cleans the workspace).
+import { cpSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { FaceModelEmitter, WorkspaceAnalyzer } from '@deepseek-ai/dsh-typert-generator'
+import { requireRun, runPath } from '../../../scripts/dev-runtime.mjs'
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -33,13 +34,19 @@ const protocolPackage = join(checkoutPackages, 'typert/protocol')
 const sessionPackage = join(checkoutPackages, 'core/session')
 const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
 
-const workspace = join(packageDir, 'build/typert-workspace')
-rmSync(workspace, { recursive: true, force: true })
+// Never sweep a previous invocation's directory, including a concurrent run.
+const run = requireRun()
+const workspace = runPath(run, 'build', `typert-${crypto.randomUUID()}`)
 const localPackage = join(workspace, 'packages', 'dsh-idea')
 const protocolCopy = join(workspace, 'packages/typert-protocol')
 const sessionCopy = join(workspace, 'packages/dsh-session')
 
 for (const dir of [join(workspace, 'packages'), localPackage, protocolCopy, sessionCopy]) mkdirSync(dir, { recursive: true })
+
+// Relocation removes the package node_modules from the ancestor chain. Restore
+// the same read-only resolution through a run-owned link, never mutate/install
+// dependencies. Cleanup unlinks this alias without traversing its target.
+symlinkSync(join(packageDir, 'node_modules'), join(workspace, 'node_modules'), 'junction')
 
 cpSync(join(packageDir, 'src'), join(localPackage, 'src'), { recursive: true })
 cpSync(join(packageDir, 'package.json'), join(localPackage, 'package.json'))

@@ -5,12 +5,16 @@
   "description": "Workspace root for @dsh-external/dsh-idea, an external DeepSeek Harness plugin. The Typert generator requires packages to live under <root>/packages.",
   "license": "MIT",
   "scripts": {
+    "dev:run": "node scripts/dev-run.mjs",
+    "dev:audit": "node scripts/dev-run.mjs audit",
+    "dev:reap": "node scripts/dev-run.mjs reap",
+    "test:runtime": "node scripts/dev-run.mjs -- node --test scripts/tests/dev-runtime.test.mjs",
     "setup:dev": "pnpm -C packages/dsh-idea setup:dev",
     "generate:typert": "pnpm -C packages/dsh-idea generate:typert",
     "build": "pnpm -C packages/dsh-idea build",
     "build:client": "pnpm -C packages/dsh-idea build:client",
     "typecheck": "pnpm -C packages/dsh-idea typecheck",
     "test": "pnpm -C packages/dsh-idea test",
-    "verify": "pnpm -C packages/dsh-idea verify"
+    "verify": "pnpm test:runtime && pnpm -C packages/dsh-idea verify"
   }
 }
