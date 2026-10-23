@@ -1,5 +1,7 @@
 # P2A Implementation Instructions：普通对话 Idea 演进
 
+> **后续产品决策覆盖标记（2026-10-23）：SUPERSEDED FOR FUTURE IMPLEMENTATION。** 原 P2B 暂停，后续范围以 [P2-Lite Architecture Freeze 候选](../architectue/DSH_IDEA_P2_LITE_ARCHITECTURE_FREEZE.md)和 [P2-Lite Implementation Instructions](DSH_IDEA_P2_LITE_IMPLEMENTATION_INSTRUCTIONS.md)为审查依据。不得继续执行本文的自动引用归属、版本候选及用户多版本演进实施步骤。以下历史正文与矩阵保持原样；该覆盖不改写已发生的 P2A 验收或 G0 证明事实，不授权合并证明分支。
+
 状态：**定点修订后待最终审查的实施说明，本轮不执行**。日期：2026-10-22。产品基线 `c0194edf477d836e6a8b2099b19db20717723b60`；修订参照 `d572488c201f85b44c169de5675537a6bcbad260`。
 
 唯一配套冻结：[Architecture Freeze](../architectue/DSH_IDEA_P2A_CONVERSATION_EVOLUTION_ARCHITECTURE_FREEZE.md)。若正文、源码与本说明不一致，停止并提交差异；不得自行放宽 Host 来源、候选或版本检查。本任务已收到完整 ChatGPT P2 产品方案，Freeze 开篇给出逐项映射；开工须等待该冻结候选的独立架构审查，不得将产品方案已经确定等同于本文技术方案已经验收。

@@ -1,5 +1,7 @@
 # P2A Architecture Freeze：普通对话中的 Idea 版本演进
 
+> **后续产品决策覆盖标记（2026-10-23）：SUPERSEDED FOR FUTURE IMPLEMENTATION。** 用户已决定转向「一个 Idea 只展示一份当前有效内容」，暂不继续原 P2B。后续实施依据改为 [P2-Lite Architecture Freeze 候选](DSH_IDEA_P2_LITE_ARCHITECTURE_FREEZE.md)及其配套说明，仍须独立审查；不再按本文开启自动引用归属恢复或面向用户的多版本演进流程。本文以下正文原样保留，反映编写时的状态；后续 P2A 最终架构验收及基线推进至 `d36325aed1373a9a2dedeced8e367a5bb32e6395` 的历史事实不撤销，G0 证明分支也不删除或合并。
+
 状态：`DSH_IDEA_P2A_REPAIR_READY_FOR_FINAL_ARCHITECTURE_REVIEW`，**待最终架构审查的冻结候选，不是实施完成或已批准开工**。日期：2026-10-22。
 
 定点修订参照：`d572488c201f85b44c169de5675537a6bcbad260`；审查结论 `DSH_IDEA_P2A_REVIEW_BLOCKED_TARGET_SELECTION`。本次仅纠正主动选目标、历史版本显式确认及单快照证明三项，保留其他主要架构。
