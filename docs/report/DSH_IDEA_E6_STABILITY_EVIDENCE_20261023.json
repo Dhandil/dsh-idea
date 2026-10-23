@@ -1,0 +1,315 @@
+{
+  "schemaVersion": 1,
+  "baseMain": "9fcee9888390cd04d4a87bbf837c04bebfa92f61",
+  "runtimeScaffoldSha": "de58e73e24dc4622dc87c13b8c7ea8f0e86cdbeb",
+  "testedFixSha": "e4c01df58f1a655f83dde0c35148fab1e7b32dfe",
+  "harnessSha": "86a402200d95fecef4529d969836f1fe13c6cb0d",
+  "node": "v24.21.0",
+  "pnpm": "11.28.5",
+  "vitest": "4.1.11",
+  "originalTestTimeoutMs": 5000,
+  "sharedWorkBudgetMs": 4000,
+  "settings": {
+    "defaultFileParallelism": true,
+    "testRetries": 0,
+    "defaultSerialMode": false,
+    "productCodeChanged": false
+  },
+  "originalDiagnostics": {
+    "focused": {
+      "passed": 1,
+      "failed": 0,
+      "otherTestsFiltered": 9
+    },
+    "parallel": {
+      "files": 19,
+      "passed": 334,
+      "failed": 1,
+      "total": 335,
+      "onlyFailure": "E6 original 5000ms timeout"
+    }
+  },
+  "originalTrace": [
+    {
+      "stage": "start",
+      "ms": 0.067
+    },
+    {
+      "stage": "harness-ready",
+      "ms": 18.384
+    },
+    {
+      "stage": "request-arrived",
+      "ms": 47.821,
+      "beforeCount": 0,
+      "kinds": [
+        "index"
+      ]
+    },
+    {
+      "stage": "disk-record-observed",
+      "ms": 81.662,
+      "published": false,
+      "requestCount": 1
+    },
+    {
+      "stage": "retrieval-called",
+      "ms": 89.453
+    },
+    {
+      "stage": "retrieval-settled",
+      "ms": 89.802,
+      "candidates": 0
+    },
+    {
+      "stage": "index-memory-published",
+      "ms": 93.664
+    }
+  ],
+  "observedDiskToMemoryGapMs": 12.002,
+  "rootCause": "Disk rename visibility was mistaken for KvTable memory readiness. Retrieval completed empty before publication without dispatching Query; a total-request-count wait then consumed a fresh 5000ms beyond the test's remaining budget.",
+  "stabilityPlan": {
+    "focusedCases": 10,
+    "focusedFiles": 2,
+    "focusedTestsPerCase": 16,
+    "parallelCases": 10,
+    "parallelFiles": 20,
+    "parallelTestsPerCase": 341,
+    "defaultFileParallelism": true,
+    "globalVitestTimeoutMs": 5000,
+    "workBudgetMs": 4000,
+    "retry": 0
+  },
+  "stabilityCases": [
+    {
+      "case": "stable-focused-1",
+      "passed": 16,
+      "total": 16,
+      "durationMs": 936
+    },
+    {
+      "case": "stable-focused-2",
+      "passed": 16,
+      "total": 16,
+      "durationMs": 943
+    },
+    {
+      "case": "stable-focused-3",
+      "passed": 16,
+      "total": 16,
+      "durationMs": 922
+    },
+    {
+      "case": "stable-focused-4",
+      "passed": 16,
+      "total": 16,
+      "durationMs": 935
+    },
+    {
+      "case": "stable-focused-5",
+      "passed": 16,
+      "total": 16,
+      "durationMs": 933
+    },
+    {
+      "case": "stable-focused-6",
+      "passed": 16,
+      "total": 16,
+      "durationMs": 952
+    },
+    {
+      "case": "stable-focused-7",
+      "passed": 16,
+      "total": 16,
+      "durationMs": 965
+    },
+    {
+      "case": "stable-focused-8",
+      "passed": 16,
+      "total": 16,
+      "durationMs": 931
+    },
+    {
+      "case": "stable-focused-9",
+      "passed": 16,
+      "total": 16,
+      "durationMs": 942
+    },
+    {
+      "case": "stable-focused-10",
+      "passed": 16,
+      "total": 16,
+      "durationMs": 952
+    },
+    {
+      "case": "stable-parallel-1",
+      "passed": 341,
+      "total": 341,
+      "durationMs": 4400
+    },
+    {
+      "case": "stable-parallel-2",
+      "passed": 341,
+      "total": 341,
+      "durationMs": 4370
+    },
+    {
+      "case": "stable-parallel-3",
+      "passed": 341,
+      "total": 341,
+      "durationMs": 4310
+    },
+    {
+      "case": "stable-parallel-4",
+      "passed": 341,
+      "total": 341,
+      "durationMs": 4310
+    },
+    {
+      "case": "stable-parallel-5",
+      "passed": 341,
+      "total": 341,
+      "durationMs": 4370
+    },
+    {
+      "case": "stable-parallel-6",
+      "passed": 341,
+      "total": 341,
+      "durationMs": 4260
+    },
+    {
+      "case": "stable-parallel-7",
+      "passed": 341,
+      "total": 341,
+      "durationMs": 4290
+    },
+    {
+      "case": "stable-parallel-8",
+      "passed": 341,
+      "total": 341,
+      "durationMs": 4260
+    },
+    {
+      "case": "stable-parallel-9",
+      "passed": 341,
+      "total": 341,
+      "durationMs": 4330
+    },
+    {
+      "case": "stable-parallel-10",
+      "passed": 341,
+      "total": 341,
+      "durationMs": 4330
+    }
+  ],
+  "fixedTraceSamples": [
+    [
+      {
+        "stage": "start",
+        "ms": 0.279
+      },
+      {
+        "stage": "harness-ready",
+        "ms": 2.467
+      },
+      {
+        "stage": "index-memory-published",
+        "ms": 21.935
+      },
+      {
+        "stage": "index-ready",
+        "ms": 22.325
+      },
+      {
+        "stage": "query-gate-entered",
+        "ms": 23.365,
+        "queryCalls": 1
+      },
+      {
+        "stage": "mute-saved",
+        "ms": 33.829
+      },
+      {
+        "stage": "query-gate-released",
+        "ms": 34.016
+      },
+      {
+        "stage": "assertions-passed",
+        "ms": 34.728
+      },
+      {
+        "stage": "cleanup-finished",
+        "ms": 36.9
+      }
+    ],
+    [
+      {
+        "stage": "start",
+        "ms": 8.993
+      },
+      {
+        "stage": "harness-ready",
+        "ms": 15.251
+      },
+      {
+        "stage": "index-memory-published",
+        "ms": 76.656
+      },
+      {
+        "stage": "index-ready",
+        "ms": 81.159
+      },
+      {
+        "stage": "query-gate-entered",
+        "ms": 86.203,
+        "queryCalls": 1
+      },
+      {
+        "stage": "mute-saved",
+        "ms": 118.927
+      },
+      {
+        "stage": "query-gate-released",
+        "ms": 119.145
+      },
+      {
+        "stage": "assertions-passed",
+        "ms": 123.641
+      },
+      {
+        "stage": "cleanup-finished",
+        "ms": 143.122
+      }
+    ]
+  ],
+  "typecheck": {
+    "initialDevelopmentFailure": "Incorrect test-only type import, fixed before stability matrix",
+    "finalExitCode": 0
+  },
+  "additionalFixedDiagnostics": {
+    "initialFocused": {
+      "passed": 16,
+      "failed": 0
+    },
+    "parallelTrace": {
+      "files": 20,
+      "passed": 341,
+      "failed": 0
+    }
+  },
+  "cleanup": {
+    "ownedRunAbsent": true,
+    "remainingRuns": 0,
+    "remainingReceipts": 0,
+    "lifecycleLock": false,
+    "openRunHandles": 0,
+    "controllerExited": true,
+    "browserLaunched": false
+  },
+  "fullVerify": {
+    "executed": false,
+    "reason": "Independent E6 review must precede integration into Runtime Repair and one fresh complete verify"
+  },
+  "runtimeBranchUnchanged": "35531f30fb9c942e2a77d8a60ec39dd345f71d82",
+  "providerCalls": 0
+}
