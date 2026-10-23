@@ -7,14 +7,16 @@
   "scripts": {
     "dev:run": "node scripts/dev-run.mjs",
     "dev:audit": "node scripts/dev-run.mjs audit",
+    "dev:audit:strict": "node scripts/dev-run.mjs audit --strict",
     "dev:reap": "node scripts/dev-run.mjs reap",
     "test:runtime": "node scripts/dev-run.mjs -- node --test scripts/tests/dev-runtime.test.mjs",
+    "test:runtime:ab": "node scripts/dev-run.mjs -- node scripts/dev-runtime-ab.mjs",
     "setup:dev": "pnpm -C packages/dsh-idea setup:dev",
     "generate:typert": "pnpm -C packages/dsh-idea generate:typert",
     "build": "pnpm -C packages/dsh-idea build",
     "build:client": "pnpm -C packages/dsh-idea build:client",
     "typecheck": "pnpm -C packages/dsh-idea typecheck",
     "test": "pnpm -C packages/dsh-idea test",
-    "verify": "pnpm test:runtime && pnpm -C packages/dsh-idea verify"
+    "verify": "pnpm dev:audit:strict && pnpm test:runtime && pnpm -C packages/dsh-idea verify && pnpm dev:audit:strict"
   }
 }

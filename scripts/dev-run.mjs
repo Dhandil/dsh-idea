@@ -4,11 +4,12 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { pathToFileURL } from 'node:url'
 import {
   cleanupRun, createRun, groupMembers, inspectRuns, processIdentity, reapRun,
-  registerChild, requireRun, runEnvironment,
+  registerChild, requireRun, runEnvironment, strictAudit,
 } from './dev-runtime.mjs'
 
 export async function runCommand(command, { label = 'task', cwd = process.cwd() } = {}) {
   if (!command.length) throw new Error('dev-run: command required')
+  strictAudit()
   const nested = Boolean(process.env.DSH_IDEA_RUN_ID)
   const run = nested ? requireRun() : createRun({ label })
   let child, identity, signal, spawned = false, cancelTimer, expireCancellation
@@ -57,6 +58,7 @@ export async function runCommand(command, { label = 'task', cwd = process.cwd() 
         const result = cleanupRun(run)
         console.error(`dev-runtime: ${JSON.stringify({ ...result, exceptions: result.exceptions.map(x => ({ category: x.category, endCheck: x.endCheck })) })}`)
       }
+      strictAudit()
     } finally {
       clearTimeout(cancelTimer)
       child?.unref()
@@ -69,7 +71,9 @@ export async function runCommand(command, { label = 'task', cwd = process.cwd() 
 async function main(args) {
   const separator = args.indexOf('--')
   if (args[0] === 'audit') {
-    console.log(JSON.stringify(inspectRuns().map(({ id, state }) => ({ id, state })), null, 2))
+    if (args.slice(1).some(x => x !== '--strict')) throw new Error('dev-run: unsupported audit option')
+    const entries = args.includes('--strict') ? strictAudit() : inspectRuns()
+    console.log(JSON.stringify(entries.map(({ id, state }) => ({ id, state })), null, 2))
     return 0
   }
   if (args[0] === 'reap' && args.length === 2) {

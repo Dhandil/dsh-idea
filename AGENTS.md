@@ -16,7 +16,10 @@
   configuration or shut down shared services.
 - Do not daemonize/escape the wrapper's process group. Close/dispose resources
   before the command returns. Success/failure/cancel must end with the wrapper's
-  `removed: true` record; run `pnpm dev:audit` to check for leftovers. Retention
+  `removed: true` record; require `pnpm dev:audit:strict` to pass at task end.
+  Wrapped execution and root/package `verify` enforce strict pre/post gates;
+  orphan/unknown/dangling records block, legitimate concurrent active runs pass.
+  `pnpm dev:audit` is the non-destructive diagnostic inventory. Retention
   errors are failures to resolve/report, never grounds for broad deletion.
 - After SIGKILL, power loss or a cleanup refusal, audit first. Only
   `pnpm dev:reap <exact-run-id>` may reclaim a proven dead owned run. Never sweep

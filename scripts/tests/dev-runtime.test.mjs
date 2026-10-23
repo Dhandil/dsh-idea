@@ -3,14 +3,14 @@ import { afterEach, test } from 'node:test'
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
 import {
-  closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync,
+  closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync,
   renameSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   cleanupRun, createRun, inspectRuns, processIdentity, reapRun, recordException, registerChild,
-  requireRun, runEnvironment, runPath,
+  requireRun, runEnvironment, runPath, strictAudit,
 } from '../dev-runtime.mjs'
 
 const outer = requireRun()
@@ -19,6 +19,11 @@ const cli = fileURLToPath(new URL('../dev-run.mjs', import.meta.url))
 const runs = [], children = []
 const independentEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('DSH_IDEA_RUN_')))
 const fixture = () => mkdtempSync(join(outer.paths.tmp, 'runtime-fixture-'))
+function fixtureCli(root) {
+  mkdirSync(join(root, 'scripts'))
+  for (const name of ['dev-run.mjs', 'dev-runtime.mjs']) cpSync(fileURLToPath(new URL('../' + name, import.meta.url)), join(root, 'scripts', name))
+  return join(root, 'scripts', 'dev-run.mjs')
+}
 function owned() {
   const run = createRun({ root: fixture(), label: 'unit' })
   runs.push(run)
@@ -66,6 +71,75 @@ test('unique IDs, private owned paths, full isolated environment and credential 
   assert.equal(env.DSH_IDEA_EMBEDDING_API_KEY, undefined)
   assert.equal(readFileSync(a.receipt, 'utf8'), readFileSync(join(a.path, '.run-owner.json'), 'utf8'))
   assert.equal(inspectRuns(a.root).filter(x => x.state === 'active').length, 2)
+})
+
+test('invalid labels fail before any filesystem creation; supported labels remain reclaimable', () => {
+  for (const label of ['', '-task', '---', '.', '../x', '/x', ' x', 'x y', '中文', '💡', 'a'.repeat(49), 3, null, {}]) {
+    const root = fixture()
+    assert.throws(() => createRun({ root, label }), /invalid run label/)
+    assert.deepEqual(readdirSync(root), [], String(label))
+  }
+  for (const label of ['A', 'a'.repeat(48), 'task-1', 'task-']) {
+    const run = createRun({ root: fixture(), label }); runs.push(run)
+    assert.equal(cleanupRun(run).removed, true)
+  }
+})
+
+test('strict audit accepts empty and legitimate concurrent active runs without deletion', () => {
+  const root = fixture()
+  assert.deepEqual(strictAudit(root), [])
+  const a = createRun({ root, label: 'audit-a' }), b = createRun({ root, label: 'audit-b' }); runs.push(a, b)
+  assert.deepEqual(strictAudit(root).map(x => x.state), ['active', 'active'])
+  assert.ok(existsSync(a.path) && existsSync(b.path))
+})
+
+test('strict audit blocks unknown, dangling receipt and abandoned cleanup lock without removing them', () => {
+  const run = owned(), unknown = join(run.root, '.dev', 'runs', 'unknown')
+  mkdirSync(unknown)
+  const receipt = join(run.root, '.dev', 'owners', 'dangling.json')
+  writeFileSync(receipt, '{}')
+  const lock = join(run.root, '.dev', 'owners', run.id + '.cleanup')
+  mkdirSync(lock)
+  assert.throws(() => strictAudit(run.root), error => {
+    assert.deepEqual(new Set(error.audit.map(x => x.state)), new Set(['unknown', 'unknown-registry-entry', 'unknown-cleanup-lock']))
+    return true
+  })
+  assert.ok(existsSync(unknown) && existsSync(receipt) && existsSync(lock))
+  rmdirSync(lock) // remove only this test's lock so its own run can be disposed
+})
+
+test('unknown/orphan metadata lock blocks audit and is never stolen', () => {
+  const run = owned(), lock = join(run.root, '.dev', 'lifecycle.lock')
+  writeFileSync(lock, JSON.stringify({ root: run.root, token: 'foreign', host: 'another-host' }))
+  try { assert.throws(() => strictAudit(run.root), /unknown\/orphan lifecycle lock/); assert.ok(existsSync(lock)) }
+  finally { unlinkSync(lock) }
+})
+
+test('automatic preflight blocks execution; automatic postflight fails on new residue', async () => {
+  const root = fixture(), bin = fixtureCli(root)
+  const run = createRun({ root, label: 'known' }); runs.push(run)
+  const unknown = join(root, '.dev', 'runs', 'unknown')
+  mkdirSync(unknown)
+  const shouldNotRun = join(root, 'should-not-exist')
+  const pre = await start([bin, '--', process.execPath, '-e', `require('node:fs').writeFileSync(${JSON.stringify(shouldNotRun)},'bad')`]).done
+  assert.equal(pre.code, 1); assert.match(pre.stderr, /strict audit blocked/)
+  assert.equal(existsSync(shouldNotRun), false); assert.ok(existsSync(unknown))
+  rmdirSync(unknown)
+  const post = await start([bin, '--', process.execPath, '-e', `require('node:fs').mkdirSync(${JSON.stringify(unknown)})`]).done
+  assert.equal(post.code, 1); assert.match(post.stderr, /strict audit blocked/)
+  assert.match(post.stderr, /"removed":true/)
+  const audit = await start([bin, 'audit', '--strict']).done
+  assert.equal(audit.code, 1); assert.match(audit.stderr, /unknown/)
+  assert.ok(existsSync(run.path) && existsSync(unknown))
+})
+
+test('strict audit coordinates concurrent creation and cleanup metadata transitions', async () => {
+  const root = fixture(), module = new URL('../dev-runtime.mjs', import.meta.url).href
+  const mutator = `import{createRun,cleanupRun,strictAudit}from ${JSON.stringify(module)};for(let i=0;i<8;i++){const r=createRun({root:${JSON.stringify(root)}});strictAudit(${JSON.stringify(root)});cleanupRun(r)}`
+  const auditor = `import{strictAudit}from ${JSON.stringify(module)};for(let i=0;i<32;i++)strictAudit(${JSON.stringify(root)})`
+  const a = start(['--input-type=module', '-e', mutator]), b = start(['--input-type=module', '-e', mutator]), c = start(['--input-type=module', '-e', auditor])
+  for (const result of await Promise.all([a.done, b.done, c.done])) assert.equal(result.code, 0, result.stderr)
+  assert.deepEqual(strictAudit(root), [])
 })
 
 test('cleanup removes only this run, preserving concurrent runs and repository siblings', () => {
@@ -255,6 +329,7 @@ test('SIGKILL leaves an auditable orphan; active then stale recovery is safe', a
   assert.throws(() => reapRun(info.id, root), /active owner/)
   p.child.kill('SIGKILL'); await p.done
   assert.equal(inspectRuns(root)[0].state, 'orphan')
+  assert.throws(() => strictAudit(root), /orphan/)
   assert.equal(reapRun(info.id, root).removed, true)
   assert.equal(existsSync(info.path), false)
 })

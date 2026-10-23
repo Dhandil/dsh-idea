@@ -10,7 +10,8 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const idPattern = /^[a-z0-9][a-z0-9-]{0,47}-[0-9a-f-]{36}$/
+const labelPattern = /^[a-z0-9][a-z0-9-]{0,47}$/
+const idPattern = /^[a-z0-9][a-z0-9-]{0,47}-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const marker = '.run-owner.json'
 const directoryNames = ['home', 'dsh-home', 'tmp', 'browser-profile', 'workspace', 'storage',
   'logs', 'screenshots', 'videos', 'build', 'cache', 'config', 'data', 'state']
@@ -23,7 +24,9 @@ const json = path => {
 const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino && a.mode === b.mode
 
 function directory(path, create = false) {
-  if (create && !existsSync(path)) mkdirSync(path, { mode: 0o700 })
+  if (create && !existsSync(path)) {
+    try { mkdirSync(path, { mode: 0o700 }) } catch (e) { if (e.code !== 'EEXIST') throw e }
+  }
   const s = lstatSync(path)
   if (!s.isDirectory() || s.isSymbolicLink() || realpathSync(path) !== path) fail('unsafe directory')
   return s
@@ -55,6 +58,41 @@ function alive(identity) {
   return current !== undefined
 }
 
+// Serialize only metadata transitions/audit, not task execution. This prevents
+// a strict auditor from seeing half-created/half-removed ownership records.
+function withLifecycleLock(root, operation) {
+  const l = layout(root), file = join(l.root, '.dev', 'lifecycle.lock')
+  const owner = { root: l.root, host: hostname(), uid: process.getuid(),
+    process: processIdentity(process.pid), token: randomUUID() }
+  const deadline = Date.now() + 5000
+  for (;;) {
+    try { writeFileSync(file, JSON.stringify(owner), { flag: 'wx', mode: 0o600 }); break }
+    catch (e) {
+      if (e.code !== 'EEXIST') throw e
+      let other
+      try { other = json(file) } catch (readError) {
+        // A lock may disappear between the exclusive-create and inspection.
+        if (readError.code === 'ENOENT') continue
+        if (readError instanceof SyntaxError && Date.now() < deadline) {
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+          continue
+        }
+        throw readError
+      }
+      if (other.root !== l.root || other.host !== owner.host || other.uid !== owner.uid
+        || !other.token || !other.process || !alive(other.process)) fail('unknown/orphan lifecycle lock; retained')
+      if (Date.now() >= deadline) fail('metadata busy; retry audit (not a residue classification)')
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+    }
+  }
+  const identity = lstatSync(file)
+  try { return operation() }
+  finally {
+    if (!sameFile(lstatSync(file), identity) || json(file).token !== owner.token) fail('lifecycle lock identity changed')
+    unlinkSync(file)
+  }
+}
+
 function readRun(root, id) {
   if (!idPattern.test(id)) fail('invalid run-id')
   const l = layout(root)
@@ -79,25 +117,33 @@ function pathsFor(path) {
 
 export function createRun({ root = repositoryRoot, label = 'task' } = {}) {
   if (process.platform === 'win32') fail('POSIX process/handle proof required; Windows is not supported')
+  // Validate before layout() or any filesystem writes. Do not silently turn
+  // punctuation-only/leading-hyphen labels into unaddressable run directories.
+  if (typeof label !== 'string' || !labelPattern.test(label.toLowerCase())) fail('invalid run label')
+  const id = `${label.toLowerCase()}-${randomUUID()}`
+  if (!idPattern.test(id)) fail('invalid generated run-id')
+  const ownerProcess = processIdentity(process.pid)
+  if (!ownerProcess) fail('owner process identity unavailable')
   const l = layout(root, true)
-  const prefix = label.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 48) || 'task'
-  const id = `${prefix}-${randomUUID()}`, path = join(l.runs, id)
-  mkdirSync(path, { mode: 0o700 })
-  const st = directory(path)
-  const owner = { version: 1, id, token: randomUUID(), root: l.root, repo: l.repo,
-    directory: { dev: st.dev, ino: st.ino }, host: hostname(), uid: process.getuid(),
-    process: processIdentity(process.pid), createdAt: new Date().toISOString() }
-  const receipt = join(l.registry, `${id}.json`)
-  const serialized = JSON.stringify(owner)
-  writeFileSync(receipt, serialized, { flag: 'wx', mode: 0o600 })
-  writeFileSync(join(path, marker), serialized, { flag: 'wx', mode: 0o600 })
-  const paths = pathsFor(path)
-  for (const dir of Object.values(paths)) mkdirSync(dir, { mode: 0o700 })
-  writeFileSync(join(path, 'exceptions.json'), JSON.stringify([
-    { category: 'system', reason: 'OS sockets, shared memory, crash reports and OS/browser services may ignore TMPDIR; not searched or deleted', status: 'external-unverified' },
-    { category: 'shared', reason: 'Preinstalled MCP services and browser binaries, package stores and Harness dependency links stay shared; never redirected or cleaned', status: 'preserved' },
-  ]), { mode: 0o600 })
-  return { ...readRun(l.root, id), paths }
+  return withLifecycleLock(l.root, () => {
+    const path = join(l.runs, id)
+    mkdirSync(path, { mode: 0o700 })
+    const st = directory(path)
+    const owner = { version: 1, id, token: randomUUID(), root: l.root, repo: l.repo,
+      directory: { dev: st.dev, ino: st.ino }, host: hostname(), uid: process.getuid(),
+      process: ownerProcess, createdAt: new Date().toISOString() }
+    const receipt = join(l.registry, `${id}.json`)
+    const serialized = JSON.stringify(owner)
+    writeFileSync(receipt, serialized, { flag: 'wx', mode: 0o600 })
+    writeFileSync(join(path, marker), serialized, { flag: 'wx', mode: 0o600 })
+    const paths = pathsFor(path)
+    for (const dir of Object.values(paths)) mkdirSync(dir, { mode: 0o700 })
+    writeFileSync(join(path, 'exceptions.json'), JSON.stringify([
+      { category: 'system', reason: 'OS sockets, shared memory, crash reports and OS/browser services may ignore TMPDIR; not searched or deleted', status: 'external-unverified' },
+      { category: 'shared', reason: 'Preinstalled MCP services and browser binaries, package stores and Harness dependency links stay shared; never redirected or cleaned', status: 'preserved' },
+    ]), { mode: 0o600 })
+    return { ...readRun(l.root, id), paths }
+  })
 }
 
 /** Reject both lexical escapes and existing symlink ancestors. */
@@ -180,6 +226,10 @@ function snapshot(path) {
 
 /** Reap is deliberately explicit. Active/unknown runs never qualify. */
 export function cleanupRun(run, { stale = false } = {}) {
+  return withLifecycleLock(run.root, () => cleanupUnlocked(run, stale))
+}
+
+function cleanupUnlocked(run, stale) {
   const current = readRun(run.root, run.id)
   if (run.owner.token !== current.owner.token) fail('ownership changed')
   if (stale) {
@@ -214,9 +264,8 @@ export function cleanupRun(run, { stale = false } = {}) {
   } finally { rmdirSync(lock) }
 }
 
-export function inspectRuns(root = repositoryRoot) {
-  if (!existsSync(join(root, '.dev'))) return []
-  const l = layout(root)
+function inspectUnlocked(l) {
+  const root = l.root
   const entries = readdirSync(l.runs).sort().map(id => {
     try {
       const run = readRun(root, id)
@@ -225,7 +274,28 @@ export function inspectRuns(root = repositoryRoot) {
   })
   for (const file of readdirSync(l.registry).sort()) {
     const id = file.replace(/\.json$|\.cleanup$/g, '')
-    if (!entries.some(x => x.id === id)) entries.push({ id, state: 'unknown-registry-entry' })
+    if (file === `${id}.json` && entries.some(x => x.id === id)) continue
+    entries.push({ id: file, state: file.endsWith('.cleanup') ? 'unknown-cleanup-lock' : 'unknown-registry-entry' })
+  }
+  for (const file of readdirSync(join(root, '.dev')).sort()) {
+    if (!['runs', 'owners', 'lifecycle.lock'].includes(file)) entries.push({ id: file, state: 'unknown-runtime-root-entry' })
+  }
+  return entries
+}
+
+export function inspectRuns(root = repositoryRoot) {
+  try { lstatSync(join(root, '.dev')) } catch (e) { if (e.code === 'ENOENT') return []; throw e }
+  return withLifecycleLock(root, () => inspectUnlocked(layout(root)))
+}
+
+/** Automatic pre/post execution gate. No garbage collection occurs here. */
+export function strictAudit(root = repositoryRoot) {
+  const entries = inspectRuns(root)
+  const issues = entries.filter(x => x.state !== 'active').map(({ id, state }) => ({ id, state }))
+  if (issues.length) {
+    const error = new Error(`dev-runtime: strict audit blocked: ${JSON.stringify(issues)}`)
+    error.audit = issues
+    throw error
   }
   return entries
 }

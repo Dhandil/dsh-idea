@@ -15,6 +15,8 @@ pnpm generate:typert
 pnpm build
 pnpm build:client
 pnpm dev:audit
+pnpm dev:audit:strict
+pnpm test:runtime:ab
 pnpm dev:reap <exact-orphan-run-id>
 ```
 
@@ -26,7 +28,10 @@ operations; they are not run by this manager or silently redirected.
 
 The runtime creates `.dev/runs/<label>-<UUID>/` with mode 0700 and an independent
 mode-0600 ownership receipt in `.dev/owners/`. `.dev/` is ignored; nothing there
-is a durable report. The label contains only sanitized characters, and run-id
+is a durable report. Labels are case-normalized then validated before any
+directory or receipt is created: 1–48 ASCII lowercase letters/digits/hyphens,
+starting with a letter/digit. Invalid labels throw without filesystem changes;
+the complete generated UUID-based ID is also validated before creation. Run-id
 reuse/selection is not accepted by the execution CLI.
 
 ## Redirected paths
@@ -77,12 +82,39 @@ commands and signal cancellation). Cleanup refusal yields nonzero and retains
 what remains for review. Scripts must not put their own cwd inside a run while
 asking that same live process to clean it.
 
-`audit` is read-only and reports active, orphan, unknown and dangling registry
-entries. `reap` accepts one exact ID and additionally requires the owner to be
+`audit` is non-destructive and reports active, orphan, unknown and dangling
+registry entries. `audit --strict` / `pnpm dev:audit:strict` exits nonzero for
+anything except valid active runs or an empty inventory. It never removes
+residue. Every wrapped command now runs this gate before execution and after
+successful cleanup; both root and package `verify` also require strict pre/post
+checks. A legitimate concurrent active run passes and is never reaped.
+
+Creation, cleanup and audit share a short-lived exclusive `.dev/lifecycle.lock`
+metadata lease. Task execution is not serialized. This prevents auditors seeing
+partially published/removed markers as unknown residue. A contending auditor
+waits for the verified live lease owner (up to five seconds); busy means retry,
+not a residue classification. Missing/foreign/dead/changed lease ownership is
+retained and blocks the gate; no lease stealing occurs. Audit therefore writes
+and removes its own temporary metadata lease, but does not mutate task contents.
+An abandoned lifecycle lease requires independent manual ownership review.
+
+`reap` accepts one exact ID and additionally requires the owner to be
 dead. Active/PID-reused/foreign/unknown records and active handles are refused.
 After SIGKILL/power loss no in-process finally can run: the next task must audit
 and explicitly reclaim a proven orphan. An interrupted cleanup with changed or
 missing ownership/lock records stays unknown for manual review, not auto-swept.
+
+`pnpm test:runtime:ab` is a reusable offline diagnostic for the original E6
+parallel timeout: immutable baseline `9fcee98` and implementation `b3a7aec`,
+fresh snapshots/environment per case, A/B/B/A order, same current read-only
+installed dependencies and copied lib, original parallel mode and timeout.
+The driver pins the already-installed pnpm JS entry point from `npm_execpath`
+instead of letting an isolated HOME/Corepack cache choose a newer pnpm release.
+The driver emits sanitized summary counts/hashes to the terminal; raw fixture
+results remain inside its run and are removed. It is not a Provider experiment,
+not part of default `verify`, and does not silently turn red runs green.
+Its zero exit means the comparison completed: every arm's actual runner exit
+code and failed assertions are reported separately, including failures.
 
 This is a cooperative developer lifecycle boundary, not a hostile same-user
 filesystem sandbox. Do not concurrently replace paths or escape the process

@@ -31,6 +31,7 @@ export function recordException(run: DevRun, entry: RuntimeException): void
 export function cleanupRun(run: DevRun, options?: { stale?: boolean }): CleanupResult
 export function reapRun(id: string, root?: string): CleanupResult
 export function inspectRuns(root?: string): { id: string; state: string; run?: DevRun }[]
+export function strictAudit(root?: string): { id: string; state: string; run?: DevRun }[]
 export function processIdentity(pid: number): ProcessIdentity | undefined
 export function groupMembers(pgid: number): number[]
 export function registerChild(run: DevRun, child: ProcessIdentity): void

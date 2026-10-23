@@ -90,7 +90,7 @@
     "build:client": "node ../../scripts/dev-run.mjs -- tsdown -c tsdown.client.config.ts",
     "typecheck": "node ../../scripts/dev-run.mjs -- tsc -p tsconfig.json --noEmit",
     "test": "node ../../scripts/dev-run.mjs -- vitest run --configLoader native",
-    "verify": "pnpm generate:typert && pnpm typecheck && pnpm test && pnpm build && pnpm build:client"
+    "verify": "node ../../scripts/dev-run.mjs audit --strict && pnpm generate:typert && pnpm typecheck && pnpm test && pnpm build && pnpm build:client && node ../../scripts/dev-run.mjs audit --strict"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.0 <5",
