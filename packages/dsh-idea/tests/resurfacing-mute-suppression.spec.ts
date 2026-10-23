@@ -21,6 +21,8 @@ import IdeaRemoteService from '../src/remote-host/index.ts'
 import IdeaSemanticService from '../src/semantic/index.ts'
 import { IdeaId } from '../src/types.ts'
 import { until } from './helpers/semantic.ts'
+import { e6Trace, E6WorkBudget, embeddingQueryGate, publishedEmbeddings } from './helpers/e6.ts'
+import { buildSemanticQueryText } from '../src/semantic/retrieval.ts'
 
 afterEach(cleanup)
 
@@ -325,49 +327,67 @@ describe('semantic post-I/O mute races (R1-C evidence)', () => {
   })
 
   it('E6 embedding: a mute landing while the query embedding is in flight drops the Idea from the results', async () => {
-    const { semanticHarness, hashVector, storedEmbedding, closeServers } =
+    const trace = e6Trace()
+    const budget = new E6WorkBudget()
+    const { semanticHarness, storedEmbedding, closeServers } =
       await import('./helpers/semantic.ts')
     const root = await mkdtemp(`${tmpdir()}/t131-emb-race-`)
+    const query = buildSemanticQueryText('检索方案', [])
+    const gate = embeddingQueryGate(query, trace)
+    let env: Awaited<ReturnType<typeof semanticHarness>> | undefined
+    let publication: ReturnType<typeof publishedEmbeddings> | undefined
+    let pending: ReturnType<IdeaSemanticService['semanticResurfacingCandidates']> | undefined
+    let settled = false
+    trace('start')
     try {
-      const env = await semanticHarness({ root })
-      const agg = await env.service.create(
+      env = await budget.within('harness', semanticHarness({ root }))
+      trace('harness-ready')
+      publication = publishedEmbeddings(env.ctx, () => trace('index-memory-published'))
+      const agg = await budget.within('idea-create', env.service.create(
         draft({ title: 'Idea 0', core: '检索方案 0', motivation: 'm', possibleValue: 'v', useWhen: ['检索'] }),
         sourceDraft({ sessionId: 'source-0' }),
-      )
-      await until(async () => await storedEmbedding(root, agg.idea.ideaId) !== undefined, 5000)
-      const requestsAfterIndexing = env.server.requests.length
+      ))
+      // File visibility precedes KvTable memory publication during directory
+      // fsync. Wait for the public put event, not merely for a JSON file.
+      await budget.within('index-publication', publication.wait(agg.idea.ideaId))
+      expect(await budget.within('disk-record', storedEmbedding(root, agg.idea.ideaId))).toBeDefined()
+      trace('index-ready')
+      env.server.setHandler(gate.handle)
 
-      let release!: () => void
-      const gate = new Promise<void>((resolve) => { release = resolve })
-      env.server.setHandler(async (body) => {
-        const inputs = Array.isArray(body.input) ? body.input as string[] : []
-        // Park only the query embedding (index documents start with 'Title:',
-        // the deterministic query starts with 'user: '): its response stays
-        // in flight until the test releases it.
-        if (inputs.some(input => input.startsWith('user: '))) await gate
-        return {
-          status: 200,
-          payload: { data: inputs.map((input, index) => ({ index, embedding: hashVector(input, 4) })) },
-        }
-      })
-
-      const pending = env.ctx.ideaSemantic.semanticResurfacingCandidates(
+      pending = env.ctx.ideaSemantic.semanticResurfacingCandidates(
         { sessionId: 'session-race', currentTurn: '检索方案', recentContext: [] },
-        undefined,
+        budget.controller.signal,
       )
-      await until(async () => env.server.requests.length === requestsAfterIndexing + 1, 5000)
+      void pending.then(() => { settled = true }, () => { settled = true })
+      await budget.within('query-entered', gate.waitForQuery(pending))
+      expect(gate.queryRequests).toEqual([[query]])
+      expect(settled).toBe(false)
+      expect(gate.released).toBe(false)
+      expect(env.service.getResurfacingPreference(agg.idea.ideaId).muted).toBe(false)
 
       // The query embedding is dispatched and its response parked: mute now.
-      await env.service.setResurfacingMuted(agg.idea.ideaId, true)
-      release()
+      await budget.within('mute-save', env.service.setResurfacingMuted(agg.idea.ideaId, true))
+      expect(env.service.getResurfacingPreference(agg.idea.ideaId).muted).toBe(true)
+      expect(settled).toBe(false)
+      trace('mute-saved')
+      gate.release()
 
-      const result = await pending
+      const result = await budget.within('query-result', pending)
       // The scored results revalidate the preference after the provider I/O:
       // with this being the only eligible Idea the result is empty.
       expect(result.candidates).toEqual([])
+      expect(gate.queryRequests).toHaveLength(1)
+      trace('assertions-passed')
     } finally {
+      // A failed handshake/assertion must not leave an HTTP handler parked.
+      gate.release()
+      budget.controller.abort()
+      await pending?.catch(() => {})
+      publication?.dispose()
+      await env?.ctx.fiber.dispose()
       await closeServers()
       await rm(root, { recursive: true, force: true })
+      trace('cleanup-finished')
     }
   })
 })
