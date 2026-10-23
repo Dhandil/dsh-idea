@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "repairSha": "de58e73e24dc4622dc87c13b8c7ea8f0e86cdbeb",
+  "baseline": "9fcee9888390cd04d4a87bbf837c04bebfa92f61",
+  "candidate": "b3a7aec8e20fe04f4e3839a6e53c847027ef149f",
+  "node": "v24.21.0",
+  "pnpm": "11.28.5",
+  "pnpmEntrypointSha256": "ff3224d46b47fbb24a7e9fe15fededef7e00892d07d4e376b6762d4899906bfd",
+  "formalLibSha256": "adc83cbe1ab2a64f5296d0c81f89c8b3f9585feb62aa88cfb24b663459f722df",
+  "lockfileSha256": "60dfdb2f4734f6871262b3749d4448664923b4d368ae223b531d1b926f19e84e",
+  "sourceTestsLockIdentical": true,
+  "defaultFileParallelism": true,
+  "e6TestTimeoutMs": 5000,
+  "order": [
+    "A",
+    "B",
+    "B",
+    "A"
+  ],
+  "cases": [
+    {
+      "arm": "A",
+      "elapsedMs": 8015,
+      "exitCode": 1,
+      "passed": 334,
+      "failed": 1,
+      "total": 335,
+      "e6DurationMs": 5010.443,
+      "humanReporterConfirms5000msTimeout": true,
+      "cleanup": "parent-run-verified-removed"
+    },
+    {
+      "arm": "B",
+      "elapsedMs": 8670,
+      "exitCode": 1,
+      "passed": 334,
+      "failed": 1,
+      "total": 335,
+      "e6DurationMs": 5013.812,
+      "humanReporterConfirms5000msTimeout": true,
+      "cleanup": "child-and-parent-runs-verified-removed"
+    },
+    {
+      "arm": "B",
+      "elapsedMs": 8449,
+      "exitCode": 1,
+      "passed": 334,
+      "failed": 1,
+      "total": 335,
+      "e6DurationMs": 5015.283,
+      "humanReporterConfirms5000msTimeout": true,
+      "cleanup": "child-and-parent-runs-verified-removed"
+    },
+    {
+      "arm": "A",
+      "elapsedMs": 8136,
+      "exitCode": 1,
+      "passed": 334,
+      "failed": 1,
+      "total": 335,
+      "e6DurationMs": 5008.839,
+      "humanReporterConfirms5000msTimeout": true,
+      "cleanup": "parent-run-verified-removed"
+    }
+  ],
+  "preliminaryTrials": {
+    "pnpm": "12.15.0",
+    "reason": "Corepack selected a different release in isolated HOME before pnpm entrypoint was pinned; retained as exploratory evidence, not the primary comparison.",
+    "firstABBA": {
+      "A": {
+        "passedRuns": 1,
+        "e6FailedRuns": 1
+      },
+      "B": {
+        "passedRuns": 1,
+        "e6FailedRuns": 1
+      }
+    },
+    "secondABBA": {
+      "A": {
+        "passedRuns": 0,
+        "e6FailedRuns": 2
+      },
+      "B": {
+        "passedRuns": 1,
+        "e6FailedRuns": 1
+      }
+    },
+    "cleanupVerified": true
+  },
+  "repairedFocusedDefaultParallel": {
+    "exitCode": 1,
+    "files": 19,
+    "passed": 334,
+    "failed": 1,
+    "total": 335,
+    "onlyFailure": "E6 embedding: original 5000ms timeout",
+    "cleanupVerified": true
+  },
+  "conclusion": "Baseline also reproduces E6: the new runtime is not a necessary condition or unique introduction of this failure. This small A/B does not establish equal failure probabilities or the underlying race root cause.",
+  "providerCalls": 0,
+  "reportContainsOnlySyntheticTestStatistics": true,
+  "verifyRuns": [
+    {
+      "phase": "working-tree-review",
+      "exitCode": 0,
+      "runtime": {
+        "passed": 30,
+        "failed": 0
+      },
+      "business": {
+        "files": 64,
+        "passed": 1046,
+        "failed": 0,
+        "total": 1046
+      },
+      "defaultParallel": true,
+      "typert": true,
+      "typecheck": true,
+      "hostBuild": true,
+      "clientBuild": true,
+      "strictPre": true,
+      "strictPost": true
+    },
+    {
+      "phase": "immutable-repair-commit",
+      "testedSha": "de58e73e24dc4622dc87c13b8c7ea8f0e86cdbeb",
+      "exitCode": 1,
+      "runtime": {
+        "passed": 30,
+        "failed": 0
+      },
+      "business": {
+        "files": 64,
+        "passed": 1045,
+        "failed": 1,
+        "total": 1046,
+        "onlyFailure": "E6 embedding: original 5000ms timeout"
+      },
+      "defaultParallel": true,
+      "typert": true,
+      "typecheck": true,
+      "hostBuild": "not-run-by-verify-short-circuit",
+      "clientBuild": "not-run-by-verify-short-circuit",
+      "testWrapperCleanupVerified": true
+    }
+  ],
+  "separatePostFailureStages": {
+    "hostBuild": "passed",
+    "clientBuild": "passed",
+    "strictAudit": "passed-empty",
+    "cleanupVerified": true
+  }
+}
