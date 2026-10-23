@@ -119,6 +119,10 @@ export interface IdeaDialogInjected {
     /** The owning Session's Idea interaction state. */
     idea: HostObservable<IdeaSaveState>
   }
+  chooseMode: (mode: 'new' | 'update') => void
+  queryTargets: (query: string) => void
+  selectTarget: (id: string) => void
+  generate: () => void
   /** Apply one field edit to the open modal's draft. */
   editDraft: (patch: Partial<EditableIdeaDraft>) => void
   /** Submit the edited draft to the Host. */
@@ -193,21 +197,11 @@ export interface IdeaSectionInjected {
   closeDetail: () => void
   /** Open the manual-edit editor for one Idea (from detail or hover card). */
   openEditor: (id: string) => void
-  /** Continue one Idea as a new discussion and open its conversation. */
-  continueIdea: (id: string) => void
-  /** Ask the Host to propose the next version from the detail's discussion. */
-  prepareEvolution: () => void
-  /** Apply one field edit to the proposal under review. */
-  editProposalDraft: (patch: Partial<EditableIdeaDraft>) => void
-  /** Discard the proposal under review; zero durable writes. */
-  cancelProposal: () => void
-  /** Commit the approved proposal as the next immutable version. */
-  commitProposal: () => void
   /** Apply one field edit to the manual-edit form. */
   editDraft: (patch: Partial<EditableIdeaDraft>) => void
   /** Discard the manual-edit form; zero durable writes. */
   cancelEdit: () => void
-  /** Save the edited draft as the next version at the opened-at version. */
+  /** Save current content using the opened-at concurrency marker. */
   saveEdit: () => void
   /** Archive the open idea. */
   archiveIdea: () => void

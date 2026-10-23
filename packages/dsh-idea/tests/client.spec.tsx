@@ -199,6 +199,7 @@ describe('client plugin mount', () => {
       '@dsh-external/dsh-idea#idea/archive',
       '@dsh-external/dsh-idea#idea/claimResurfacingBudget',
       '@dsh-external/dsh-idea#idea/commitEvolution',
+      '@dsh-external/dsh-idea#idea/commitPreparedUpdate',
       '@dsh-external/dsh-idea#idea/continueDiscussion',
       '@dsh-external/dsh-idea#idea/create',
       '@dsh-external/dsh-idea#idea/deleteIdea',
@@ -215,6 +216,7 @@ describe('client plugin mount', () => {
       '@dsh-external/dsh-idea#idea/prepareEvolution',
       '@dsh-external/dsh-idea#idea/prepareFromMessage',
       '@dsh-external/dsh-idea#idea/prepareQuickCapture',
+      '@dsh-external/dsh-idea#idea/prepareUpdateFromMessage',
       '@dsh-external/dsh-idea#idea/relatedFromMessage',
       '@dsh-external/dsh-idea#idea/restore',
       '@dsh-external/dsh-idea#idea/search',
@@ -314,11 +316,11 @@ describe('client plugin mount', () => {
     expect(typeof sectionInjected?.load).toBe('function')
     expect(typeof sectionInjected?.open).toBe('function')
     expect(typeof sectionInjected?.closeDetail).toBe('function')
-    expect(typeof sectionInjected?.continueIdea).toBe('function')
-    expect(typeof sectionInjected?.prepareEvolution).toBe('function')
-    expect(typeof sectionInjected?.editProposalDraft).toBe('function')
-    expect(typeof sectionInjected?.cancelProposal).toBe('function')
-    expect(typeof sectionInjected?.commitProposal).toBe('function')
+    expect(sectionInjected?.continueIdea).toBeUndefined()
+    expect(sectionInjected?.prepareEvolution).toBeUndefined()
+    expect(sectionInjected?.editProposalDraft).toBeUndefined()
+    expect(sectionInjected?.cancelProposal).toBeUndefined()
+    expect(sectionInjected?.commitProposal).toBeUndefined()
     expect(sectionInjected?.hooks.ideaRead).toBeDefined()
 
     // The `idea` command: the single composer `+`-menu entry opening the card.
@@ -353,7 +355,7 @@ describe('client plugin mount', () => {
     expect(remoteUnmounts).toBe(1)
   })
 
-  it('mounts with uiWorkspace and opens the created Continue Discussion conversation through it', async () => {
+  it('mounts with uiWorkspace without exposing the retired discussion entry', async () => {
     const ctx = new Context()
     const slotRegistrations: Array<{ id: string, inject: () => unknown }> = []
     const refresh = vi.fn(async () => {})
@@ -362,8 +364,9 @@ describe('client plugin mount', () => {
     // AND expects it as its own cordis service key (same dual pattern as
     // mountWithSeams below).
     const ideaFace = {
-      prepareFromMessage: vi.fn(),
-      create: vi.fn(),
+      prepareFromMessage: vi.fn(async () => okPreview()),
+      create: vi.fn(async () => okCreate()),
+      list: vi.fn(async () => ({ ok: true as const, value: [] })),
       get: vi.fn(),
       search: vi.fn(),
       continueDiscussion: vi.fn(async () => ({
@@ -403,24 +406,25 @@ describe('client plugin mount', () => {
     const section = slotRegistrations.find(entry => entry.id === 'ideas')
     expect(section).toBeDefined()
 
-    // Drive the Continue Discussion entry through the section inject.
-    const injected = section!.inject() as { continueIdea: (id: string) => void }
-    await act(async () => { injected.continueIdea('idea_1') })
-    await flush()
+    const injected = section!.inject() as Record<string, unknown>
+    expect(injected.continueIdea).toBeUndefined()
+    expect(injected.prepareEvolution).toBeUndefined()
+    expect(ideaFace.continueDiscussion).not.toHaveBeenCalled()
+    expect(refresh).not.toHaveBeenCalled()
+    expect(openSession).not.toHaveBeenCalled()
+    // Successful conversation saves refresh the library even after toast retirement.
+    const overlay = slotRegistrations.find(entry => entry.id === 'idea-dialog')!
+    const summaryAction = slotRegistrations.find(entry => entry.id === 'idea')!
+    const action = (summaryAction.inject as unknown as (id: string) => { prepare: (id: string) => void })('session')
+    const dialog = (overlay.inject as unknown as (id: string) => { generate: () => void; submit: () => void; dismissToast: (seq: number) => void })('session')
+    for (let cycle = 0; cycle < 2; cycle++) {
+      act(() => { action.prepare('assistant'); dialog.generate() }); await flush()
+      act(() => dialog.submit()); await flush()
+      act(() => dialog.dismissToast(1)); await flush()
+    }
+    expect(ideaFace.create).toHaveBeenCalledTimes(2)
+    expect(ideaFace.list).toHaveBeenCalledTimes(2)
 
-    expect(ctx.remote.$mount).toHaveBeenCalledTimes(1)
-    const face = await vi.waitFor(() => {
-      const idea = (ctx.remote as unknown as { idea?: { continueDiscussion?: ReturnType<typeof vi.fn> } }).idea
-      expect(idea?.continueDiscussion).toBeDefined()
-      return idea!
-    })
-    expect(face.continueDiscussion).toHaveBeenCalledWith({ id: 'idea_1' })
-    // Refresh-before-navigation ordering, then the Host-created conversation
-    // id handed to uiWorkspace.openSession — never sessions.open.
-    expect(refresh).toHaveBeenCalledTimes(1)
-    expect(openSession).toHaveBeenCalledTimes(1)
-    expect(openSession).toHaveBeenCalledWith('session-new')
-    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(openSession.mock.invocationCallOrder[0]!)
 
     await dispose()
   })
@@ -677,7 +681,7 @@ describe('preview modal', () => {
     render(<IdeaSaveDialog {...dialogProps(surface)} />)
 
     expect(screen.getByText('保存 Idea')).toBeTruthy()
-    expect(screen.getByText('来源：当前对话 · 2 条消息')).toBeTruthy()
+    expect(screen.getByText(/来源：当前对话 · 2 条消息/)).toBeTruthy()
     expect((screen.getByLabelText('标题 *') as HTMLInputElement).value).toBe('Model title')
     expect((screen.getByLabelText('核心想法 *') as HTMLTextAreaElement).value).toBe('Model core')
     expect((screen.getByLabelText('为什么值得保留 *') as HTMLTextAreaElement).value).toBe('Model motivation')

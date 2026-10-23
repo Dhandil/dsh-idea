@@ -154,11 +154,6 @@ function sectionProps(surface: IdeaReadSurface): IdeaSectionProps {
     open: (id: string) => { surface.open(id) },
     closeDetail: () => { surface.closeDetail() },
     archiveIdea: () => { surface.archiveIdea() },
-    continueIdea: (id: string) => { surface.continueDiscussion(id) },
-    prepareEvolution: () => { surface.prepareEvolution() },
-    editProposalDraft: (patch: Partial<EditableIdeaDraft>) => { surface.editProposalDraft(patch) },
-    cancelProposal: () => { surface.cancelProposal() },
-    commitProposal: () => { surface.commitProposal() },
     useIdeaRead: useIdeaReadOf(surface.state),
     ...libraryCreateRig(),
     t,
@@ -330,7 +325,7 @@ describe('T9R2 R6: the detail action labels', () => {
     await flush()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
     await flush()
-    expect(screen.getByRole('button', { name: '讨论' })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: '讨论' })).toBeNull()
     expect(screen.getByRole('button', { name: '删除' })).not.toBeNull()
     expect(screen.getByRole('button', { name: '编辑' })).not.toBeNull()
     expect(screen.getByRole('button', { name: '归档' })).not.toBeNull()
@@ -339,9 +334,7 @@ describe('T9R2 R6: the detail action labels', () => {
   })
 
   it('keeps the zh/en dictionaries aligned on the two changed labels', () => {
-    expect(zh['read.continue']).toBe('讨论')
     expect(zh['read.delete']).toBe('删除')
-    expect(en['read.continue']).toBe('Discuss')
     expect(en['read.delete']).toBe('Delete')
     // The delete confirmation's safety copy keeps its §14-frozen wording.
     expect(zh['read.delete.title']).toContain('永久删除')

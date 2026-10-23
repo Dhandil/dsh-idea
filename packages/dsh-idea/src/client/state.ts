@@ -10,6 +10,8 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import type { MessageId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { IdeaPreparationId, IdeaPreparationSourceInfo, QuickCapturePreview, QuickCaptureRouteContext } from '../preparation/types.ts'
 import type { IdeaDraft } from '../types.ts'
+import type { IdeaDetail, IdeaListRow, IdeaSearchResult } from '../remote-host/types.ts'
+import type { IdeaPrepareUpdateRequest, IdeaUpdateId, IdeaUpdatePreview, IdeaUpdateResult } from '../preparation/update-types.ts'
 import { IdeaPerfMetrics } from '../perf/metrics.ts'
 
 /** The stable failure kinds the UI knows copy for. */
@@ -20,6 +22,7 @@ export type IdeaUiFailure =
   | 'save-failed'
   /** The preparation expired; the edits stay visible until the user closes. */
   | 'expired'
+  | 'conflict' | 'unavailable' | 'source' | 'model' | 'invalid-output' | 'uncertain'
 
 /** The seven editable fields; list fields are newline-separated text. */
 export interface EditableIdeaDraft {
@@ -33,15 +36,30 @@ export interface EditableIdeaDraft {
 }
 
 /** The modal's local payload: a preparation reference plus the editable draft. */
-export interface IdeaModalState {
-  preparationId: IdeaPreparationId
+export type IdeaModalState = {
   draft: EditableIdeaDraft
-  /** The Host-owned source stats; `null` = a quick-capture proposal (T12). */
-  source: IdeaPreparationSourceInfo | null
+  source: (IdeaPreparationSourceInfo & { truncated?: boolean }) | null
+} & (
+  | { kind?: 'create'; preparationId: IdeaPreparationId; updateId?: never }
+  | { kind: 'update'; updateId: IdeaUpdateId; preparationId?: never; target: IdeaUpdatePreview['targetSummary']; issue?: IdeaUiFailure; locked?: boolean; verifiedCurrent?: IdeaDetail | null }
+)
+
+/** Explicit selection is interaction intent, never inferred reference ownership. */
+export interface IdeaSummaryState {
+  messageId: MessageId
+  mode: 'new' | 'update'
+  query: string
+  items: readonly IdeaListRow[]
+  listStatus: 'idle' | 'loading' | 'ready' | 'error'
+  selectedId: string | null
+  target: IdeaDetail | null
+  targetStatus: 'idle' | 'loading' | 'ready' | 'error'
 }
 
 /** The full interaction state of one Session's Idea surface. */
 export interface IdeaSaveState {
+  summary: IdeaSummaryState | null
+  success: 'saved' | 'updated' | 'unchanged'
   /** The message whose 💡 proposal is in flight, if any. */
   preparingMessageId: MessageId | null
   /** The open preview modal, if any. */
@@ -55,6 +73,7 @@ export interface IdeaSaveState {
 }
 
 const CLOSED: IdeaSaveState = {
+  summary: null, success: 'saved',
   preparingMessageId: null,
   modal: null,
   submitting: false,
@@ -122,7 +141,13 @@ export const sameIdeaDraft = (a: IdeaDraft, b: IdeaDraft): boolean =>
   && a.openQuestions.every((item, index) => item === b.openQuestions[index])
 
 /** Minimal structural face of the Host the surface talks to. */
+type Outcome<T> = { ok: true; value: T } | { ok: false; error: { code: string } }
 export interface IdeaRemoteFace {
+  list(request: { view: 'current' }): Promise<Outcome<readonly IdeaListRow[]>>
+  search(request: { query: string; scope: 'current' }, signal?: AbortSignal): Promise<Outcome<readonly IdeaSearchResult[]>>
+  get(request: { id: string }): Promise<Outcome<IdeaDetail>>
+  prepareUpdateFromMessage(request: IdeaPrepareUpdateRequest, signal?: AbortSignal): Promise<Outcome<IdeaUpdatePreview>>
+  commitPreparedUpdate(request: { updateId: IdeaUpdateId; draft: IdeaDraft }): Promise<Outcome<IdeaUpdateResult>>
   prepareFromMessage(
     request: { sessionId: string; messageId: string },
     signal?: AbortSignal,
@@ -157,6 +182,8 @@ export class IdeaSaveSurface {
   readonly state: SnapshotStore<IdeaSaveState> = createSnapshotStore<IdeaSaveState>({ ...CLOSED })
   readonly performance = new IdeaPerfMetrics()
 
+  private queryAbort: AbortController | undefined
+  private targetAbort: AbortController | undefined
   private prepareAbort: AbortController | undefined
   private prepareInFlight = false
   private submitInFlight = false
@@ -174,6 +201,109 @@ export class IdeaSaveSurface {
     return this.context.kind === 'session' ? this.context.sessionId : ''
   }
 
+  /** Open immediately, without a model call or fabricated preparation reference. */
+  openSummary(messageId: MessageId): void {
+    if (this.context.kind !== 'session' || this.disposed || this.submitInFlight) return
+    const current = this.state.getSnapshot()
+    if (current.summary || current.modal || this.prepareInFlight) return
+    this.state.update(state => {
+      state.summary = { messageId, mode: 'new', query: '', items: [], listStatus: 'idle', selectedId: null, target: null, targetStatus: 'idle' }
+      state.failure = null
+    })
+  }
+
+  /** Called only after any preview-discard confirmation in the dialog. */
+  chooseMode(mode: 'new' | 'update'): void {
+    const summary = this.state.getSnapshot().summary
+    if (!summary || this.submitInFlight) return
+    this.cancelPreparation()
+    this.queryAbort?.abort(); this.targetAbort?.abort()
+    this.state.update(state => {
+      state.modal = null; state.failure = null
+      state.summary = { ...summary, mode, query: '', items: [], listStatus: 'idle', target: null, selectedId: null, targetStatus: 'idle' }
+    })
+    if (mode === 'update') this.queryTargets('')
+  }
+
+  queryTargets(query: string): void {
+    if (this.disposed || this.state.getSnapshot().summary?.mode !== 'update' || this.submitInFlight) return
+    this.queryAbort?.abort()
+    const controller = new AbortController(); this.queryAbort = controller
+    this.state.update(state => { if (state.summary) { state.summary.query = query; state.summary.listStatus = 'loading' } })
+    void (async () => {
+      let items: readonly IdeaListRow[] | undefined
+      try {
+        const result = query.trim() ? await this.remote.search({ query, scope: 'current' }, controller.signal) : await this.remote.list({ view: 'current' })
+        if (result.ok) items = result.value
+      } catch { /* Keep failures local; never guess a target. */ }
+      if (controller.signal.aborted || this.disposed) return
+      this.state.update(state => {
+        if (!state.summary || state.summary.mode !== 'update' || state.summary.query !== query) return
+        state.summary.items = items ?? []; state.summary.listStatus = items ? 'ready' : 'error'
+      })
+    })()
+  }
+
+  selectTarget(id: string): void {
+    if (this.disposed || this.submitInFlight || this.state.getSnapshot().summary?.mode !== 'update') return
+    this.cancelPreparation(); this.targetAbort?.abort()
+    const controller = new AbortController(); this.targetAbort = controller
+    this.state.update(state => {
+      state.modal = null; state.failure = null
+      if (state.summary) { state.summary.selectedId = id; state.summary.target = null; state.summary.targetStatus = 'loading' }
+    })
+    void (async () => {
+      let target: IdeaDetail | undefined
+      try { const result = await this.remote.get({ id }); if (result.ok && result.value.id === id && result.value.status !== 'archived') target = result.value } catch { /* no implicit fallback */ }
+      if (controller.signal.aborted || this.disposed) return
+      this.state.update(state => {
+        if (state.summary?.selectedId !== id) return
+        state.summary.target = target ?? null; state.summary.targetStatus = target ? 'ready' : 'error'
+      })
+    })()
+  }
+
+  /** Generating is a separate, explicit user action, with one operation flight. */
+  generate(): void {
+    const { summary, modal } = this.state.getSnapshot()
+    if (!summary || modal || this.prepareInFlight || this.submitInFlight || this.disposed) return
+    if (summary.mode === 'new') { this.prepare(summary.messageId); return }
+    if (!summary.target || summary.targetStatus !== 'ready') return
+    const controller = new AbortController(); this.prepareAbort = controller; this.prepareInFlight = true
+    this.pendingStartedAt = performance.now()
+    this.state.update(state => { state.preparingMessageId = summary.messageId; state.failure = null })
+    const request = { requestKey: crypto.randomUUID(), sessionId: this.sessionId, messageId: summary.messageId,
+      ideaId: summary.target.id, expectedCurrentVersionId: summary.target.versionId }
+    void (async () => {
+      const started = performance.now()
+      try {
+        const result = await this.remote.prepareUpdateFromMessage(request, controller.signal)
+        if (controller.signal.aborted || this.disposed) return
+        if (result.ok) {
+          this.previewReadyAt = performance.now()
+          this.state.update(state => {
+            state.modal = { kind: 'update', updateId: result.value.updateId, target: result.value.targetSummary,
+              draft: editableFrom(result.value.draft), source: result.value.sourceStats }
+          })
+        } else this.state.update(state => { state.failure = updateFailure(result.error.code) })
+      } catch {
+        if (!controller.signal.aborted && !this.disposed) this.state.update(state => { state.failure = 'prepare-failed' })
+      } finally {
+        this.performance.record('client.rpc', started)
+        if (this.prepareAbort === controller) {
+          this.prepareAbort = undefined; this.prepareInFlight = false
+          this.state.update(state => { state.preparingMessageId = null })
+        }
+      }
+    })()
+  }
+
+  private cancelPreparation(): void {
+    this.prepareAbort?.abort(); this.prepareAbort = undefined; this.prepareInFlight = false
+    this.pendingStartedAt = undefined; this.previewReadyAt = undefined
+    this.state.update(state => { state.preparingMessageId = null })
+  }
+
   /** Start the one prepare call for a message; repeats while pending are
    * no-ops. Session-only: a default-context surface (Settings, T12.3) has no
    * conversation to prepare from and never enters this flow. */
@@ -185,7 +315,7 @@ export class IdeaSaveSurface {
     const controller = new AbortController()
     this.prepareAbort = controller
     this.pendingStartedAt = performance.now()
-    this.state.update((draft) => { draft.preparingMessageId = messageId })
+    this.state.update((draft) => { draft.preparingMessageId = messageId; draft.failure = null })
     void this.runPrepare(messageId, controller)
   }
 
@@ -249,13 +379,15 @@ export class IdeaSaveSurface {
   /** Apply one field edit to the open modal's draft. */
   editDraft(patch: Partial<EditableIdeaDraft>): void {
     const { modal, submitting } = this.state.getSnapshot()
-    if (modal === null || submitting) return
+    if (modal === null || submitting || (modal.kind === 'update' && modal.locked)) return
     const next = { ...modal, draft: { ...modal.draft, ...patch } }
     // Identity against a raw snapshot cannot be tested inside the immer
-    // draft (draft proxies never equal raw objects); the preparation id is
-    // the stable discriminator for "still the modal this edit targeted".
+    // draft (draft proxies never equal raw objects); the operation's opaque
+    // reference identifies the modal this edit targeted.
     this.state.update((current) => {
-      if (current.modal !== null && current.modal.preparationId === modal.preparationId) {
+      if (current.modal !== null && (modal.kind === 'update'
+        ? current.modal.updateId === modal.updateId
+        : current.modal.preparationId === modal.preparationId)) {
         current.modal = next
       }
     })
@@ -264,7 +396,8 @@ export class IdeaSaveSurface {
   /** Submit the edited draft; double-clicks while submitting are no-ops. */
   submit(): void {
     const { modal } = this.state.getSnapshot()
-    if (modal === null || this.submitInFlight || !requiredPresent(modal.draft)) return
+    if (modal === null || this.submitInFlight || !requiredPresent(modal.draft)
+      || (modal.kind === 'update' && ['conflict', 'expired', 'unavailable', 'uncertain'].includes(modal.issue ?? ''))) return
     this.submitInFlight = true
     this.state.update((current) => {
       current.submitting = true
@@ -274,6 +407,7 @@ export class IdeaSaveSurface {
   }
 
   private async runSubmit(modal: IdeaModalState): Promise<void> {
+    if (modal.kind === 'update') { await this.runUpdateSubmit(modal); return }
     let result: Awaited<ReturnType<IdeaRemoteFace['create']>>
     try {
       // A thrown carrier error is an unclear outcome, not a known failure:
@@ -295,6 +429,8 @@ export class IdeaSaveSurface {
     if (result.ok) {
       this.state.update((current) => {
         current.modal = null
+        current.summary = null
+        current.success = 'saved'
         current.submitting = false
         current.failure = null
         current.toastSeq += 1
@@ -316,9 +452,40 @@ export class IdeaSaveSurface {
     })
   }
 
+  private async runUpdateSubmit(modal: Extract<IdeaModalState, { kind: 'update' }>): Promise<void> {
+    let result: Outcome<IdeaUpdateResult>
+    try { result = await this.remote.commitPreparedUpdate({ updateId: modal.updateId, draft: durableFrom(modal.draft) }) }
+    catch { result = { ok: false, error: { code: 'gateway/internal' } } }
+    this.submitInFlight = false
+    if (this.disposed || this.state.getSnapshot().modal !== modal) return
+    if (result.ok) {
+      this.state.update(state => {
+        state.modal = null; state.summary = null; state.submitting = false; state.failure = null
+        state.success = result.value.updated ? 'updated' : 'unchanged'; state.toastSeq += 1
+      })
+      return
+    }
+    const failure = updateFailure(result.error.code, true)
+    this.state.update(state => {
+      state.submitting = false; state.failure = failure
+      if (state.modal?.kind === 'update') { state.modal.issue = failure; state.modal.locked = result.error.code !== 'idea/invalid-draft' }
+    })
+    // A read is evidence for user verification, never authority to rebase or rewrite.
+    if (failure === 'uncertain') {
+      try {
+        const read = await this.remote.get({ id: modal.target.ideaId })
+        if (this.disposed) return
+        this.state.update(state => {
+          if (state.modal?.kind === 'update' && state.modal.updateId === modal.updateId) state.modal.verifiedCurrent = read.ok ? read.value : null
+        })
+      } catch { /* Keep the result uncertain; no automatic write or model call. */ }
+    }
+  }
+
   /** Close the modal with zero durable writes; ignored while committing. */
   cancel(): void {
     if (this.submitInFlight) return
+    this.queryAbort?.abort(); this.targetAbort?.abort()
     this.previewReadyAt = undefined
     if (this.prepareAbort !== undefined) {
       const controller = this.prepareAbort
@@ -330,13 +497,14 @@ export class IdeaSaveSurface {
     this.state.update((current) => {
       current.preparingMessageId = null
       current.modal = null
+      current.summary = null
       current.failure = null
     })
   }
 
-  /** Session overlay teardown: abort a pending request without closing a ready draft. */
+  /** Retire a conversation summary on navigation; retain independent Quick Capture previews. */
   cancelPending(): void {
-    if (this.prepareAbort !== undefined) this.cancel()
+    if (this.prepareAbort !== undefined || this.state.getSnapshot().summary !== null) this.cancel()
   }
 
   /** Retire the failure toast once its hold completes. */
@@ -358,7 +526,7 @@ export class IdeaSaveSurface {
   openQuickPreview(preview: QuickCapturePreview): boolean {
     if (this.prepareInFlight || this.submitInFlight) return false
     const { preparingMessageId, modal } = this.state.getSnapshot()
-    if (preparingMessageId !== null || modal !== null) return false
+    if (preparingMessageId !== null || modal !== null || this.state.getSnapshot().summary !== null) return false
     this.state.update((current) => {
       current.modal = {
         preparationId: preview.preparationId,
@@ -383,7 +551,7 @@ export class IdeaSaveSurface {
     // a definitive Host failure, so the caller never treats it as one.
     if (this.submitInFlight) return Promise.resolve('busy')
     const { preparingMessageId, modal } = this.state.getSnapshot()
-    if (preparingMessageId !== null || modal !== null) return Promise.resolve('busy')
+    if (preparingMessageId !== null || modal !== null || this.state.getSnapshot().summary !== null) return Promise.resolve('busy')
     this.submitInFlight = true
     this.state.update((current) => {
       current.submitting = true
@@ -419,6 +587,7 @@ export class IdeaSaveSurface {
         }
         this.state.update((current) => {
           current.submitting = false
+          current.success = 'saved'
           current.toastSeq += 1
         })
         return 'success'
@@ -435,6 +604,7 @@ export class IdeaSaveSurface {
   /** Abort any in-flight prepare and reset to the closed state. */
   dispose(): void {
     this.disposed = true
+    this.queryAbort?.abort(); this.targetAbort?.abort()
     this.prepareAbort?.abort()
     this.prepareAbort = undefined
     this.prepareInFlight = false
@@ -444,9 +614,22 @@ export class IdeaSaveSurface {
     this.state.update((current) => {
       current.preparingMessageId = null
       current.modal = null
+      current.summary = null
       current.submitting = false
       current.failure = null
       current.toastSeq = 0
     })
   }
+}
+
+/** Only known pre-write rejections remain retryable; unknown saves require verification. */
+function updateFailure(code: string, committing = false): IdeaUiFailure {
+  if (code === 'idea/version-conflict') return 'conflict'
+  if (code === 'idea/update-not-found') return 'expired'
+  if (['idea/archived', 'idea/deleting', 'idea/not-found'].includes(code)) return 'unavailable'
+  if (code.startsWith('idea/source-')) return 'source'
+  if (code === 'idea/model-unavailable' || code === 'idea/model-failed') return 'model'
+  if (code === 'idea/invalid-model-output') return 'invalid-output'
+  if (committing && !['idea/invalid-draft'].includes(code)) return 'uncertain'
+  return committing ? 'save-failed' : 'prepare-failed'
 }

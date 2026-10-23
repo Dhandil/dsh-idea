@@ -50,8 +50,6 @@ import { IdeaReadSurface } from './read-state.ts'
 import { RelatedIdeasSurface } from './related-state.ts'
 import { IdeaSearchSurface } from './search-state.ts'
 import { IdeaQuickCaptureSurface } from './quick-capture-state.ts'
-import { selectContinuationWorkspace } from './workspace.ts'
-import type { WorkspaceRow } from './workspace.ts'
 import type {
   IdeaDialogInjected,
   IdeaSectionInjected,
@@ -95,10 +93,20 @@ function registerUi(ctx: ClientContext): void {
   const sessions = ctx.sessions as unknown as ISessions
 
   const surfaces = new Map<SessionId, IdeaSaveSurface>()
+  let refreshLibrary = () => {}
   const surfaceFor = (sessionId: SessionId): IdeaSaveSurface => {
     let surface = surfaces.get(sessionId)
     if (surface === undefined) {
       surface = new IdeaSaveSurface(ctx.remote.idea as IdeaRemoteFace, { kind: 'session', sessionId })
+      const savedSurface = surface
+      let lastSuccess = 0
+      ctx.effect(() => savedSurface.state.subscribe(() => {
+        const seq = savedSurface.state.getSnapshot().toastSeq
+        if (seq !== lastSuccess) {
+          lastSuccess = seq
+          if (seq > 0) refreshLibrary()
+        }
+      }), 'dsh-idea: conversation save refresh')
       surfaces.set(sessionId, surface)
     }
     return surface
@@ -224,7 +232,7 @@ function registerUi(ctx: ClientContext): void {
         idea: surfaceFor(sessionId).state,
         related: relatedFor(sessionId).state,
       },
-      prepare: (messageId) => { surfaceFor(sessionId).prepare(messageId) },
+      prepare: (messageId) => { surfaceFor(sessionId).openSummary(messageId) },
       findRelated: (messageId) => { relatedFor(sessionId).findRelated(messageId) },
     }),
   }, IdeaAssistantActions))
@@ -238,6 +246,10 @@ function registerUi(ctx: ClientContext): void {
       const surface = surfaceFor(sessionId)
       return {
         sessionId,
+        chooseMode: mode => { surface.chooseMode(mode) },
+        queryTargets: query => { surface.queryTargets(query) },
+        selectTarget: id => { surface.selectTarget(id) },
+        generate: () => { surface.generate() },
         hooks: { idea: surface.state },
         editDraft: (patch) => { surface.editDraft(patch) },
         submit: () => { surface.submit() },
@@ -361,38 +373,9 @@ function registerUi(ctx: ClientContext): void {
     },
   }), 'dsh-idea: idea reference source')
 
-  // The library (both views), its detail, and the lifecycle flows: one
-  // root-scoped surface behind the settings section; the selected view
-  // loads when the user first opens the page, Continue Discussion re-pulls
-  // the session list before opening the created conversation (the Host's
-  // `session/created` stream and the RPC response race, so select must see
-  // a refreshed baseline).
-  // Face of the shared Workspace navigation, resolved lazily per click: a
-  // deployment without the workspace domain keeps Continue Discussion on the
-  // Host-created default conversation.
-  type WorkspaceListFace = {
-    list: {
-      getSnapshot(): {
-        phase: string
-        items: readonly WorkspaceRow[]
-      }
-    }
-  }
-  const prepareWorkspace = async (): Promise<string | undefined> => {
-    const workspaces = ctx.get('workspaces') as WorkspaceListFace | undefined
-    if (workspaces === undefined) return undefined
-    const snapshot = workspaces.list.getSnapshot()
-    if (snapshot.phase !== 'ready') return undefined
-    // The client names only the Workspace; the Host's Session Controller
-    // creates the Session and attaches it to that Workspace. Harness
-    // 0.1.6-alpha.2 no longer exposes the current main Session, so the
-    // selection falls back to the most recently updated Workspace.
-    return selectContinuationWorkspace(snapshot.items, undefined)
-  }
-  const readSurface = new IdeaReadSurface(ctx.remote.idea as IdeaReadFace, async (conversationId) => {
-    await sessions.refresh()
-    ctx.uiWorkspace.openSession(SessionId(conversationId))
-  }, prepareWorkspace)
+  // Current content only: no history/readiness background requests.
+  const readSurface = new IdeaReadSurface(ctx.remote.idea as IdeaReadFace)
+  refreshLibrary = () => { readSurface.refreshToCurrent() }
   ctx.effect(() => () => { readSurface.dispose() }, 'dsh-idea: library read surface')
 
   // The Settings library's creation surfaces (T12.3): root-scoped, route
@@ -439,11 +422,6 @@ function registerUi(ctx: ClientContext): void {
       open: (id) => { readSurface.open(id) },
       closeDetail: () => { readSurface.closeDetail() },
       openEditor: (id) => { readSurface.openEditor(id) },
-      continueIdea: (id) => { readSurface.continueDiscussion(id) },
-      prepareEvolution: () => { readSurface.prepareEvolution() },
-      editProposalDraft: (patch) => { readSurface.editProposalDraft(patch) },
-      cancelProposal: () => { readSurface.cancelProposal() },
-      commitProposal: () => { readSurface.commitProposal() },
       editDraft: (patch) => { readSurface.editDraft(patch) },
       cancelEdit: () => { readSurface.cancelEdit() },
       saveEdit: () => { readSurface.commitEdit() },

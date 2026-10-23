@@ -161,6 +161,7 @@ export interface ResurfacingInputFace {
 /** Minimal structural face of the Save Idea surface (explicit flow evidence). */
 export interface ResurfacingSaveFace {
   getSnapshot(): {
+    summary?: unknown
     preparingMessageId: string | null
     modal: unknown
     submitting: boolean
@@ -627,7 +628,7 @@ export class IdeaResurfacingController {
     const input = this.input.getSnapshot()
     if (input.occurrences.some(occurrence => occurrence.source === 'idea')) return
     const save = this.save.getSnapshot()
-    if (save.modal !== null || save.preparingMessageId !== null || save.submitting) return
+    if (save.summary != null || save.modal !== null || save.preparingMessageId !== null || save.submitting) return
 
     const context = extractTurnContext(this.events.getSnapshot().entries, turnEndSeq)
     if (context === undefined) return

@@ -124,13 +124,13 @@ function faceWith(
   get: () => Promise<unknown> = async () => ({ ok: true as const, value: detailOf(summary()) }),
   getVersions: () => Promise<unknown> = async () => ({ ok: true as const, value: [versionSummary()] }),
   search: () => Promise<unknown> = async () => ({ ok: true as const, value: [searchRow()] }),
-): IdeaReadFace {
+): IdeaReadFace & { getVersions: ReturnType<typeof vi.fn> } {
   return {
     list: vi.fn(list),
     get: vi.fn(get),
     getVersions: vi.fn(getVersions),
     search: vi.fn(search),
-  } as unknown as IdeaReadFace
+  } as unknown as IdeaReadFace & { getVersions: ReturnType<typeof vi.fn> }
 }
 
 /** One search row, exactly what `idea.search` projects. */
@@ -172,11 +172,6 @@ function sectionProps(surface: IdeaReadSurface): IdeaSectionProps {
     open: (id: string) => { surface.open(id) },
     closeDetail: () => { surface.closeDetail() },
     archiveIdea: () => { surface.archiveIdea() },
-    continueIdea: (id: string) => { surface.continueDiscussion(id) },
-    prepareEvolution: () => { surface.prepareEvolution() },
-    editProposalDraft: (patch: Partial<EditableIdeaDraft>) => { surface.editProposalDraft(patch) },
-    cancelProposal: () => { surface.cancelProposal() },
-    commitProposal: () => { surface.commitProposal() },
     useIdeaRead: useIdeaReadOf(surface.state),
     ...libraryCreateRig(),
     t,
@@ -380,7 +375,7 @@ describe('Ideas section: detail', () => {
   })
 })
 
-describe('Ideas section: version history', () => {
+describe('Ideas section: current content only', () => {
   const historyFace = () => faceWith(
     async () => ({ ok: true as const, value: [summary()] }),
     async () => ({ ok: true as const, value: detailOf(summary(), { versionId: 'idea_ver_2' as IdeaVersionId }) }),
@@ -393,7 +388,7 @@ describe('Ideas section: version history', () => {
     }),
   )
 
-  it('renders the current version and the labeled history rows', async () => {
+  it('does not fetch or show historical rows for an older aggregate', async () => {
     const face = historyFace()
     const surface = newSurface(face)
     render(<IdeaSection {...sectionProps(surface)} />)
@@ -401,17 +396,17 @@ describe('Ideas section: version history', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
     await flush()
 
-    expect(face.getVersions).toHaveBeenCalledWith({ id: 'idea_1' })
-    expect(screen.getByText('版本历史')).toBeTruthy()
-    expect(screen.getByText('当前版本 v2')).toBeTruthy()
-    expect(screen.getByText('v1')).toBeTruthy()
-    expect(screen.getByText('初次保存')).toBeTruthy()
-    expect(screen.getByText('v2')).toBeTruthy()
-    expect(screen.getByText('手动修改')).toBeTruthy()
-    expect(screen.getByText('Edited idea')).toBeTruthy()
+    expect(face.getVersions).not.toHaveBeenCalled()
+    expect(screen.queryByText('版本历史')).toBeNull()
+    expect(screen.queryByText('当前版本 v2')).toBeNull()
+    expect(screen.queryByText('v1')).toBeNull()
+    expect(screen.queryByText('初次保存')).toBeNull()
+    expect(screen.queryByText('v2')).toBeNull()
+    expect(screen.queryByText('手动修改')).toBeNull()
+    expect(screen.queryByText('Edited idea')).toBeNull()
   })
 
-  it('hides the history block on failure, keeps the detail, and reloads on reopen', async () => {
+  it('never depends on history availability, including on reopen', async () => {
     let failing = true
     const face = faceWith(
       async () => ({ ok: true as const, value: [summary()] }),
@@ -434,10 +429,10 @@ describe('Ideas section: version history', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '返回列表' })) })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Saved idea/ })) })
     await flush()
-    expect(face.getVersions).toHaveBeenCalledTimes(2)
-    expect(screen.getByText('版本历史')).toBeTruthy()
-    expect(screen.getByText('当前版本 v1')).toBeTruthy()
-    expect(screen.getByText('初次保存')).toBeTruthy()
+    expect(face.getVersions).not.toHaveBeenCalled()
+    expect(screen.queryByText('版本历史')).toBeNull()
+    expect(screen.queryByText('当前版本 v1')).toBeNull()
+    expect(screen.queryByText('初次保存')).toBeNull()
   })
 })
 
@@ -537,7 +532,7 @@ describe('Ideas section: search', () => {
 
   it('re-runs the live search after a confirmed mutation so the mixed list is never stale', async () => {
     const fullFace = faceWith()
-    const face = fullFace as IdeaReadFace & { archive: ReturnType<typeof vi.fn>; search: ReturnType<typeof vi.fn> }
+    const face = fullFace as unknown as IdeaReadFace & { archive: ReturnType<typeof vi.fn>; search: ReturnType<typeof vi.fn> }
     face.archive = vi.fn(async () => ({
       ok: true as const,
       value: { ideaId: 'idea_1', currentVersionId: 'idea_ver_1', status: 'archived' as const, updatedAt: 2 },

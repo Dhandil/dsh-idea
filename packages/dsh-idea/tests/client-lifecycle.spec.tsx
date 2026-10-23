@@ -190,11 +190,6 @@ function sectionProps(surface: IdeaReadSurface): IdeaSectionProps {
     open: (id: string) => { surface.open(id) },
     closeDetail: () => { surface.closeDetail() },
     openEditor: (id: string) => { surface.openEditor(id) },
-    continueIdea: (id: string) => { surface.continueDiscussion(id) },
-    prepareEvolution: () => { surface.prepareEvolution() },
-    editProposalDraft: (patch: Partial<EditableIdeaDraft>) => { surface.editProposalDraft(patch) },
-    cancelProposal: () => { surface.cancelProposal() },
-    commitProposal: () => { surface.commitProposal() },
     editDraft: (patch: Partial<EditableIdeaDraft>) => { surface.editDraft(patch) },
     cancelEdit: () => { surface.cancelEdit() },
     saveEdit: () => { surface.commitEdit() },
@@ -374,7 +369,7 @@ describe('Ideas section: manual edit', () => {
     await openDetail(face)
     fireEvent.click(screen.getByRole('button', { name: '编辑' }))
     fireEvent.click(screen.getByRole('button', { name: '添加适用场景' }))
-    expect((screen.getByRole('button', { name: '保存为新版本' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: '← 返回 Idea 详情' }))
     expect(screen.getByRole('dialog', { name: '放弃未保存的修改？' })).toBeTruthy()
   })
@@ -394,7 +389,7 @@ describe('Ideas section: manual edit', () => {
     expect((screen.getByRole('textbox', { name: '适用场景第 2 条' }) as HTMLTextAreaElement).value).toBe('use two')
     expect((screen.getByRole('textbox', { name: '待解决问题第 1 条' }) as HTMLTextAreaElement).value).toBe('question one')
 
-    const save = screen.getByRole('button', { name: '保存为新版本' }) as HTMLButtonElement
+    const save = screen.getByRole('button', { name: '保存' }) as HTMLButtonElement
     expect(save.disabled).toBe(true)
   })
 
@@ -451,7 +446,7 @@ describe('Ideas section: manual edit', () => {
       fireEvent.change(screen.getByDisplayValue('Conclusion text'), { target: { value: 'Edited conclusion' } })
     })
 
-    const save = screen.getByRole('button', { name: '保存为新版本' }) as HTMLButtonElement
+    const save = screen.getByRole('button', { name: '保存' }) as HTMLButtonElement
     expect(save.disabled).toBe(false)
     const listsBefore = face.list.mock.calls.length
     const getsBefore = face.get.mock.calls.length
@@ -478,8 +473,8 @@ describe('Ideas section: manual edit', () => {
     expect(face.list.mock.calls.length).toBe(listsBefore + 2)
     expect(face.get.mock.calls.length).toBe(getsBefore + 1)
     expect(screen.getByRole('heading', { name: 'Edited title' })).toBeTruthy()
-    expect(screen.getByText('手动修改')).toBeTruthy()
-    expect(screen.getByText('当前版本 v2')).toBeTruthy()
+    expect(screen.queryByText('手动修改')).toBeNull()
+    expect(screen.queryByText('当前版本 v2')).toBeNull()
   })
 
   it('keeps the form and shows the stale copy on a version conflict', async () => {
@@ -490,7 +485,7 @@ describe('Ideas section: manual edit', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '编辑' })) })
     await act(async () => { fireEvent.change(screen.getByDisplayValue('Saved idea'), { target: { value: 'Edited title' } }) })
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '保存为新版本' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '保存' })) })
     await flush()
 
     expect(screen.getByText(/已在其他地方更新/)).toBeTruthy()
@@ -505,7 +500,7 @@ describe('Ideas section: manual edit', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '编辑' })) })
     await act(async () => { fireEvent.change(screen.getByDisplayValue('Saved idea'), { target: { value: 'Edited title' } }) })
 
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '保存为新版本' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '保存' })) })
     await flush()
 
     expect(screen.getByText('保存失败，请稍后重试')).toBeTruthy()

@@ -192,7 +192,7 @@ interface Rig {
   input: { draftRev: number; occurrences: Array<{ source: string; ref: string }> }
   /** Fire the input subscription the controller registered (T11 seam). */
   notifyInput: () => void
-  save: { preparingMessageId: string | null; modal: unknown; submitting: boolean }
+  save: { summary?: unknown; preparingMessageId: string | null; modal: unknown; submitting: boolean }
   appended: IdeaReferenceDescriptor[]
   appendOk: { value: boolean }
 }
@@ -373,6 +373,15 @@ describe('deterministic gates', () => {
     await flush()
 
     expect(rig.remote.evaluateResurfacing).not.toHaveBeenCalled()
+  })
+
+  it('stops while the summary is selecting a mode without a preparation or modal', async () => {
+    const rig = makeRig()
+    rig.save.summary = { mode: 'update' }
+    pushTurn(rig.window, 1, 'A synthetic discussion', 'A synthetic response')
+    await flush()
+    expect(rig.remote.evaluateResurfacing).not.toHaveBeenCalled()
+    expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
   })
 
   it('makes no remote call when the Host evaluation stops', async () => {

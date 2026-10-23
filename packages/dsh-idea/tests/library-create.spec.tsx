@@ -98,7 +98,7 @@ function createRig(over: {
     })),
     prepareFromMessage: vi.fn(),
   }
-  const readSurface = new IdeaReadSurface(remote as never, vi.fn(), vi.fn(async () => undefined))
+  const readSurface = new IdeaReadSurface(remote as never)
   const save = new IdeaSaveSurface(remote as never, { kind: 'default' })
   const quick = new IdeaQuickCaptureSurface(
     remote as never,
@@ -133,11 +133,6 @@ function createRig(over: {
     open: (id: string) => { readSurface.open(id) },
     closeDetail: () => { readSurface.closeDetail() },
     openEditor: (id: string) => { readSurface.openEditor(id) },
-    continueIdea: (id: string) => { readSurface.continueDiscussion(id) },
-    prepareEvolution: () => { readSurface.prepareEvolution() },
-    editProposalDraft: (patch: never) => { readSurface.editProposalDraft(patch) },
-    cancelProposal: () => { readSurface.cancelProposal() },
-    commitProposal: () => { readSurface.commitProposal() },
     editDraft: (patch: never) => { readSurface.editDraft(patch) },
     cancelEdit: () => { readSurface.cancelEdit() },
     saveEdit: () => { readSurface.commitEdit() },

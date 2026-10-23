@@ -86,7 +86,7 @@ function rig(over: { setMuted?: (req: { id: string; muted: boolean }) => Promise
     prepareEvolution: vi.fn(),
     commitEvolution: vi.fn(),
   }
-  const readSurface = new IdeaReadSurface(remote as never, vi.fn(), vi.fn(async () => undefined))
+  const readSurface = new IdeaReadSurface(remote as never)
   const useOf = (store: { subscribe: (fn: () => void) => () => void; getSnapshot: () => unknown }) =>
     (select: (s: never) => unknown) =>
       useSyncExternalStore(store.subscribe, () => select(store.getSnapshot() as never))
@@ -97,11 +97,6 @@ function rig(over: { setMuted?: (req: { id: string; muted: boolean }) => Promise
     searchIdeas: (query: string) => { readSurface.searchIdeas(query) },
     selectView: (view: 'current' | 'archived') => { readSurface.selectView(view) },
     openEditor: (id: string) => { readSurface.openEditor(id) },
-    continueIdea: (id: string) => { readSurface.continueDiscussion(id) },
-    prepareEvolution: () => { readSurface.prepareEvolution() },
-    editProposalDraft: (patch: never) => { readSurface.editProposalDraft(patch) },
-    cancelProposal: () => { readSurface.cancelProposal() },
-    commitProposal: () => { readSurface.commitProposal() },
     editDraft: (patch: never) => { readSurface.editDraft(patch) },
     cancelEdit: () => { readSurface.cancelEdit() },
     saveEdit: () => { readSurface.commitEdit() },
