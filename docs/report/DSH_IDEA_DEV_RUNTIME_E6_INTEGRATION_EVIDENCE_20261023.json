@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 1,
+  "task": "DSH Idea Runtime + E6 final integration",
+  "status": "DSH_IDEA_DEV_RUNTIME_INTEGRATION_READY_FOR_FINAL_REVIEW",
+  "baseMain": "9fcee9888390cd04d4a87bbf837c04bebfa92f61",
+  "runtimeHeadBeforeIntegration": "35531f30fb9c942e2a77d8a60ec39dd345f71d82",
+  "acceptedE6Sha": "e4c01df58f1a655f83dde0c35148fab1e7b32dfe",
+  "integratedTestedSha": "32d1879bfc14d48a93a37e11dd133c4105d5d47b",
+  "harnessSha": "86a402200d95fecef4529d969836f1fe13c6cb0d",
+  "toolchain": {
+    "node": "v24.21.0",
+    "pnpm": "11.28.5",
+    "pnpmEntrypointHash": "ff3224d46b47fbb24a7e9fe15fededef7e00892d07d4e376b6762d4899906bfd",
+    "vitest": "4.1.11",
+    "tsdown": "0.22.14",
+    "rolldown": "1.2.8"
+  },
+  "staticGates": {
+    "patchId": "6511a35c858f28d94cfb8e6a82ff9a3483ca9d49",
+    "acceptedAndIntegratedE6PatchIdentical": true,
+    "threeTestFilesByteIdentical": true,
+    "runtimeFilesUnchanged": true,
+    "businessSourceLockfileBuildCompilerConfigsUnchanged": true,
+    "diffCheckPassed": true,
+    "typecheckPassed": true
+  },
+  "preparation": {
+    "runtime-focused": {
+      "name": "runtime-focused",
+      "args": [
+        "test:runtime"
+      ],
+      "code": 0,
+      "signal": null,
+      "durationMs": 19047,
+      "rawLogSha256": "1f792f8bfde01bf7111a11b6ec212c49eb60265b0d3f4eb70bd337c99a645575",
+      "logBytes": 2724,
+      "summaryLines": [
+        "✔ strict audit accepts empty and legitimate concurrent active runs without deletion (397.671042ms)",
+        "✔ strict audit blocks unknown, dangling receipt and abandoned cleanup lock without removing them (197.00125ms)",
+        "✔ unknown/orphan metadata lock blocks audit and is never stolen (195.78ms)",
+        "✔ strict audit coordinates concurrent creation and cleanup metadata transitions (3318.61625ms)",
+        "✔ SIGKILL leaves an auditable orphan; active then stale recovery is safe (272.849958ms)"
+      ],
+      "protectedLinkUnchanged": true,
+      "counts": {
+        "tests": 30,
+        "pass": 30,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    "e6-focused": {
+      "name": "e6-focused",
+      "args": [
+        "test",
+        "resurfacing-mute-suppression.spec.ts",
+        "e6-fixture.spec.ts",
+        "--reporter=default",
+        "--reporter=json",
+        "--outputFile",
+        "<run>/logs/e6-focused-vitest.json"
+      ],
+      "code": 0,
+      "signal": null,
+      "durationMs": 2654,
+      "rawLogSha256": "eafc2e63fc7bc9ba58a00ae6afbf5693071d03c572c830c307d2f5deed9a5d64",
+      "logBytes": 1115,
+      "summaryLines": [
+        "Test Files  2 passed (2)",
+        "Tests  16 passed (16)"
+      ],
+      "protectedLinkUnchanged": true,
+      "counts": {
+        "files": 2,
+        "total": 16,
+        "passed": 16,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0
+      }
+    },
+    "related-parallel": {
+      "name": "related-parallel",
+      "args": [
+        "test",
+        "schema.spec.ts",
+        "service.spec.ts",
+        "version.spec.ts",
+        "lifecycle.spec.ts",
+        "semantic-core.spec.ts",
+        "semantic-index.spec.ts",
+        "semantic-retrieval.spec.ts",
+        "resurfacing-preference.spec.ts",
+        "resurfacing-budget.spec.ts",
+        "resurfacing-mute-suppression.spec.ts",
+        "p2-lite-update.spec.ts",
+        "client-p2-lite.spec.tsx",
+        "package.spec.ts",
+        "e6-fixture.spec.ts",
+        "--reporter=default",
+        "--reporter=json",
+        "--outputFile",
+        "<run>/logs/related-parallel-vitest.json"
+      ],
+      "code": 0,
+      "signal": null,
+      "durationMs": 5347,
+      "rawLogSha256": "a043af3710d5408ed2e0f0dcf6d9e1afa66ddc9f54aaff6bd49ac2fa8a054b4a",
+      "logBytes": 4019,
+      "summaryLines": [
+        "Test Files  20 passed (20)",
+        "Tests  341 passed (341)"
+      ],
+      "protectedLinkUnchanged": true,
+      "counts": {
+        "files": 20,
+        "total": 341,
+        "passed": 341,
+        "failed": 0,
+        "pending": 0,
+        "todo": 0
+      }
+    },
+    "typecheck": {
+      "name": "typecheck",
+      "args": [
+        "typecheck"
+      ],
+      "code": 0,
+      "signal": null,
+      "durationMs": 4057,
+      "rawLogSha256": "7b649c93c6d76d12e58441eca60e923523770b946da1e8ca8c4a07e88c5f979c",
+      "logBytes": 104,
+      "summaryLines": [],
+      "protectedLinkUnchanged": true
+    }
+  },
+  "full": {
+    "name": "full",
+    "args": [
+      "verify"
+    ],
+    "code": 0,
+    "signal": null,
+    "durationMs": 38699,
+    "rawLogSha256": "26638af6574210c2616b1c625dfb2e3ca8e4f2d24cc6b9f54e3b7883a124f552",
+    "logBytes": 4851,
+    "summaryLines": [
+      "$ pnpm dev:audit:strict && pnpm test:runtime && pnpm -C packages/dsh-idea verify && pnpm dev:audit:strict",
+      "$ node scripts/dev-run.mjs audit --strict",
+      "✔ strict audit accepts empty and legitimate concurrent active runs without deletion (415.31675ms)",
+      "✔ strict audit blocks unknown, dangling receipt and abandoned cleanup lock without removing them (212.840292ms)",
+      "✔ unknown/orphan metadata lock blocks audit and is never stolen (209.327333ms)",
+      "✔ strict audit coordinates concurrent creation and cleanup metadata transitions (3400.65475ms)",
+      "✔ SIGKILL leaves an auditable orphan; active then stale recovery is safe (271.934125ms)",
+      "$ node ../../scripts/dev-run.mjs audit --strict && pnpm generate:typert && pnpm typecheck && pnpm test && pnpm build && pnpm build:client && node ../../scripts/dev-run.mjs audit --strict",
+      "generate-typert: wrote typert.host (@dsh-external/dsh-idea)",
+      "generate-typert: wrote typert.remote-client",
+      "generate-typert: done",
+      "Test Files  65 passed (65)",
+      "Tests  1052 passed (1052)",
+      "✔ Build complete in 93ms",
+      "$ node scripts/dev-run.mjs audit --strict"
+    ],
+    "protectedLinkUnchanged": true,
+    "counts": {
+      "runtime": {
+        "tests": 30,
+        "pass": 30,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "plugin": {
+        "files": 65,
+        "passed": 1052,
+        "total": 1052
+      }
+    },
+    "sanitizedCompleteLog": "$ pnpm dev:audit:strict && pnpm test:runtime && pnpm -C packages/dsh-idea verify && pnpm dev:audit:strict\n$ node scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<run-id>\",\n    \"state\": \"active\"\n  }\n]\n$ node scripts/dev-run.mjs -- node --test scripts/tests/dev-runtime.test.mjs\n✔ unique IDs, private owned paths, full isolated environment and credential filtering (428.798375ms)\n✔ invalid labels fail before any filesystem creation; supported labels remain reclaimable (821.747291ms)\n✔ strict audit accepts empty and legitimate concurrent active runs without deletion (415.31675ms)\n✔ strict audit blocks unknown, dangling receipt and abandoned cleanup lock without removing them (212.840292ms)\n✔ unknown/orphan metadata lock blocks audit and is never stolen (209.327333ms)\n✔ automatic preflight blocks execution; automatic postflight fails on new residue (687.685875ms)\n✔ strict audit coordinates concurrent creation and cleanup metadata transitions (3400.65475ms)\n✔ cleanup removes only this run, preserving concurrent runs and repository siblings (398.966875ms)\n✔ lexical escapes, absolute escapes and symlink ancestors are refused (196.673542ms)\n✔ symlinked .dev and changed directory identities are refused (203.227917ms)\n✔ unknown/mismatched ownership and duplicate cleanup fail closed (209.362458ms)\n✔ active owner cannot be reaped (202.679292ms)\n✔ open file handle prevents cleanup until explicitly released (391.053041ms)\n✔ an active registered child blocks cleanup even without file handles (294.489459ms)\n✔ unavailable handle scanner retains the complete run (207.540792ms)\n✔ PID reuse or changed owner identity is never treated as an inactive run (204.187292ms)\n✔ symlink ownership files cannot be followed (206.693333ms)\n✔ external exceptions are checked but never removed (198.784083ms)\n✔ success and failure commands both remove their run and preserve exit status (739.4995ms)\n✔ spawn failure also cleans its run (no unhandled rejection) (285.620208ms)\n✔ SIGINT cancels the task and verifies removal (373.548666ms)\n✔ SIGTERM cancels the task and verifies removal (368.192792ms)\n✔ SIGHUP cancels the task and verifies removal (364.953791ms)\n✔ two concurrent CLI tasks never share or delete each other's run (662.78025ms)\n✔ normal exit gracefully stops a descendant in the owned process group (408.687166ms)\n✔ uncooperative cancellation retains active resources; reap waits for child exit (5937.432042ms)\n✔ SIGKILL leaves an auditable orphan; active then stale recovery is safe (271.934125ms)\n✔ unknown orphan directory is reported and retained (212.237375ms)\n✔ nested project commands reuse the parent run without cleaning it early (438.812667ms)\n✔ unwrapped configuration access is rejected, not silently pointed at real HOME (0.332833ms)\nℹ tests 30\nℹ suites 0\nℹ pass 30\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 19029.512125\n$ node ../../scripts/dev-run.mjs audit --strict && pnpm generate:typert && pnpm typecheck && pnpm test && pnpm build && pnpm build:client && node ../../scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<run-id>\",\n    \"state\": \"active\"\n  }\n]\n$ node ../../scripts/dev-run.mjs -- node scripts/generate-typert.mjs\ngenerate-typert: wrote typert.host (@dsh-external/dsh-idea)\ngenerate-typert: wrote typert.remote-client\ngenerate-typert: done\n$ node ../../scripts/dev-run.mjs -- tsc -p tsconfig.json --noEmit\n$ node ../../scripts/dev-run.mjs -- vitest run --configLoader native\n\n RUN  v4.1.11 <repository>/packages/dsh-idea\n\n\n Test Files  65 passed (65)\n      Tests  1052 passed (1052)\n   Start at  20:41:20\n   Duration  8.60s (transform 5.70s, setup 0ms, import 16.56s, tests 41.11s, environment 3.49s)\n\n$ node ../../scripts/dev-run.mjs -- tsc -p tsconfig.build.json\n$ node ../../scripts/dev-run.mjs -- tsdown -c tsdown.client.config.ts\nℹ tsdown v0.22.14 powered by rolldown v1.2.8\nℹ config file: <repository>/packages/dsh-idea/tsdown.client.config.ts \nℹ entry: src/client/index.ts\nℹ target: es2024\nℹ tsconfig: tsconfig.json\nℹ Build start\nℹ Hint: consider adding deps.onlyBundle option to avoid unintended bundling of dependencies, or set deps.onlyBundle: false to disable this hint.\nSee more at https://tsdown.dev/options/dependencies#deps-onlybundle\nDetected dependencies in bundle:\n- zod\nℹ lib/client.js      846.55 kB │ gzip: 143.25 kB\nℹ lib/client.js.map    1.42 MB\nℹ 2 files, total: 2.27 MB\n✔ Build complete in 93ms\n[\n  {\n    \"id\": \"<run-id>\",\n    \"state\": \"active\"\n  }\n]\n$ node scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<run-id>\",\n    \"state\": \"active\"\n  }\n]\n",
+    "exceptionsBeforeCleanup": [
+      {
+        "category": "system",
+        "reason": "OS sockets, shared memory, crash reports and OS/browser services may ignore TMPDIR; not searched or deleted",
+        "status": "external-unverified"
+      },
+      {
+        "category": "shared",
+        "reason": "Preinstalled MCP services and browser binaries, package stores and Harness dependency links stay shared; never redirected or cleaned",
+        "status": "preserved"
+      },
+      {
+        "category": "toolchain",
+        "path": "/Users/tongxin/.cache/node/corepack/v1/pnpm/11.28.5/bin/pnpm.mjs",
+        "reason": "Existing pinned pnpm JS entry reused read-only; run-owned alias bypasses Corepack release selection",
+        "status": "external-unverified"
+      },
+      {
+        "category": "formal-build",
+        "path": "/Users/tongxin/Developer/Harness/harness-plugin/dsh-idea/packages/dsh-idea/lib",
+        "reason": "Required verify generates official lib in its existing output location; retained, not temporary",
+        "status": "external-unverified"
+      }
+    ],
+    "cacheEntries": [
+      "vite",
+      "node"
+    ],
+    "invocations": 1,
+    "freshRunAndViteCache": true,
+    "normalVerifyScript": true,
+    "defaultFileParallelism": true,
+    "timeoutOverrides": false,
+    "retries": 0,
+    "allDiscoveredPluginTestsPassed": true,
+    "pluginNonPassingTests": 0,
+    "totalRuntimeAndPluginTestsPassed": 1082
+  },
+  "strictAudit": {
+    "beforePreparation": [],
+    "beforeFull": [],
+    "duringRuns": "only the legitimate owned active run",
+    "rootAndPackagePrePost": "PASS",
+    "afterCleanup": []
+  },
+  "cleanup": {
+    "ownedRunsAbsent": true,
+    "remainingRuns": [],
+    "remainingOwners": [],
+    "lifecycleLock": false,
+    "controllerPidsCurrent": "absent",
+    "ownedRunHandleCount": 0,
+    "legacyPaths": {
+      "packages/dsh-idea/build/typert-workspace": false,
+      "packages/dsh-idea/node_modules/.vite": false,
+      "packages/dsh-idea/node_modules/.vite-temp": false
+    },
+    "preparationRemoved": true,
+    "fullRemoved": true,
+    "protectedInvariantsSymlinkUnchanged": true,
+    "harnessDriftUnchanged": "existing untracked deepseek-harness preserved",
+    "browserLaunched": false,
+    "sharedServiceStopped": false
+  },
+  "exceptionEndChecks": [
+    {
+      "category": "system",
+      "endCheck": "not-enumerable",
+      "action": "OS-managed sockets/shared memory/crash reports were not broadly searched; no absence claim"
+    },
+    {
+      "category": "shared",
+      "endCheck": "not-enumerable",
+      "action": "existing MCP/browser binaries/package stores/dependency links preserved"
+    },
+    {
+      "category": "toolchain",
+      "endCheck": "still-present-not-deleted",
+      "action": "existing pinned pnpm read-only entry preserved; temporary alias removed with run"
+    },
+    {
+      "category": "formal-build",
+      "endCheck": "still-present-not-deleted",
+      "action": "required official lib outputs regenerated and retained in existing location"
+    }
+  ],
+  "providerCalls": 0,
+  "realProfileTouched": false,
+  "fullRerun": false,
+  "mergedMain": false
+}
