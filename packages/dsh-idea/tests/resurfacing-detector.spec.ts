@@ -253,3 +253,72 @@ describe('T13.3B explicit saved-Idea recall', () => {
       .toBeLessThanOrEqual(RESURFACING_SIGNAL_EVIDENCE_LIMIT)
   })
 })
+
+describe('T13.3B Repair1: direct retrieval versus procedural questions', () => {
+  const directRequests = [
+    '帮我找之前保存的 Idea',
+    '帮我找以前收藏的那个点子。',
+    '请找我上次记录的方案。',
+    '给我找以前存的 Idea。',
+    '麻烦找我保存的想法。',
+    '你能帮我找之前保存的 Idea 吗？',
+    'Please 帮我找之前保存的 Idea。',
+    'Can you find 我之前保存的 Idea？',
+    '请找回我以前保存的关于如何写测试的 Idea。',
+    'Find the idea I saved about how to write tests.',
+    'Could you find my saved idea named "How to retrieve documents"?',
+    '帮我找之前保存的 Idea；而不是教我怎么查。',
+  ]
+  for (const turn of directRequests) {
+    it(`admits the direct request, including bare 找 or a how-to topic: ${turn}`, () => {
+      const result = detect(turn)
+      expect(result.admitted).toBe(true)
+      expect(result.signals.filter(signal => signal.type === 'MEMORY_GAP')).toHaveLength(1)
+    })
+  }
+
+  const howQuestions = [
+    '请问怎么找回以前保存的 Idea？',
+    '请问如何找之前保存的 Idea？',
+    '能告诉我怎么找回之前保存的 Idea 吗？',
+    '你能解释一下怎样检索以前保存的 Idea 吗？',
+    '帮我了解如何找回以前保存的 Idea。',
+    '我想知道怎么找回之前保存的 Idea。',
+    '请问之前保存过的 Idea 应该怎么找回？',
+    '找回以前保存的 Idea 的方法是什么？',
+    '请列出找回以前保存的 Idea 的步骤。',
+    'Can you explain how to retrieve my saved idea?',
+    'Could you tell me how I can find the idea I saved?',
+    'I want to know how to look up my saved ideas.',
+    'Help me understand how to find the idea I saved.',
+    'Please show me the steps to find my saved ideas.',
+    'How can I retrieve my saved idea?',
+    'Where is the button to find my saved ideas?',
+    'Can you explain the procedure for finding the idea I saved?',
+    '能告诉我 how to find 我保存的 Idea 吗？',
+    'Can you explain 如何找回我保存的 Idea？',
+  ]
+  for (const turn of howQuestions) {
+    it(`does not retrieve for a procedural question: ${turn}`, () => {
+      expect(detect(turn).admitted).toBe(false)
+    })
+  }
+
+  const nonRequests = [
+    '不要帮我找之前保存的 Idea。',
+    '请不找我之前保存的 Idea。',
+    '帮我找没有保存过的 Idea。',
+    '「帮我找之前保存的 Idea」这句话是什么意思？',
+    "Translate 'Help me find my saved idea'.",
+    'Can you explain what saved Idea means?',
+    '帮我解释找之前保存的 Idea 这个说法。',
+    'Find a new idea to save.',
+    '帮我找之前保存的文件。',
+    'Please do not find the idea I saved.',
+  ]
+  for (const turn of nonRequests) {
+    it(`preserves negative boundaries after admitting bare 找: ${turn}`, () => {
+      expect(detect(turn).admitted).toBe(false)
+    })
+  }
+})

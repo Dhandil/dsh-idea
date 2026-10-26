@@ -92,12 +92,26 @@ const DECISION_CONTEXT_MARKERS = /还是|或者|对比|比起|两个|哪个|选|
 // Explicit saved-Idea recall requires all four facts in one sentence: a
 // request, retrieval action, Idea object, and evidence that it was saved.
 // These rules open retrieval only; identity and usefulness remain downstream.
-const RECALL_ACTION = /找(?:到|回|找|出|一下|一找)|翻(?:出|找)|查找|检索|搜索|回忆|还记得|列出|调出|\b(?:find|locate|retrieve|recall|remember|search\s+for|look\s+up|remind\s+me|bring\s+back|pull\s+up|show\s+me|where\s+(?:is|are))\b/u
+const RECALL_ACTION = /找(?:到|回|找|出|一下|一找)?|翻(?:出|找)|查找|检索|搜索|回忆|还记得|列出|调出|\b(?:find|locate|retrieve|recall|remember|search\s+for|look\s+up|remind\s+me|bring\s+back|pull\s+up|show\s+me|where\s+(?:is|are))\b/u
 const RECALL_OBJECT = /想法|点子|创意|方案|\bideas?\b/u
 const RECALL_SAVED = /(?:保存|存|记录|记下|收藏|收集)(?:过|的|了|下)|\b(?:saved|stored|recorded|bookmarked)\b/u
 const RECALL_REQUEST = /^(?:请|麻烦|劳驾|把|能|可以|你还记得|你(?:能|可以)(?:帮我|给我|替我)?(?:找|翻|查找|检索|搜索|回忆|列出|调出)|我(?:想|要|需要|希望)|找|翻|查找|检索|搜索|回忆|列出|调出)|(?:^|[，,])\s*(?:帮我|给我|替我|请|麻烦)|(?:^|[，,])\s*(?:please|help\s+me|(?:can|could|would|will)\s+you|do\s+you\s+remember|i\s+(?:want|need|would\s+like)\s+to)\b|^(?:find|locate|retrieve|recall|remember|remind\s+me|search\s+for|show\s+me|bring\s+back|pull\s+up|look\s+up|where\s+(?:is|are))\b/u
-const RECALL_NEGATED = /不要|不用|无需|不必|别|不想|不需要|不打算|不再|禁止|取消|暂不|不是让你|不是(?:要|在)?(?:找|翻|回忆|检索|搜索)|(?:没(?:有)?|未)(?:保存|存|记录|记下|收藏|收集)|\b(?:not|(?:don|didn|doesn|haven|hasn|hadn|isn|wasn|weren|shouldn|wouldn|couldn)['’]t|never|avoid|stop|cancel|no\s+need\s+to|without|skip)\b/u
+const RECALL_NEGATED = /不要|不用|无需|不必|别|不想|不需要|不打算|不再|禁止|取消|暂不|不(?:找|翻|查|检索|搜索|回忆)|不是让你|不是(?:要|在)?(?:找|翻|回忆|检索|搜索)|(?:没(?:有)?|未)(?:保存|存|记录|记下|收藏|收集)|\b(?:not|(?:don|didn|doesn|haven|hasn|hadn|isn|wasn|weren|shouldn|wouldn|couldn)['’]t|never|avoid|stop|cancel|no\s+need\s+to|without|skip)\b/u
 const RECALL_META = /^(?:(?:请|帮我|麻烦)\s*)?(?:翻译|解释|改写|分析|复述|总结|比较|评价|讨论|设计|实现|测试|讲解|介绍|告诉)|^(?:(?:他|她|有人|用户)(?:说|问|写)|如果|假如|假设|例如)|这句话|这句|例句|示例|原文|^(?:please\s+)?(?:translate|explain|rewrite|analy[sz]e|summari[sz]e|evaluate|discuss|describe|design|test|tell|how|what|why|if|suppose)\b|^(?:he|she|someone|the\s+user|a\s+user)\s+(?:said|says|asked|wrote)\b|\bmeans?\s+what\s*$|^(?:find|look\s+up)\s+(?:the\s+)?(?:word|term|phrase)\b|\b(?:file|document)\s+(?:called|named)\s+idea\b|\b(?:to|be|being)\s+(?:saved|stored|recorded|bookmarked)\b/u
+
+/** Asking for retrieval instructions does not authorize retrieving Ideas. */
+function isRecallProcedure(clause: string): boolean {
+  const action = RECALL_ACTION.exec(clause)
+  if (action === null) return false
+  // A how-to topic AFTER a direct retrieval verb belongs to the saved Idea,
+  // not to the requested operation: "find my saved idea about how to test".
+  const topic = /关于|有关|标题(?:是|为)|名(?:为|叫)|\b(?:about|named|called)\b/u.exec(clause)
+  const request = topic !== null && topic.index > action.index ? clause.slice(0, topic.index) : clause
+  if (/怎么|如何|怎样|咋|\bhow\b/u.test(request)) return true
+  if (/教我|告诉我|解释|说明|讲解|教程|方法|步骤|用法|\b(?:explain|describe|teach|tell|understand|instructions?|steps?|tutorial|procedure)\b/u
+    .test(request.slice(0, action.index))) return true
+  return /(?:方法|方式|步骤|流程|教程|用法)(?:是什么|有哪些|吗)?$|\b(?:steps?|instructions?|procedure|tutorial)\s+(?:to|for)\b|\bwhere\s+(?:is|are)\b.{0,40}\b(?:button|menu|setting|command|shortcut)\b/u.test(request)
+}
 
 /** Quoted/code examples are data, never current-user recall instructions. */
 function unquotedRecallText(text: string): string {
@@ -115,7 +129,7 @@ function memoryGapEvidence(text: string, legacy: RegExp): string | undefined {
   const unquoted = normalizeLexical(unquotedRecallText(text))
   for (const sentence of unquoted.split(/[。.!?！？;；]/u)) {
     const clause = sentence.trim()
-    if (!clause || RECALL_NEGATED.test(clause) || RECALL_META.test(clause)) continue
+    if (!clause || RECALL_NEGATED.test(clause) || RECALL_META.test(clause) || isRecallProcedure(clause)) continue
     if (legacy.test(clause)) return evidenceOf(clause, legacy)
     if (RECALL_REQUEST.test(clause) && RECALL_ACTION.test(clause)
       && RECALL_OBJECT.test(clause) && RECALL_SAVED.test(clause)) {

@@ -507,6 +507,42 @@ describe('T13.3B recall opens retrieval, never promises delivery', () => {
   })
 })
 
+describe('T13.3B Repair1 retrieval versus instructions at the controller boundary', () => {
+  for (const turn of ['帮我找之前保存的 Idea', 'Find the idea I saved about how to write tests.']) {
+    it(`opens only the existing retrieval/Judge path for a direct request: ${turn}`, async () => {
+      const rig = makeRig({ judge: vi.fn(async () => ({
+        ok: true, value: { outcome: 'none', reason: 'NOT_RELEVANT', dropped: [] },
+      })) })
+      pushTurn(rig.window, 1, turn, '回复')
+      await flush()
+      expect(rig.remote.evaluateResurfacing).toHaveBeenCalledTimes(1)
+      expect(rig.remote.semanticResurfacingCandidates).toHaveBeenCalledTimes(1)
+      expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+      expect(rig.remote.claimResurfacingBudget).not.toHaveBeenCalled()
+      expect(rig.remote.setResurfacingMuted).not.toHaveBeenCalled()
+      expect(rig.appended).toHaveLength(0)
+      expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+    })
+  }
+
+  for (const turn of [
+    '请问怎么找回以前保存的 Idea？',
+    'Can you explain how to retrieve my saved idea?',
+    'Can you explain 如何找回我保存的 Idea？',
+  ]) {
+    it(`never dispatches retrieval for a question about instructions: ${turn}`, async () => {
+      const rig = makeRig()
+      pushTurn(rig.window, 1, turn, '回复')
+      await flush()
+      expect(rig.remote.evaluateResurfacing).not.toHaveBeenCalled()
+      expect(rig.remote.semanticResurfacingCandidates).not.toHaveBeenCalled()
+      expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
+      expect(rig.remote.claimResurfacingBudget).not.toHaveBeenCalled()
+      expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+    })
+  }
+})
+
 describe('settlement and revalidation races', () => {
   it('waits for the settling Assistant reply before judging', async () => {
     const rig = makeRig()
