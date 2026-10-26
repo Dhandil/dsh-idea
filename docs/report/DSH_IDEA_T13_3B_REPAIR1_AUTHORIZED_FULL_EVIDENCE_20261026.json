@@ -1,0 +1,35 @@
+{
+  "task": "T13.3B Repair1 user-authorized final-source Full",
+  "testedSha": "43d917edc9e7533f00308107b8456c067ae6f89e",
+  "executionHead": "a5c677b6e79e175672a87404f6775900b4a805b0",
+  "documentationDelta": [
+    "docs/report/DSH_IDEA_T13_3B_REPAIR1_FULL_EVIDENCE_20261026.json",
+    "docs/report/DSH_IDEA_T13_3B_REPAIR1_IMPLEMENTATION_20261026.md"
+  ],
+  "authorization": "User explicitly authorized one additional fresh Full after FINAL_SHA_FULL_REQUIRED",
+  "invocationCountThisAuthorization": 1,
+  "repair1FullInvocationOrdinal": 2,
+  "previousFullTestedSha": "ff9f7c53912b78e7826ca4e348c42a7e3fcd2192",
+  "command": "pnpm verify (unmodified root script; pinned installed CLI)",
+  "freshRunAndViteCache": true,
+  "node": "v24.21.0",
+  "pnpm": "11.28.5",
+  "exitCode": 0,
+  "signal": null,
+  "wallMs": 40992,
+  "counts": {
+    "runtime": 30,
+    "runtimePassed": 30,
+    "runtimeFailed": 0,
+    "runtimeCancelled": 0,
+    "runtimeSkipped": 0,
+    "runtimeTodo": 0,
+    "pluginPassed": 1252,
+    "pluginFiles": 65,
+    "totalPassed": 1282
+  },
+  "rawLogSha256": "a23092046013c4dc6423dd82327fc57acd3245cb5985515f7c16a7f6db610b19",
+  "realProviderCalls": 0,
+  "boundaries": "No source changes; no browser/VM; default parallelism/timeouts; one Full in this new authorization",
+  "sanitizedCompleteOutput": "$ pnpm dev:audit:strict && pnpm test:runtime && pnpm -C packages/dsh-idea verify && pnpm dev:audit:strict\n$ node scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<RUN_ID>\",\n    \"state\": \"active\"\n  }\n]\n$ node scripts/dev-run.mjs -- node --test scripts/tests/dev-runtime.test.mjs\n✔ unique IDs, private owned paths, full isolated environment and credential filtering (599.393125ms)\n✔ invalid labels fail before any filesystem creation; supported labels remain reclaimable (787.464041ms)\n✔ strict audit accepts empty and legitimate concurrent active runs without deletion (404.107542ms)\n✔ strict audit blocks unknown, dangling receipt and abandoned cleanup lock without removing them (201.874542ms)\n✔ unknown/orphan metadata lock blocks audit and is never stolen (202.290833ms)\n✔ automatic preflight blocks execution; automatic postflight fails on new residue (696.267791ms)\n✔ strict audit coordinates concurrent creation and cleanup metadata transitions (3393.279541ms)\n✔ cleanup removes only this run, preserving concurrent runs and repository siblings (386.080708ms)\n✔ lexical escapes, absolute escapes and symlink ancestors are refused (195.102459ms)\n✔ symlinked .dev and changed directory identities are refused (206.061292ms)\n✔ unknown/mismatched ownership and duplicate cleanup fail closed (211.487083ms)\n✔ active owner cannot be reaped (197.530541ms)\n✔ open file handle prevents cleanup until explicitly released (370.282291ms)\n✔ an active registered child blocks cleanup even without file handles (290.222208ms)\n✔ unavailable handle scanner retains the complete run (200.303041ms)\n✔ PID reuse or changed owner identity is never treated as an inactive run (199.142208ms)\n✔ symlink ownership files cannot be followed (196.511ms)\n✔ external exceptions are checked but never removed (193.97825ms)\n✔ success and failure commands both remove their run and preserve exit status (738.273333ms)\n✔ spawn failure also cleans its run (no unhandled rejection) (297.177458ms)\n✔ SIGINT cancels the task and verifies removal (365.188542ms)\n✔ SIGTERM cancels the task and verifies removal (374.160541ms)\n✔ SIGHUP cancels the task and verifies removal (368.804792ms)\n✔ two concurrent CLI tasks never share or delete each other's run (671.206042ms)\n✔ normal exit gracefully stops a descendant in the owned process group (417.217792ms)\n✔ uncooperative cancellation retains active resources; reap waits for child exit (5761.227125ms)\n✔ SIGKILL leaves an auditable orphan; active then stale recovery is safe (282.360667ms)\n✔ unknown orphan directory is reported and retained (202.003041ms)\n✔ nested project commands reuse the parent run without cleaning it early (459.910625ms)\n✔ unwrapped configuration access is rejected, not silently pointed at real HOME (0.474667ms)\nℹ tests 30\nℹ suites 0\nℹ pass 30\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 18948.493417\n$ node ../../scripts/dev-run.mjs audit --strict && pnpm generate:typert && pnpm typecheck && pnpm test && pnpm build && pnpm build:client && node ../../scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<RUN_ID>\",\n    \"state\": \"active\"\n  }\n]\n$ node ../../scripts/dev-run.mjs -- node scripts/generate-typert.mjs\ngenerate-typert: wrote typert.host (@dsh-external/dsh-idea)\ngenerate-typert: wrote typert.remote-client\ngenerate-typert: done\n$ node ../../scripts/dev-run.mjs -- tsc -p tsconfig.json --noEmit\n$ node ../../scripts/dev-run.mjs -- vitest run --configLoader native\n\n RUN  v4.1.11 <REPO>/packages/dsh-idea\n\n\n Test Files  65 passed (65)\n      Tests  1252 passed (1252)\n   Start at  15:25:24\n   Duration  9.61s (transform 6.86s, setup 0ms, import 20.20s, tests 44.02s, environment 4.25s)\n\n$ node ../../scripts/dev-run.mjs -- tsc -p tsconfig.build.json\n$ node ../../scripts/dev-run.mjs -- tsdown -c tsdown.client.config.ts\nℹ tsdown v0.22.14 powered by rolldown v1.2.8\nℹ config file: <REPO>/packages/dsh-idea/tsdown.client.config.ts \nℹ entry: src/client/index.ts\nℹ target: es2024\nℹ tsconfig: tsconfig.json\nℹ Build start\nℹ Hint: consider adding deps.onlyBundle option to avoid unintended bundling of dependencies, or set deps.onlyBundle: false to disable this hint.\nSee more at https://tsdown.dev/options/dependencies#deps-onlybundle\nDetected dependencies in bundle:\n- zod\nℹ lib/client.js      854.54 kB │ gzip: 145.67 kB\nℹ lib/client.js.map    1.44 MB\nℹ 2 files, total: 2.29 MB\n✔ Build complete in 82ms\n[\n  {\n    \"id\": \"<RUN_ID>\",\n    \"state\": \"active\"\n  }\n]\n$ node scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<RUN_ID>\",\n    \"state\": \"active\"\n  }\n]\n"
+}
