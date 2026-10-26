@@ -1,5 +1,9 @@
 # Task execution directories
 
+Repository entry points: [README](../README.md) · [task instructions](../AGENTS.md).
+The [user guide](USER_GUIDE.md) describes the installed product; commands here
+are for development and isolated validation, not for the normal Web Profile.
+
 ## Entry points
 
 Requires the existing Node 24/pnpm toolchain and POSIX `ps` + `lsof`. No new packages
@@ -14,10 +18,9 @@ pnpm typecheck
 pnpm generate:typert
 pnpm build
 pnpm build:client
+pnpm verify
 pnpm dev:audit
 pnpm dev:audit:strict
-pnpm test:runtime:ab
-pnpm dev:reap <exact-orphan-run-id>
 ```
 
 The root/package validation scripts wrap execution automatically. Nested wrapped
@@ -25,6 +28,23 @@ commands reuse the parent's run and leave cleanup to that parent. A plain
 `vitest`/Typert invocation without an authenticated run fails with an entry-point
 instruction. `setup:dev` and installation remain explicit dependency management
 operations; they are not run by this manager or silently redirected.
+
+Run these commands from the repository root. Root `verify` performs strict
+audit → Runtime tests → package `verify` → strict audit. Package `verify`
+performs strict audit → Typert generation → typecheck → plugin tests → Host
+build → Client build → strict audit; invoking it directly does not include the
+root Runtime tests. Builds keep their formal `lib/` output; generation updates
+formal Typert outputs. Do not run them during a docs-only task that forbids such
+changes. Prefer link/command/source consistency checks for that task instead.
+
+For an authorized fresh Full, preserve its actual exit status and complete
+sanitized result, including any failure. A one-run task must stop on failure;
+do not retry, change timeouts or reduce parallelism to replace that result.
+When launching nested package-manager calls inside an outer run, pin the
+already-installed pnpm entry point (as the A/B driver does with `npm_execpath`);
+an isolated HOME/Corepack cache
+must not silently select or download another toolchain. Do not modify global
+package-manager configuration to make a task pass.
 
 The runtime creates `.dev/runs/<label>-<UUID>/` with mode 0700 and an independent
 mode-0600 ownership receipt in `.dev/owners/`. `.dev/` is ignored; nothing there
@@ -103,6 +123,12 @@ dead. Active/PID-reused/foreign/unknown records and active handles are refused.
 After SIGKILL/power loss no in-process finally can run: the next task must audit
 and explicitly reclaim a proven orphan. An interrupted cleanup with changed or
 missing ownership/lock records stays unknown for manual review, not auto-swept.
+
+Recovery is explicit: `pnpm dev:audit` first, then only
+`pnpm dev:reap <exact-orphan-run-id>` for a proven dead owned run. Never delete
+the entire `.dev` tree or another task's files. At task end require the wrapper's
+`removed: true` result and `pnpm dev:audit:strict`; record any legitimate concurrent
+active runs separately rather than claiming an empty inventory.
 
 `pnpm test:runtime:ab` is a reusable offline diagnostic for the original E6
 parallel timeout: immutable baseline `9fcee98` and implementation `b3a7aec`,
