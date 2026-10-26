@@ -363,6 +363,8 @@ export class IdeaResurfacingController {
   private readonly mutedIds = new Set<string>()
   private pauseInFlight = false
   private referenceInFlight = false
+  /** Pause invalidates older reads even when the durable write later fails. */
+  private referenceOperation = 0
   /**
    * The durable one-surface budget state, loaded from the Host before any
    * evaluation may begin. `loading` and `failed` block evaluation (fail
@@ -470,10 +472,12 @@ export class IdeaResurfacingController {
     if (suggestion === null || this.referenceInFlight || this.pauseInFlight) return
     const epoch = this.epoch
     const draftRev = this.input.getSnapshot().draftRev
+    const operation = ++this.referenceOperation
     this.referenceInFlight = true
     try {
       const invalid = await this.invalidSuggestionReason(suggestion)
-      if (epoch !== this.epoch || this.state.getSnapshot().suggestion !== suggestion) return
+      if (operation !== this.referenceOperation || epoch !== this.epoch
+        || this.state.getSnapshot().suggestion !== suggestion) return
       if (invalid !== undefined) {
         this.clearSuggestion(invalid)
         return
@@ -488,7 +492,8 @@ export class IdeaResurfacingController {
         this.clearSuggestion('REFERENCED')
       }
     } finally {
-      this.referenceInFlight = false
+      // An invalidated read must not unlock a newer explicit Reference click.
+      if (operation === this.referenceOperation) this.referenceInFlight = false
     }
   }
 
@@ -541,6 +546,10 @@ export class IdeaResurfacingController {
     const suggestion = this.state.getSnapshot().suggestion
     if (suggestion === null) return
     if (this.pauseInFlight) return
+    // User intent cancels old references immediately, independently of the
+    // RPC outcome. A later explicit click can start without waiting for them.
+    this.referenceOperation += 1
+    this.referenceInFlight = false
     this.pauseInFlight = true
     this.state.update((draft) => {
       draft.pauseFailed = false

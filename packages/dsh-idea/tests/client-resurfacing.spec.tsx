@@ -1053,6 +1053,113 @@ describe('T13.3A delivery and reference boundaries', () => {
   })
 })
 
+describe('T13.3A repair: pause invalidates older references', () => {
+  const detail = () => ({
+    ok: true, value: { id: 'idea_1', status: 'active', versionId: 'idea_ver_idea_1', resurfacingMuted: false },
+  })
+  const failure = { ok: false, error: { code: 'gateway/internal' } }
+
+  for (const mode of ['error reply', 'RPC rejection'] as const) {
+    for (const oldResult of ['valid', 'invalid'] as const) {
+      it(`keeps the strip and failure hint after ${mode}, ignoring the old ${oldResult} reference response`, async () => {
+        const oldRead = deferred<unknown>()
+        const pause = deferred<unknown>()
+        const get = vi.fn().mockResolvedValueOnce(detail())
+          .mockImplementationOnce(() => oldRead.promise).mockResolvedValueOnce(detail())
+        const setMuted = vi.fn(() => pause.promise.then(value => {
+          if (mode === 'RPC rejection') throw new Error('offline pause transport failure')
+          return value
+        }))
+        const rig = makeRig({ get, setMuted })
+        render(<IdeaResurfaceStrip {...stripProps(rig.controller)} />)
+        pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+        await flush()
+        const oldReference = rig.controller.reference()
+        expect(get).toHaveBeenCalledTimes(2)
+        fireEvent.click(screen.getByText('暂停提醒'))
+        pause.resolve(failure)
+        await flush()
+        expect(rig.controller.state.getSnapshot().pauseFailed).toBe(true)
+        oldRead.resolve(oldResult === 'valid' ? detail() : failure)
+        await act(async () => { await oldReference })
+        expect(rig.appended).toHaveLength(0)
+        expect(rig.controller.state.getSnapshot()).toMatchObject({ pauseFailed: true, lastExpireReason: null })
+        expect(screen.getByText('💡 以前保存过一个可能相关的 Idea：「Alpha idea」')).toBeDefined()
+        expect(screen.getByRole('status').textContent).toBe('暂停失败，请重试。')
+        expect(setMuted).toHaveBeenCalledTimes(1)
+
+        // This is a new explicit action, not an automatic retry of the old one.
+        fireEvent.click(screen.getByText('引用'))
+        await flush()
+        expect(get).toHaveBeenCalledTimes(3)
+        expect(rig.appended).toHaveLength(1)
+        expect(rig.appended[0]?.versionId).toBe('idea_ver_idea_1')
+        expect(rig.controller.state.getSnapshot()).toMatchObject({
+          suggestion: null, pauseFailed: false, lastExpireReason: 'REFERENCED',
+        })
+        expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+        expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
+      })
+    }
+  }
+
+  it('allows a new click before the old read returns; the old finally cannot unlock the newer pending operation', async () => {
+    const oldRead = deferred<unknown>()
+    const newRead = deferred<unknown>()
+    const pause = deferred<unknown>()
+    const get = vi.fn().mockResolvedValueOnce(detail()).mockImplementationOnce(() => oldRead.promise)
+      .mockImplementationOnce(() => newRead.promise)
+    const rig = makeRig({ get, setMuted: vi.fn(() => pause.promise) })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    const oldReference = rig.controller.reference()
+    rig.controller.pauseReminders()
+    pause.resolve(failure)
+    await flush()
+    const newReference = rig.controller.reference()
+    const startedReads = get.mock.calls.length
+    oldRead.resolve(detail())
+    await oldReference
+    const beforeNewResult = rig.appended.length
+    const duplicate = rig.controller.reference()
+    const readsAfterDuplicate = get.mock.calls.length
+    newRead.resolve(detail())
+    await Promise.all([newReference, duplicate])
+    expect(startedReads).toBe(3)
+    expect(beforeNewResult).toBe(0)
+    expect(readsAfterDuplicate).toBe(3)
+    expect(rig.appended).toHaveLength(1)
+    expect(rig.appended[0]?.versionId).toBe('idea_ver_idea_1')
+  })
+
+  it('keeps a newer successful reference intact when the older invalid read arrives last', async () => {
+    const oldRead = deferred<unknown>()
+    const newRead = deferred<unknown>()
+    const pause = deferred<unknown>()
+    const get = vi.fn().mockResolvedValueOnce(detail()).mockImplementationOnce(() => oldRead.promise)
+      .mockImplementationOnce(() => newRead.promise)
+    const rig = makeRig({ get, setMuted: vi.fn(() => pause.promise) })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    const oldReference = rig.controller.reference()
+    rig.controller.pauseReminders()
+    pause.resolve(failure)
+    await flush()
+    const newReference = rig.controller.reference()
+    newRead.resolve(detail())
+    await newReference
+    const appendsBeforeOldResult = rig.appended.length
+    oldRead.resolve(failure)
+    await oldReference
+    expect(appendsBeforeOldResult).toBe(1)
+    expect(get).toHaveBeenCalledTimes(3)
+    expect(rig.appended).toHaveLength(1)
+    expect(rig.controller.state.getSnapshot()).toMatchObject({
+      suggestion: null, pauseFailed: false, lastExpireReason: 'REFERENCED',
+    })
+  })
+})
+
 describe('dispose', () => {
   it('unsubscribes the feed and clears the suggestion', async () => {
     const rig = makeRig()
