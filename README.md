@@ -44,7 +44,7 @@
 
 - [P2-Lite B2](docs/report/DSH_IDEA_P2_LITE_B2_IMPLEMENTATION_20261023.md)：隔离真实 Web 浏览器，使用受控模型替身，真实 Provider 调用 0。
 - [T13.2 关闭报告](docs/report/DSH_IDEA_T13_2_FINAL_ARCHITECTURE_ACCEPTANCE_CLOSURE_20261015.md)：历史真实 Judge/UI 功能证据；Gate 2 的 Provider 阶段归属仍是 BLOCKED，以仅限该次功能验收的例外关闭。
-- [T13.3A 异步修复](docs/report/DSH_IDEA_T13_3A_ASYNC_INTERACTION_REPAIR_20261026.md)、[T13.3B 最终源码 Full](docs/report/DSH_IDEA_T13_3B_REPAIR1_AUTHORIZED_FULL_20261026.md)：离线竞态/识别及回归证据，不是最新源码的真实模型或浏览器验收，也不代表独立架构审查已通过。
+- [T13.3A 异步修复](docs/report/DSH_IDEA_T13_3A_ASYNC_INTERACTION_REPAIR_20261026.md)、[T13.3B 最终源码 Full](docs/report/DSH_IDEA_T13_3B_REPAIR1_AUTHORIZED_FULL_20261026.md)：两项修复已通过独立架构审查；链接记录中的离线竞态/识别及回归证据不等于真实模型或浏览器验收，也不能证明整体召回率、误报率。
 
 这些记录针对各自提交和范围，不构成当前版本真实模型效果、召回率或全部浏览器环境的承诺。
 
