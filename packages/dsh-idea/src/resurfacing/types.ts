@@ -18,6 +18,13 @@ import type { IdeaId, IdeaStatus, IdeaVersionId } from '../types.ts'
  */
 export const RESURFACING_FEATURE_ENABLED = true
 
+/** Read-only canonical eligibility at a resurfacing boundary (T13.3A). */
+export type ResurfacingEligibility =
+  | 'ELIGIBLE'
+  | 'CANDIDATE_BECAME_INELIGIBLE'
+  | 'CANDIDATE_VERSION_CHANGED'
+  | 'USER_MUTED'
+
 /** Most candidates one Judge call may receive. */
 export const RESURFACING_CANDIDATE_LIMIT = 3
 

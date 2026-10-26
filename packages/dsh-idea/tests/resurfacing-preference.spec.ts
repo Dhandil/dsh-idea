@@ -9,13 +9,153 @@
  * @module tests/resurfacing-preference.spec
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { cleanup } from './helpers/harness.ts'
+import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
+import type { IdeaAggregate, IdeaId, ResurfacingBudget } from '../src/types.ts'
+import { cleanup, storedBytes } from './helpers/harness.ts'
 import { draft, harness, sourceDraft } from './helpers/harness.ts'
 
 afterEach(cleanup)
+
+describe('T13.3A pinned delivery claims', () => {
+  for (const change of ['edit', 'archive', 'delete', 'mute'] as const) {
+    it(`refuses ${change} before claim without consuming the budget`, async () => {
+      const env = await harness()
+      const aggregate = await env.service.create(draft(), sourceDraft())
+      const { ideaId, currentVersionId: version } = aggregate.idea
+      if (change === 'edit') await env.service.manualEdit(ideaId, draft({ title: 'Updated direction' }), version)
+      if (change === 'archive') await env.service.archive(ideaId, version)
+      if (change === 'delete') await env.service.deleteIdea(ideaId, version)
+      if (change === 'mute') await env.service.setResurfacingMuted(ideaId, true)
+      const before = await storedBytes(env.root, ideaId)
+      const writes: string[] = []
+      env.ctx.on('domain/changed', event => { writes.push(event.table) })
+      expect(await env.service.claimResurfacingDelivery('stale-delivery', ideaId, version)).toBe(
+        change === 'edit' ? 'CANDIDATE_VERSION_CHANGED'
+          : change === 'mute' ? 'USER_MUTED' : 'CANDIDATE_BECAME_INELIGIBLE',
+      )
+      expect(env.service.getResurfacingBudget('stale-delivery')).toEqual({ consumed: false })
+      expect(writes).toEqual([])
+      expect(await storedBytes(env.root, ideaId)).toEqual(before)
+      await expect(readFile(join(env.root, 'idea', 'resurfacing_budgets', 'stale-delivery.json')))
+        .rejects.toMatchObject({ code: 'ENOENT' })
+    })
+  }
+
+  it('waits for an admitted edit, then rejects all old pins; new pins claim exactly once', async () => {
+    const env = await harness()
+    const aggregate = await env.service.create(draft(), sourceDraft())
+    const { ideaId, currentVersionId: version } = aggregate.idea
+    const records = (env.service as unknown as { records: KvTable<IdeaId, IdeaAggregate> }).records
+    const update = records.update.bind(records)
+    let entered!: () => void
+    let release!: () => void
+    const updating = new Promise<void>(resolve => { entered = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const spy = vi.spyOn(records, 'update').mockImplementation(async (...args) => {
+      entered()
+      await gate
+      return update(...args)
+    })
+    const edit = env.service.manualEdit(ideaId, draft({ title: 'New current direction' }), version)
+    let claims: Promise<string>[] = []
+    try {
+      await updating
+      claims = Array.from({ length: 8 }, () => env.service.claimResurfacingDelivery('queued', ideaId, version))
+      expect(env.service.getResurfacingBudget('queued')).toEqual({ consumed: false })
+    } finally {
+      release()
+    }
+    const current = await edit
+    expect(await Promise.all(claims)).toEqual(Array(8).fill('CANDIDATE_VERSION_CHANGED'))
+    spy.mockRestore()
+    await expect(readFile(join(env.root, 'idea', 'resurfacing_budgets', 'queued.json')))
+      .rejects.toMatchObject({ code: 'ENOENT' })
+    const outcomes = await Promise.all(Array.from({ length: 8 }, () =>
+      env.service.claimResurfacingDelivery('queued', ideaId, current.idea.currentVersionId)))
+    expect(outcomes.filter(outcome => outcome === 'CLAIMED')).toHaveLength(1)
+    expect(outcomes.filter(outcome => outcome === 'ALREADY_CONSUMED')).toHaveLength(7)
+    expect(JSON.parse(await readFile(join(env.root, 'idea', 'resurfacing_budgets', 'queued.json'), 'utf8')).record)
+      .toEqual({ surfaceBudgetConsumed: true })
+  })
+
+  it('holds the Idea slot through the budget write; a later edit cannot interleave', async () => {
+    const env = await harness()
+    const aggregate = await env.service.create(draft(), sourceDraft())
+    const { ideaId, currentVersionId: version } = aggregate.idea
+    const budgets = (env.service as unknown as { budgetRecords: KvTable<string, ResurfacingBudget> }).budgetRecords
+    const put = budgets.put.bind(budgets)
+    let entered!: () => void
+    let release!: () => void
+    const writing = new Promise<void>(resolve => { entered = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const spy = vi.spyOn(budgets, 'put').mockImplementation(async (...args) => {
+      entered()
+      await gate
+      return put(...args)
+    })
+    const claim = env.service.claimResurfacingDelivery('claim-first', ideaId, version)
+    let edit!: ReturnType<typeof env.service.manualEdit>
+    try {
+      await writing
+      edit = env.service.manualEdit(ideaId, draft({ title: 'Queued later edit' }), version)
+      expect(env.service.get(ideaId).idea.currentVersionId).toBe(version)
+    } finally {
+      release()
+    }
+    expect(await claim).toBe('CLAIMED')
+    expect((await edit).idea.currentVersionId).not.toBe(version)
+    spy.mockRestore()
+    expect(await env.service.claimResurfacingDelivery('after-edit', ideaId, version)).toBe('CANDIDATE_VERSION_CHANGED')
+    expect(env.service.getResurfacingBudget('after-edit')).toEqual({ consumed: false })
+  })
+
+  for (const operation of ['archive', 'mute'] as const) {
+    it(`serializes a concurrent ${operation} before delivery without writing a budget`, async () => {
+      const env = await harness()
+      const { ideaId, currentVersionId } = (await env.service.createDirect(draft())).idea
+      const mutation = operation === 'archive' ? env.service.archive(ideaId, currentVersionId)
+        : env.service.setResurfacingMuted(ideaId, true)
+      const claim = env.service.claimResurfacingDelivery('mutation-first', ideaId, currentVersionId)
+      await mutation
+      expect(await claim).toBe(operation === 'archive' ? 'CANDIDATE_BECAME_INELIGIBLE' : 'USER_MUTED')
+      await expect(readFile(join(env.root, 'idea', 'resurfacing_budgets', 'mutation-first.json')))
+        .rejects.toMatchObject({ code: 'ENOENT' })
+    })
+  }
+
+  it('rejects delivery during an admitted deletion and releases the deletion gate', async () => {
+    const env = await harness()
+    const { ideaId, currentVersionId } = (await env.service.createDirect(draft())).idea
+    const records = (env.service as unknown as { records: KvTable<IdeaId, IdeaAggregate> }).records
+    const remove = records.delete.bind(records)
+    let entered!: () => void
+    let release!: () => void
+    const deleting = new Promise<void>(resolve => { entered = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const spy = vi.spyOn(records, 'delete').mockImplementation(async (...args) => {
+      entered()
+      await gate
+      return remove(...args)
+    })
+    const deletion = env.service.deleteIdea(ideaId, currentVersionId)
+    try {
+      await deleting
+      expect(env.service.getResurfacingEligibility(ideaId, currentVersionId)).toBe('CANDIDATE_BECAME_INELIGIBLE')
+      await expect(env.service.claimResurfacingDelivery('deleting', ideaId, currentVersionId))
+        .rejects.toMatchObject({ code: 'deleting' })
+      expect(env.service.getResurfacingBudget('deleting')).toEqual({ consumed: false })
+    } finally {
+      release()
+      await deletion
+      spy.mockRestore()
+    }
+    expect(env.service.getResurfacingEligibility(ideaId, currentVersionId)).toBe('CANDIDATE_BECAME_INELIGIBLE')
+  })
+})
 
 async function createOne(env: { service: { create: Function; setResurfacingMuted: Function; getResurfacingPreference: Function; deleteIdea: Function; archive: Function; restore: Function; get: Function; listResurfacingMutedIds: Function } }) {
   const agg = await env.service.create(draft(), sourceDraft())
@@ -162,20 +302,20 @@ describe('resurfacing preference domain (T13.1)', () => {
   describe('delivery claim authority (R1-D)', () => {
     it('USER_MUTED: a muted Idea claims USER_MUTED and the budget stays free', async () => {
       const env = await harness()
-      const { ideaId } = await createOne(env)
+      const { ideaId, versionId } = await createOne(env)
       expect(env.service.getResurfacingBudget('conversation-race').consumed).toBe(false)
 
       await env.service.setResurfacingMuted(ideaId, true)
-      await expect(env.service.claimResurfacingDelivery('conversation-race', ideaId)).resolves.toBe('USER_MUTED')
+      await expect(env.service.claimResurfacingDelivery('conversation-race', ideaId, versionId)).resolves.toBe('USER_MUTED')
       expect(env.service.getResurfacingBudget('conversation-race').consumed).toBe(false)
     })
 
     it('CLAIMED: an unmuted Idea consumes the budget exactly once, then ALREADY_CONSUMED', async () => {
       const env = await harness()
-      const { ideaId } = await createOne(env)
-      await expect(env.service.claimResurfacingDelivery('conversation-race', ideaId)).resolves.toBe('CLAIMED')
+      const { ideaId, versionId } = await createOne(env)
+      await expect(env.service.claimResurfacingDelivery('conversation-race', ideaId, versionId)).resolves.toBe('CLAIMED')
       expect(env.service.getResurfacingBudget('conversation-race').consumed).toBe(true)
-      await expect(env.service.claimResurfacingDelivery('conversation-race', ideaId)).resolves.toBe('ALREADY_CONSUMED')
+      await expect(env.service.claimResurfacingDelivery('conversation-race', ideaId, versionId)).resolves.toBe('ALREADY_CONSUMED')
       expect(env.service.getResurfacingBudget('conversation-race').consumed).toBe(true)
     })
   })

@@ -24,7 +24,7 @@ import { IdeaPreparationError } from '../preparation/errors.ts'
 import { checkCancelled, extractModelText, resolveModelRoute } from '../preparation/pipeline.ts'
 import { extractQueryFeatures } from '../retrieval/lexical.ts'
 import { candidateOf } from './candidate.ts'
-import { IdeaId } from '../types.ts'
+import { IdeaId, IdeaVersionId } from '../types.ts'
 import { parseResurfacingJudgment } from './parser.ts'
 import { buildResurfacingJudgePrompt } from './prompt.ts'
 import { scoreResurfacingCandidate, selectResurfacingPool } from './retrieval.ts'
@@ -228,15 +228,18 @@ export class IdeaResurfacingService extends Service {
     const poolIds = new Set(survivors.map(candidate => candidate.ideaId as string))
     const judgment = parseResurfacingJudgment(text, poolIds)
 
-    // T13.1 R1-B: post-Judge mute revalidation — the preference may have
-    // changed while the provider call was in flight. A muted winning Idea
-    // never surfaces: the outcome becomes none (fail-closed silence).
-    if (judgment.outcome === 'surface' && judgment.ideaId !== undefined && this.ctx.ideaService.listResurfacingMutedIds().has(judgment.ideaId)) {
-      // Fail-closed silence: the reason is absent (the model's verdict was
-      // discarded), and the dropped list carries the canonical fact.
-      return {
-        outcome: 'none',
-        dropped: [...dropped, { ideaId: judgment.ideaId, reason: 'USER_MUTED' as const }],
+    // T13.3A: every canonical boundary may change during route/model I/O.
+    // The winner stays bound to the version actually presented to the Judge.
+    if (judgment.outcome === 'surface' && judgment.ideaId !== undefined) {
+      const winner = survivors.find(candidate => candidate.ideaId === judgment.ideaId)!
+      const eligibility = this.ctx.ideaService.getResurfacingEligibility(
+        judgment.ideaId, IdeaVersionId(winner.evaluatedVersionId),
+      )
+      if (eligibility !== 'ELIGIBLE') {
+        return {
+          outcome: 'none',
+          dropped: [...dropped, { ideaId: judgment.ideaId, reason: eligibility }],
+        }
       }
     }
     return { ...judgment, dropped }

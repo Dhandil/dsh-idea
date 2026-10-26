@@ -74,6 +74,44 @@ const judgeInput = (candidates: { ideaId: string; evaluatedVersionId: string }[]
 const surfaceAnswer = (ideaId: string): string =>
   `DECISION: SURFACE\nREASON: ADDS_DECISION_VALUE\nIDEA: ${ideaId}`
 
+describe('T13.3A post-Judge canonical races', () => {
+  for (const change of ['edit', 'archive', 'delete', 'mute'] as const) {
+    it(`drops a winning Idea changed by ${change} during the single model call`, async () => {
+      const { env, resurfacing } = await boot()
+      const id = IdeaId(await addIdea(env, OVERLAP_TURN))
+      const version = env.ideaService.get(id).idea.currentVersionId
+      let entered!: () => void
+      let release!: () => void
+      const dispatched = new Promise<void>(resolve => { entered = resolve })
+      const gate = new Promise<void>(resolve => { release = resolve })
+      env.llm.enqueueScript(async function* () {
+        entered()
+        await gate
+        yield* textStream(surfaceAnswer(id))
+      })
+      const pending = resurfacing.judge(judgeInput([{ ideaId: id, evaluatedVersionId: version }]))
+      try {
+        await dispatched
+        if (change === 'edit') await env.ideaService.manualEdit(id, draft({ title: 'Updated direction' }), version)
+        if (change === 'archive') await env.ideaService.archive(id, version)
+        if (change === 'delete') await env.ideaService.deleteIdea(id, version)
+        if (change === 'mute') await env.ideaService.setResurfacingMuted(id, true)
+      } finally {
+        release()
+      }
+      const judgment = await pending
+      expect(judgment).toMatchObject({
+        outcome: 'none',
+        dropped: [{ ideaId: id, reason: change === 'edit' ? 'CANDIDATE_VERSION_CHANGED'
+          : change === 'mute' ? 'USER_MUTED' : 'CANDIDATE_BECAME_INELIGIBLE' }],
+      })
+      expect(judgment.ideaId).toBeUndefined()
+      expect(env.llm.calls).toHaveLength(1)
+      expect(env.ideaService.getResurfacingBudget('conversation-1')).toEqual({ consumed: false })
+    })
+  }
+})
+
 describe('the strict parser', () => {
   const pool = new Set(['idea-1', 'idea-2'])
 

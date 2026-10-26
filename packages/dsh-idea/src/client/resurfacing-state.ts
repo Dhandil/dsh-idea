@@ -34,6 +34,7 @@ import {
 } from '../resurfacing/types.ts'
 import type { ResurfacingSignal } from '../resurfacing/types.ts'
 import type {
+  IdeaDetail,
   IdeaResurfacingBudgetClaimResult,
   IdeaResurfacingBudgetReadResult,
   IdeaResurfacingEvaluateResult,
@@ -70,6 +71,11 @@ export interface ResurfaceUiState {
 
 /** Minimal structural face of the Host remote the controller talks to. */
 export interface ResurfacingRemoteFace {
+  /** Existing canonical read; used only at explicit reference/publication. */
+  get(request: { id: string }): Promise<
+    | { ok: true; value: Pick<IdeaDetail, 'id' | 'status' | 'versionId' | 'resurfacingMuted'> }
+    | { ok: false; error: { code: string } }
+  >
   evaluateResurfacing(request: {
     sessionId: string
     currentTurn: string
@@ -115,6 +121,7 @@ export interface ResurfacingRemoteFace {
     sessionId: string
     /** T13.1 R1-D: the Idea the delivery would surface (mute re-check). */
     ideaId?: string
+    evaluatedVersionId?: string
   }): Promise<
     | { ok: true; value: IdeaResurfacingBudgetClaimResult }
     | { ok: false; error: { code: string } }
@@ -355,6 +362,7 @@ export class IdeaResurfacingController {
   /** T13.1: Ideas durably paused from this controller's interactions. */
   private readonly mutedIds = new Set<string>()
   private pauseInFlight = false
+  private referenceInFlight = false
   /**
    * The durable one-surface budget state, loaded from the Host before any
    * evaluation may begin. `loading` and `failed` block evaluation (fail
@@ -457,17 +465,55 @@ export class IdeaResurfacingController {
    * strip open (the composer notice is the seam's own) and never fakes a
    * close.
    */
-  reference(): void {
+  async reference(): Promise<void> {
     const suggestion = this.state.getSnapshot().suggestion
-    if (suggestion === null) return
-    if (this.appendReference(suggestion.reference)) {
-      this.referencedIds.add(suggestion.ideaId)
-      this.state.update((draft) => {
-        draft.suggestion = null
-        draft.detailOpen = false
-        draft.lastExpireReason = 'REFERENCED'
-      })
+    if (suggestion === null || this.referenceInFlight || this.pauseInFlight) return
+    const epoch = this.epoch
+    const draftRev = this.input.getSnapshot().draftRev
+    this.referenceInFlight = true
+    try {
+      const invalid = await this.invalidSuggestionReason(suggestion)
+      if (epoch !== this.epoch || this.state.getSnapshot().suggestion !== suggestion) return
+      if (invalid !== undefined) {
+        this.clearSuggestion(invalid)
+        return
+      }
+      if (this.pauseInFlight) return
+      // A draft edit during the read must not append into a different draft.
+      if (this.input.getSnapshot().draftRev !== draftRev) return
+      // No await between the canonical read result / stale guards and the
+      // ordinary T9 append. Never rebind an expired reminder to a new version.
+      if (this.appendReference(suggestion.reference)) {
+        this.referencedIds.add(suggestion.ideaId)
+        this.clearSuggestion('REFERENCED')
+      }
+    } finally {
+      this.referenceInFlight = false
     }
+  }
+
+  /** Check the existing Idea detail; every unknown/error is fail-closed. */
+  private async invalidSuggestionReason(candidate: PoolCandidate): Promise<string | undefined> {
+    try {
+      const result = await this.remote.get({ id: candidate.ideaId })
+      if (!result.ok) return result.error.code === 'idea/not-found'
+        ? 'CANDIDATE_BECAME_INELIGIBLE' : 'RESURFACING_VALIDATION_FAILED'
+      if (result.value.id !== candidate.ideaId || result.value.status !== 'active') return 'CANDIDATE_BECAME_INELIGIBLE'
+      if (result.value.versionId !== candidate.evaluatedVersionId) return 'CANDIDATE_VERSION_CHANGED'
+      if (result.value.resurfacingMuted !== false) return 'USER_MUTED'
+      return undefined
+    } catch {
+      return 'RESURFACING_VALIDATION_FAILED'
+    }
+  }
+
+  private clearSuggestion(reason: string): void {
+    this.state.update((draft) => {
+      draft.suggestion = null
+      draft.detailOpen = false
+      draft.lastExpireReason = reason
+      draft.pauseFailed = false
+    })
   }
 
   /** Dismiss this opportunity in this conversation; the Idea is untouched,
@@ -834,7 +880,9 @@ export class IdeaResurfacingController {
     try {
       // Deliberately not abortable: a short Host call whose abort would not
       // un-consume a budget the Host may already have committed.
-      claim = await this.remote.claimResurfacingBudget({ sessionId: this.sessionId, ideaId: evaluated.ideaId })
+      claim = await this.remote.claimResurfacingBudget({
+        sessionId: this.sessionId, ideaId: evaluated.ideaId, evaluatedVersionId: evaluated.evaluatedVersionId,
+      })
     } catch {
       claim = undefined
     }
@@ -853,19 +901,27 @@ export class IdeaResurfacingController {
     // budget state must remain 'free' (a future eligible turn may evaluate
     // again for a different Idea). Only CLAIMED/ALREADY_CONSUMED mark the
     // budget as consumed.
-    if (claim.value.outcome === 'USER_MUTED') {
-      this.mutedIds.add(evaluated.ideaId)
-      this.state.update((draft) => {
-        draft.suggestion = null
-        draft.detailOpen = false
-        draft.lastExpireReason = 'USER_MUTED'
-      })
+    if (claim.value.outcome === 'USER_MUTED'
+      || claim.value.outcome === 'CANDIDATE_VERSION_CHANGED'
+      || claim.value.outcome === 'CANDIDATE_BECAME_INELIGIBLE') {
+      if (claim.value.outcome === 'USER_MUTED') this.mutedIds.add(evaluated.ideaId)
+      this.clearSuggestion(claim.value.outcome)
       return
     }
     // The durable fact is decided either way; local suppression is for life.
     this.budgetState = 'consumed'
     if (claim.value.outcome !== 'CLAIMED') {
       // ALREADY_CONSUMED: another client won the budget; silence.
+      return
+    }
+
+    // The claim's critical section cannot cover RPC delivery. A change
+    // before its response reaches this client still must not publish an old
+    // snapshot. This read does not refund a committed budget (safe loss).
+    const invalid = await this.invalidSuggestionReason(evaluated)
+    if (epoch !== this.epoch) return
+    if (invalid !== undefined) {
+      this.clearSuggestion(invalid)
       return
     }
 

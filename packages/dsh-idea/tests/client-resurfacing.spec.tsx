@@ -182,6 +182,7 @@ interface Rig {
   controller: IdeaResurfacingController
   window: FakeWindow
   remote: {
+    get: ReturnType<typeof vi.fn>
     evaluateResurfacing: ReturnType<typeof vi.fn>
     judgeResurfacing: ReturnType<typeof vi.fn>
     getResurfacingBudget: ReturnType<typeof vi.fn>
@@ -198,6 +199,7 @@ interface Rig {
 }
 
 function makeRig(over: {
+  get?: ReturnType<typeof vi.fn>
   evaluate?: ReturnType<typeof vi.fn>
   judge?: ReturnType<typeof vi.fn>
   getBudget?: ReturnType<typeof vi.fn>
@@ -212,6 +214,10 @@ function makeRig(over: {
   const appended: IdeaReferenceDescriptor[] = []
   const appendOk = { value: true }
   const remote = {
+    get: over.get ?? vi.fn(async ({ id }: { id: string }) => ({
+      ok: true as const,
+      value: { id, status: 'active', versionId: `idea_ver_${id}`, resurfacingMuted: false },
+    })),
     evaluateResurfacing: over.evaluate ?? vi.fn(async () => ({
       ok: true as const,
       value: { candidates: [candidateWire('idea_1', 'Alpha idea')], suppressed: [] },
@@ -836,6 +842,7 @@ describe('runtime identity suppression', () => {
     expect(rig.controller.state.getSnapshot().suggestion!.ideaId).toBe('idea_1')
 
     act(() => { rig.controller.reference() })
+    await flush()
     expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
     expect(rig.controller.state.getSnapshot().lastExpireReason).toBe('REFERENCED')
     expect(rig.appended).toHaveLength(1)
@@ -908,9 +915,141 @@ describe('reference failure keeps the strip', () => {
     rig.appendOk.value = false
 
     act(() => { rig.controller.reference() })
+    await flush()
     expect(rig.appended).toHaveLength(1)
     expect(rig.controller.state.getSnapshot().suggestion).not.toBeNull()
     expect(rig.controller.state.getSnapshot().lastExpireReason).toBeNull()
+  })
+})
+
+describe('T13.3A delivery and reference boundaries', () => {
+  const detail = (overrides: Record<string, unknown> = {}) => ({
+    ok: true, value: { id: 'idea_1', status: 'active', versionId: 'idea_ver_idea_1', resurfacingMuted: false, ...overrides },
+  })
+  const invalidDetails = [
+    ['edit', detail({ versionId: 'idea_ver_new' }), 'CANDIDATE_VERSION_CHANGED'],
+    ['archive', detail({ status: 'archived' }), 'CANDIDATE_BECAME_INELIGIBLE'],
+    ['dormant', detail({ status: 'dormant' }), 'CANDIDATE_BECAME_INELIGIBLE'],
+    ['delete', { ok: false, error: { code: 'idea/not-found' } }, 'CANDIDATE_BECAME_INELIGIBLE'],
+    ['mute', detail({ resurfacingMuted: true }), 'USER_MUTED'],
+    ['wrong identity', detail({ id: 'idea_other' }), 'CANDIDATE_BECAME_INELIGIBLE'],
+    ['read failure', { ok: false, error: { code: 'gateway/unavailable' } }, 'RESURFACING_VALIDATION_FAILED'],
+  ] as const
+
+  for (const [change, result, reason] of invalidDetails) {
+    it(`never publishes after ${change} across the claim response`, async () => {
+      const get = vi.fn(async () => result)
+      const rig = makeRig({ get })
+      pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+      await flush()
+      expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledWith({
+        sessionId: 'conversation-1', ideaId: 'idea_1', evaluatedVersionId: 'idea_ver_idea_1',
+      })
+      expect(get).toHaveBeenCalledTimes(1)
+      expect(rig.controller.state.getSnapshot()).toMatchObject({ suggestion: null, lastExpireReason: reason })
+      expect(rig.appended).toHaveLength(0)
+      // Claim already committed: safe loss, never refund/retry the budget.
+      pushTurn(rig.window, 4, '塔防的方向哪个更好？', '回复')
+      await flush()
+      expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
+    })
+
+    it(`never references a displayed reminder after ${change}`, async () => {
+      const get = vi.fn().mockResolvedValueOnce(detail()).mockResolvedValueOnce(result)
+      const rig = makeRig({ get })
+      pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+      await flush()
+      expect(rig.controller.state.getSnapshot().suggestion?.evaluatedVersionId).toBe('idea_ver_idea_1')
+      await act(async () => { await rig.controller.reference() })
+      expect(get).toHaveBeenCalledTimes(2)
+      expect(rig.appended).toHaveLength(0)
+      expect(rig.controller.state.getSnapshot()).toMatchObject({ suggestion: null, lastExpireReason: reason })
+      expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+    })
+  }
+
+  for (const outcome of ['CANDIDATE_VERSION_CHANGED', 'CANDIDATE_BECAME_INELIGIBLE'] as const) {
+    it(`${outcome} preserves the local free budget for a later valid opportunity`, async () => {
+      const claimBudget = vi.fn().mockResolvedValueOnce({ ok: true, value: { outcome } })
+        .mockResolvedValueOnce({ ok: true, value: { outcome: 'CLAIMED' } })
+      const rig = makeRig({ claimBudget })
+      pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+      await flush()
+      expect(rig.controller.state.getSnapshot()).toMatchObject({ suggestion: null, lastExpireReason: outcome })
+      expect(rig.remote.get).not.toHaveBeenCalled()
+      pushTurn(rig.window, 4, '塔防的方向哪个更好？', '回复')
+      await flush()
+      expect(claimBudget).toHaveBeenCalledTimes(2)
+      expect(rig.controller.state.getSnapshot().suggestion?.ideaId).toBe('idea_1')
+    })
+  }
+
+  it('folds double Reference clicks into one read and one exact-version append', async () => {
+    const gate = deferred<unknown>()
+    const get = vi.fn().mockResolvedValueOnce(detail()).mockImplementationOnce(() => gate.promise)
+    const rig = makeRig({ get })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    const first = rig.controller.reference()
+    const second = rig.controller.reference()
+    expect(rig.appended).toHaveLength(0)
+    gate.resolve(detail())
+    await act(async () => { await Promise.all([first, second]) })
+    expect(get).toHaveBeenCalledTimes(2) // publication + the one reference read
+    expect(rig.appended).toHaveLength(1)
+    expect(rig.appended[0]?.versionId).toBe('idea_ver_idea_1')
+  })
+
+  for (const action of ['dispose', 'dismiss', 'new turn', 'draft edit', 'pause'] as const) {
+    it(`cannot append a late valid read after ${action}`, async () => {
+      const gate = deferred<unknown>()
+      const get = vi.fn().mockResolvedValueOnce(detail()).mockImplementationOnce(() => gate.promise)
+      const rig = makeRig({ get })
+      pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+      await flush()
+      const pending = rig.controller.reference()
+      if (action === 'dispose') rig.controller.dispose()
+      if (action === 'dismiss') rig.controller.dismiss()
+      if (action === 'new turn') rig.window.append(userEntry('继续', 4))
+      if (action === 'draft edit') rig.input.draftRev += 1
+      if (action === 'pause') { rig.controller.pauseReminders(); await flush() }
+      gate.resolve(detail())
+      await act(async () => { await pending })
+      expect(rig.appended).toHaveLength(0)
+    })
+  }
+
+  it('does not reopen after disposal while the post-claim read is pending', async () => {
+    const gate = deferred<unknown>()
+    const rig = makeRig({ get: vi.fn(() => gate.promise) })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    expect(rig.remote.get).toHaveBeenCalledTimes(1)
+    rig.controller.dispose()
+    gate.resolve(detail())
+    await flush()
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+
+  it('does not append while a durable pause is still in flight, even if the earlier read was valid', async () => {
+    const read = deferred<unknown>()
+    const pause = deferred<unknown>()
+    const rig = makeRig({
+      get: vi.fn().mockResolvedValueOnce(detail()).mockImplementationOnce(() => read.promise),
+      setMuted: vi.fn(() => pause.promise),
+    })
+    pushTurn(rig.window, 1, '我准备重新做一个塔防游戏。', '回复')
+    await flush()
+    const reference = rig.controller.reference()
+    rig.controller.pauseReminders()
+    read.resolve(detail())
+    await reference
+    expect(rig.appended).toHaveLength(0)
+    await rig.controller.reference()
+    expect(rig.remote.get).toHaveBeenCalledTimes(2)
+    pause.resolve({ ok: true, value: { muted: true } })
+    await flush()
+    expect(rig.controller.state.getSnapshot().lastExpireReason).toBe('USER_MUTED')
   })
 })
 
@@ -1093,7 +1232,7 @@ describe('T13.1 R1-D evidence: USER_MUTED keeps the conversation budget free', (
     await flush()
 
     expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
-    expect(rig.remote.claimResurfacingBudget.mock.calls[0]![0]).toEqual({ sessionId: 'conversation-1', ideaId: 'idea_1' })
+    expect(rig.remote.claimResurfacingBudget.mock.calls[0]![0]).toEqual({ sessionId: 'conversation-1', ideaId: 'idea_1', evaluatedVersionId: 'idea_ver_idea_1' })
     const state = rig.controller.state.getSnapshot()
     expect(state.suggestion).toBeNull()
     expect(state.detailOpen).toBe(false)
@@ -1110,7 +1249,7 @@ describe('T13.1 R1-D evidence: USER_MUTED keeps the conversation budget free', (
     expect(rig.remote.evaluateResurfacing).toHaveBeenCalledTimes(2)
     expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(2)
     expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledTimes(2)
-    expect(rig.remote.claimResurfacingBudget.mock.calls[1]![0]).toEqual({ sessionId: 'conversation-1', ideaId: 'idea_2' })
+    expect(rig.remote.claimResurfacingBudget.mock.calls[1]![0]).toEqual({ sessionId: 'conversation-1', ideaId: 'idea_2', evaluatedVersionId: 'idea_ver_idea_2' })
     const surfaced = rig.controller.state.getSnapshot().suggestion
     expect(surfaced).not.toBeNull()
     expect(surfaced!.ideaId).toBe('idea_2')

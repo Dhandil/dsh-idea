@@ -768,10 +768,16 @@ export class IdeaRemoteService extends TypertRemoteService {
     // a mute re-check under the Idea's mutation tail BEFORE the budget
     // test-and-set. Legacy callers without ideaId keep the plain budget
     // claim.
-    if (request.ideaId !== undefined) {
+    if (request.ideaId !== undefined || request.evaluatedVersionId !== undefined) {
+      // Old/incomplete pinned clients must fail closed, never claim a newer
+      // version implicitly. Legacy session-only budget callers stay unchanged.
+      if (!request.ideaId || !request.evaluatedVersionId) {
+        return { outcome: 'CANDIDATE_VERSION_CHANGED' }
+      }
       const outcome = await this.ctx.ideaService.claimResurfacingDelivery(
         request.sessionId,
         IdeaId(request.ideaId as string),
+        IdeaVersionId(request.evaluatedVersionId),
       )
       return { outcome }
     }

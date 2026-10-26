@@ -525,6 +525,8 @@ export interface IdeaResurfacingBudgetRequest {
   /** T13.1 R1-D: the Idea the delivery would surface (enables the
    * authoritative mute re-check). Present only from the suggestion strip. */
   ideaId?: string
+  /** T13.3A: required together with ideaId for a pinned delivery claim. */
+  evaluatedVersionId?: string
 }
 
 /** `idea.getResurfacingBudget` result: the durable budget fact, read-only. */
@@ -535,8 +537,9 @@ export interface IdeaResurfacingBudgetReadResult {
 
 /** `idea.claimResurfacingBudget` result: the closed claim outcome. */
 export interface IdeaResurfacingBudgetClaimResult {
-  /** `CLAIMED` when this call durably consumed the budget; `ALREADY_CONSUMED` otherwise; `USER_MUTED` when the Idea was paused between proposal and delivery. */
+  /** Only CLAIMED / ALREADY_CONSUMED mean the budget is consumed. */
   outcome: 'CLAIMED' | 'ALREADY_CONSUMED' | 'USER_MUTED'
+    | 'CANDIDATE_VERSION_CHANGED' | 'CANDIDATE_BECAME_INELIGIBLE'
 }
 
 /**

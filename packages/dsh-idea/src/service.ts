@@ -46,6 +46,7 @@ import {
   sourceDiscussionDraftSchema,
 } from './schema.ts'
 import { ideaDomainSpec } from './spec.ts'
+import type { ResurfacingEligibility } from './resurfacing/types.ts'
 import { EvolutionEventId, IdeaDiscussionId, IdeaId, IdeaVersionId, SourceDiscussionId } from './types.ts'
 import type {
   IdeaAggregate,
@@ -791,26 +792,40 @@ export class IdeaService extends Service {
     return { consumed: this.budgetRecords.get(sessionId) !== undefined }
   }
 
+  /** Read-only current eligibility; never substitutes a newer version. */
+  getResurfacingEligibility(ideaId: IdeaId, expectedVersionId: IdeaVersionId): ResurfacingEligibility {
+    if (this.deleting.has(ideaId)) return 'CANDIDATE_BECAME_INELIGIBLE'
+    let aggregate: IdeaAggregate
+    try {
+      aggregate = this.get(ideaId)
+    } catch (error) {
+      if (error instanceof IdeaError && error.code === 'idea-not-found') return 'CANDIDATE_BECAME_INELIGIBLE'
+      throw error
+    }
+    if (aggregate.idea.status !== 'active') return 'CANDIDATE_BECAME_INELIGIBLE'
+    if (aggregate.idea.currentVersionId !== expectedVersionId) return 'CANDIDATE_VERSION_CHANGED'
+    if (this.resurfacingPreferences?.get(ideaId) !== undefined) return 'USER_MUTED'
+    return 'ELIGIBLE'
+  }
+
   /**
-   * T13.1 R1-D: the authoritative delivery claim — one atomic seam that
-   * re-checks the Idea's resurfacing preference under the per-Idea mutation
-   * tail BEFORE the per-conversation budget claim. Lock order is fixed:
-   * Idea mutation tail → conversation budget tail (never reversed). A muted
-   * Idea returns `USER_MUTED` without consuming the budget; an unmuted Idea
-   * proceeds to the existing budget test-and-set.
+   * T13.3A: validate the exact judged version, lifecycle and preference in
+   * the same critical section as the budget write. Lock order stays Idea
+   * mutation tail → conversation budget tail. Validate after both queue
+   * waits; invalid candidates leave the durable budget untouched.
    * @param sessionId - The conversation id the budget is keyed by.
    * @param ideaId - The Idea the delivery would surface.
-   * @returns `CLAIMED`, `ALREADY_CONSUMED`, or `USER_MUTED`.
-   * @throws `IdeaError` with `idea-not-found` when the Idea does not exist,
-   * `deleting` while a permanent delete is admitted.
+   * @param expectedVersionId - The exact current version the Judge saw.
+   * @returns A claim outcome or the canonical ineligibility reason.
+   * @throws `IdeaError` with `deleting` while a permanent delete is admitted.
    */
-  async claimResurfacingDelivery(sessionId: string, ideaId: IdeaId): Promise<'CLAIMED' | 'ALREADY_CONSUMED' | 'USER_MUTED'> {
+  async claimResurfacingDelivery(
+    sessionId: string, ideaId: IdeaId, expectedVersionId: IdeaVersionId,
+  ): Promise<'CLAIMED' | 'ALREADY_CONSUMED' | Exclude<ResurfacingEligibility, 'ELIGIBLE'>> {
     return await this.enqueueIdeaMutation(ideaId, async () => {
-      this.get(ideaId)
-      if (this.resurfacingPreferences?.get(ideaId) !== undefined) {
-        return 'USER_MUTED'
-      }
       return await this.enqueueBudgetClaim(sessionId, async () => {
+        const eligibility = this.getResurfacingEligibility(ideaId, expectedVersionId)
+        if (eligibility !== 'ELIGIBLE') return eligibility
         if (this.budgetRecords.get(sessionId) !== undefined) {
           return 'ALREADY_CONSUMED'
         }

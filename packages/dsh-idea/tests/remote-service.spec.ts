@@ -103,6 +103,27 @@ async function fullHarness() {
   return { ...env, llm }
 }
 
+describe('T13.3A delivery wire contract', () => {
+  it('requires the exact pin for Idea delivery, rejects stale pins, and preserves session-only budget calls', async () => {
+    const env = await fullHarness()
+    const saved = await env.ideaService.createDirect(draft())
+    const { ideaId, currentVersionId } = saved.idea
+    const remote = env.ctx.idea
+    expect(await remote.claimResurfacingBudget({ sessionId: 'pin', ideaId }))
+      .toEqual({ outcome: 'CANDIDATE_VERSION_CHANGED' })
+    expect(await remote.claimResurfacingBudget({ sessionId: 'pin', evaluatedVersionId: currentVersionId }))
+      .toEqual({ outcome: 'CANDIDATE_VERSION_CHANGED' })
+    expect(await remote.claimResurfacingBudget({ sessionId: 'pin', ideaId, evaluatedVersionId: 'old' }))
+      .toEqual({ outcome: 'CANDIDATE_VERSION_CHANGED' })
+    expect(env.ideaService.getResurfacingBudget('pin')).toEqual({ consumed: false })
+    expect(await remote.claimResurfacingBudget({ sessionId: 'pin', ideaId, evaluatedVersionId: currentVersionId }))
+      .toEqual({ outcome: 'CLAIMED' })
+    expect(await remote.claimResurfacingBudget({ sessionId: 'legacy' })).toEqual({ outcome: 'CLAIMED' })
+    expect(await remote.claimResurfacingBudget({ sessionId: 'legacy' })).toEqual({ outcome: 'ALREADY_CONSUMED' })
+    expect(env.llm.calls).toHaveLength(0)
+  })
+})
+
 /** The preparation of one scripted successful model proposal. */
 async function preparedPreview(env: Awaited<ReturnType<typeof fullHarness>>): Promise<IdeaPreparationPreview> {
   env.llm.enqueueChunks(textStream(draftText))
