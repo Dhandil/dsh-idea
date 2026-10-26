@@ -103,16 +103,25 @@ export async function extractModelText(
   options: GenerateOptions,
   sessionId: string,
   signal?: AbortSignal,
-  timing?: { onFirstResponse(): void; onComplete(): void },
+  timing?: { onFirstResponse(): void; onFirstText?(): void; onComplete(): void },
 ): Promise<string> {
   const assembler = new BlockAssembler()
   let firstResponse = false
+  let firstText = false
   try {
     for await (const chunk of llm.stream(options)) {
       signal?.throwIfAborted()
       if (!firstResponse) {
         firstResponse = true
         timing?.onFirstResponse()
+      }
+      // A block-start, reasoning, usage or finish chunk is not visible text.
+      // Some adapters deliver text only in the completed block, without deltas.
+      const text = chunk.type === 'text-delta' ? chunk.text
+        : chunk.type === 'block-end' && chunk.block.type === 'text' ? chunk.block.text : ''
+      if (!firstText && text.length > 0) {
+        firstText = true
+        timing?.onFirstText?.()
       }
       assembler.push(chunk)
     }

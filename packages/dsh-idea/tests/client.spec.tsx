@@ -115,7 +115,7 @@ function dialogProps(surface: IdeaSaveSurface): IdeaDialogProps {
     submit: () => { surface.submit() },
     cancel: () => { surface.cancel() },
     cancelPending: () => { surface.cancelPending() },
-    recordRendered: (phase: 'pending' | 'preview') => { surface.recordRendered(phase) },
+    recordRendered: (phase: 'choice' | 'pending' | 'preview') => { surface.recordRendered(phase) },
     dismissFailure: () => { surface.dismissFailure() },
     dismissToast: (seq: number) => { surface.dismissToast(seq) },
     useIdea: useIdeaOf(surface.state),

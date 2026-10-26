@@ -41,7 +41,8 @@ export function IdeaSaveDialog({
   useLayoutEffect(() => {
     if (pending) recordRendered('pending')
     else if (modal !== null) recordRendered('preview')
-  }, [pending, modal, recordRendered])
+    else if (summary !== null) recordRendered('choice')
+  }, [pending, modal, summary, recordRendered])
   // The session-scoped slot may be reused for a different Session without unmounting.
   useEffect(() => () => { cancelPending() }, [sessionId])
 

@@ -132,7 +132,7 @@ export interface IdeaDialogInjected {
   /** Abort only an in-flight prepare when this Session overlay unmounts. */
   cancelPending: () => void
   /** Record a content-free duration after a visible phase commits. */
-  recordRendered: (phase: 'pending' | 'preview') => void
+  recordRendered: (phase: 'choice' | 'pending' | 'preview') => void
   /** Retire the failure toast. */
   dismissFailure: () => void
   /** Retire the success toast. */

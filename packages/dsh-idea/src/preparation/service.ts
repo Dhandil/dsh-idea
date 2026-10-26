@@ -150,7 +150,9 @@ export class IdeaPreparationService extends Service {
     route: IdeaPreparationModelRoute,
     signal?: AbortSignal,
   ): Promise<IdeaPreparationPreview['draft']> {
+    const promptStartedAt = performance.now()
     const prompt = buildIdeaExtractionPrompt(messages)
+    this.performance.record('host.prompt', promptStartedAt)
     const options: GenerateOptions = {
       provider: route.provider,
       model: route.model,
@@ -166,6 +168,7 @@ export class IdeaPreparationService extends Service {
     const modelStartedAt = performance.now()
     const output = await extractModelText(this.ctx.llm, options, sessionId, signal, {
       onFirstResponse: () => { this.performance.record('host.model-first-response', modelStartedAt) },
+      onFirstText: () => { this.performance.record('host.model-first-text', modelStartedAt) },
       onComplete: () => { this.performance.record('host.model-complete', modelStartedAt) },
     })
     const parseStartedAt = performance.now()

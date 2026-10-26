@@ -1,12 +1,22 @@
 /** Bounded, in-memory timings. Stage names are static; no content or IDs enter this store. */
 export type IdeaPerfStage =
   | 'client.rpc'
+  | 'client.new-rpc'
+  | 'client.update-rpc'
+  | 'client.choice-commit'
+  | 'client.pending-commit'
+  | 'client.preview-commit'
+  | 'client.generate-to-preview-commit'
+  /** Compatibility names: React commit, not browser paint. */
   | 'client.pending-render'
   | 'client.preview-render'
   | 'host.session-read'
   | 'host.capture'
   | 'host.route'
+  | 'host.target-read'
+  | 'host.prompt'
   | 'host.model-first-response'
+  | 'host.model-first-text'
   | 'host.model-complete'
   | 'host.parse'
   | 'host.prepare-total'

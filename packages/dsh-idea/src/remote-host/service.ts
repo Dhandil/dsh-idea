@@ -140,10 +140,13 @@ export class IdeaRemoteService extends TypertRemoteService {
   /** Explicit library selection, one Host capture and one direct proposal call. */
   @Remote
   async prepareUpdateFromMessage(request: IdeaPrepareUpdateRequest, signal?: AbortSignal): Promise<IdeaUpdatePreview> {
+    const startedAt = performance.now()
     try {
       return await this.ctx.ideaPreparations.updates.prepare(request, signal)
     } catch (error) {
       throw remoteUpdateError(error) ?? remotePreparationError(error) ?? remoteDomainError(error) ?? error
+    } finally {
+      this.ctx.ideaPreparations.updates.performance.record('host.rpc-handler', startedAt)
     }
   }
 

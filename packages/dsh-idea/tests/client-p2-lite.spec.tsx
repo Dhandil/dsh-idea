@@ -47,6 +47,53 @@ async function select(surface: IdeaSaveSurface) {
 }
 
 describe('P2-Lite explicit summary interaction', () => {
+  for (const mode of ['new', 'update'] as const) {
+    it(`UX02A ${mode}: choice/pending/preview commits are distinct, once-only and exclude user selection time`, async () => {
+      const gate = Promise.withResolvers<unknown>()
+      const prepare = vi.fn(() => gate.promise)
+      const { surface, face, props } = rig(mode === 'new' ? { prepareFromMessage: prepare } : { prepareUpdateFromMessage: prepare })
+      render(<IdeaSaveDialog {...props} />)
+      if (mode === 'update') await select(surface)
+      else act(() => surface.openSummary('answer' as MessageId))
+      expect(surface.performance.snapshot()['client.choice-commit']?.count).toBe(1)
+      expect(prepare).not.toHaveBeenCalled()
+      expect(surface.performance.snapshot()['client.generate-to-preview-commit']).toBeUndefined()
+      act(() => { surface.generate(); surface.generate() })
+      expect(screen.getByRole('status').textContent).toContain('正在生成')
+      expect(surface.performance.snapshot()['client.pending-commit']?.count).toBe(1)
+      gate.resolve(ok(mode === 'new' ? { preparationId: 'private-prep', draft, source }
+        : { updateId: 'private-update', draft, sourceStats: source, targetSummary: { ideaId: 'one', currentVersionId: 'base-one', title: 'Same title', status: 'active' } }))
+      await flush()
+      act(() => surface.editDraft({ title: 'edited private body' }))
+      const metrics = surface.performance.snapshot()
+      for (const stage of ['client.choice-commit', 'client.pending-commit', 'client.preview-commit', 'client.generate-to-preview-commit', 'client.rpc'] as const) expect(metrics[stage]?.count).toBe(1)
+      expect(metrics[mode === 'new' ? 'client.new-rpc' : 'client.update-rpc']?.count).toBe(1)
+      expect(prepare).toHaveBeenCalledTimes(1)
+      expect(face.create).not.toHaveBeenCalled(); expect(face.commitPreparedUpdate).not.toHaveBeenCalled()
+      expect(JSON.stringify(metrics)).not.toMatch(/private|edited|session|answer/)
+    })
+
+    it(`UX02A ${mode}: cancelled late responses and unmounted commits do not add preview observations`, async () => {
+      const gate = Promise.withResolvers<unknown>()
+      const prepare = vi.fn(() => gate.promise)
+      const { surface, props } = rig(mode === 'new' ? { prepareFromMessage: prepare } : { prepareUpdateFromMessage: prepare })
+      const view = render(<IdeaSaveDialog {...props} />)
+      if (mode === 'update') await select(surface)
+      else act(() => surface.openSummary('answer' as MessageId))
+      act(() => surface.generate())
+      view.unmount()
+      gate.resolve(ok({ preparationId: 'late', updateId: 'late', draft, source, sourceStats: source }))
+      await flush()
+      const metrics = surface.performance.snapshot()
+      expect(metrics['client.choice-commit']?.count).toBe(1)
+      expect(metrics['client.pending-commit']?.count).toBe(1)
+      expect(metrics['client.preview-commit']).toBeUndefined()
+      expect(metrics['client.generate-to-preview-commit']).toBeUndefined()
+      expect(surface.state.getSnapshot().modal).toBeNull()
+      expect((prepare.mock.calls[0] as unknown as [unknown, AbortSignal])[1].aborted).toBe(true)
+    })
+  }
+
   it('L01/L11 immediately opens mode choice with zero requests; new generation/save keep separate contracts', async () => {
     const { surface, face, props } = rig(); render(<IdeaSaveDialog {...props} />)
     act(() => { surface.openSummary('answer' as MessageId); surface.openSummary('other' as MessageId) })

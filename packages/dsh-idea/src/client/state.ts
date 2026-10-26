@@ -190,6 +190,8 @@ export class IdeaSaveSurface {
   private disposed = false
   private pendingStartedAt: number | undefined
   private previewReadyAt: number | undefined
+  private choiceStartedAt: number | undefined
+  private generationStartedAt: number | undefined
 
   constructor(
     private readonly remote: IdeaRemoteFace,
@@ -206,6 +208,7 @@ export class IdeaSaveSurface {
     if (this.context.kind !== 'session' || this.disposed || this.submitInFlight) return
     const current = this.state.getSnapshot()
     if (current.summary || current.modal || this.prepareInFlight) return
+    this.choiceStartedAt = performance.now()
     this.state.update(state => {
       state.summary = { messageId, mode: 'new', query: '', items: [], listStatus: 'idle', selectedId: null, target: null, targetStatus: 'idle' }
       state.failure = null
@@ -271,6 +274,7 @@ export class IdeaSaveSurface {
     if (!summary.target || summary.targetStatus !== 'ready') return
     const controller = new AbortController(); this.prepareAbort = controller; this.prepareInFlight = true
     this.pendingStartedAt = performance.now()
+    this.generationStartedAt = this.pendingStartedAt
     this.state.update(state => { state.preparingMessageId = summary.messageId; state.failure = null })
     const request = { requestKey: crypto.randomUUID(), sessionId: this.sessionId, messageId: summary.messageId,
       ideaId: summary.target.id, expectedCurrentVersionId: summary.target.versionId }
@@ -290,6 +294,7 @@ export class IdeaSaveSurface {
         if (!controller.signal.aborted && !this.disposed) this.state.update(state => { state.failure = 'prepare-failed' })
       } finally {
         this.performance.record('client.rpc', started)
+        this.performance.record('client.update-rpc', started)
         if (this.prepareAbort === controller) {
           this.prepareAbort = undefined; this.prepareInFlight = false
           this.state.update(state => { state.preparingMessageId = null })
@@ -301,6 +306,7 @@ export class IdeaSaveSurface {
   private cancelPreparation(): void {
     this.prepareAbort?.abort(); this.prepareAbort = undefined; this.prepareInFlight = false
     this.pendingStartedAt = undefined; this.previewReadyAt = undefined
+    this.generationStartedAt = undefined
     this.state.update(state => { state.preparingMessageId = null })
   }
 
@@ -315,6 +321,7 @@ export class IdeaSaveSurface {
     const controller = new AbortController()
     this.prepareAbort = controller
     this.pendingStartedAt = performance.now()
+    this.generationStartedAt = this.pendingStartedAt
     this.state.update((draft) => { draft.preparingMessageId = messageId; draft.failure = null })
     void this.runPrepare(messageId, controller)
   }
@@ -342,6 +349,7 @@ export class IdeaSaveSurface {
       // A thrown carrier error is a failed prepare, not a crash.
     } finally {
       this.performance.record('client.rpc', rpcStartedAt)
+      this.performance.record('client.new-rpc', rpcStartedAt)
       if (this.prepareAbort === controller) {
         this.prepareInFlight = false
         this.prepareAbort = undefined
@@ -364,14 +372,24 @@ export class IdeaSaveSurface {
   }
 
   /** Called after the corresponding React commit; each phase records once. */
-  recordRendered(phase: 'pending' | 'preview'): void {
-    if (phase === 'pending' && this.pendingStartedAt !== undefined
+  recordRendered(phase: 'choice' | 'pending' | 'preview'): void {
+    if (phase === 'choice' && this.choiceStartedAt !== undefined
+      && this.state.getSnapshot().summary !== null) {
+      this.performance.record('client.choice-commit', this.choiceStartedAt)
+      this.choiceStartedAt = undefined
+    } else if (phase === 'pending' && this.pendingStartedAt !== undefined
       && this.state.getSnapshot().preparingMessageId !== null) {
       this.performance.record('client.pending-render', this.pendingStartedAt)
+      this.performance.record('client.pending-commit', this.pendingStartedAt)
       this.pendingStartedAt = undefined
     } else if (phase === 'preview' && this.previewReadyAt !== undefined
       && this.state.getSnapshot().modal !== null) {
       this.performance.record('client.preview-render', this.previewReadyAt)
+      this.performance.record('client.preview-commit', this.previewReadyAt)
+      if (this.generationStartedAt !== undefined) {
+        this.performance.record('client.generate-to-preview-commit', this.generationStartedAt)
+        this.generationStartedAt = undefined
+      }
       this.previewReadyAt = undefined
     }
   }
@@ -487,6 +505,8 @@ export class IdeaSaveSurface {
     if (this.submitInFlight) return
     this.queryAbort?.abort(); this.targetAbort?.abort()
     this.previewReadyAt = undefined
+    this.choiceStartedAt = undefined
+    this.generationStartedAt = undefined
     if (this.prepareAbort !== undefined) {
       const controller = this.prepareAbort
       this.prepareAbort = undefined

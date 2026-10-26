@@ -15,6 +15,7 @@ import { checkCancelled, extractModelText, readSessionSurface, resolveModelRoute
 import { IdeaUpdateRegistry } from './update-registry.ts'
 import { IdeaUpdateError } from './update-types.ts'
 import type { IdeaPrepareUpdateRequest, IdeaUpdateId, IdeaUpdatePreview, IdeaUpdateResult, PreparedUpdate } from './update-types.ts'
+import { IdeaPerfMetrics } from '../perf/metrics.ts'
 
 const id = z.string().min(1).max(IDEA_LIMITS.idMax).refine(value => value.trim() === value)
 const requestSchema = z.strictObject({ requestKey: id, sessionId: id, messageId: id, ideaId: id, expectedCurrentVersionId: id })
@@ -47,43 +48,66 @@ export function captureUpdateSource(surface: SessionSurfaceSnapshot, sessionId: 
 }
 
 export class IdeaUpdatePipeline {
+  /** Separate aggregates keep update and new-Idea samples distinguishable. */
+  readonly performance: IdeaPerfMetrics = new IdeaPerfMetrics()
   private readonly lifetime = new AbortController()
   constructor(private readonly ctx: Context, readonly registry = new IdeaUpdateRegistry()) {
     ctx.effect(() => () => { this.lifetime.abort(); this.registry.dispose() })
   }
 
   async prepare(request: IdeaPrepareUpdateRequest, signal?: AbortSignal): Promise<IdeaUpdatePreview> {
-    const parsed = requestSchema.safeParse(request)
-    if (!parsed.success) throw new IdeaUpdateError('invalid-update-request', 'the update request binding is invalid')
-    const input = parsed.data
-    const abort = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal
-    checkCancelled(abort)
-    return this.registry.prepare(input, async () => {
+    const totalStartedAt = performance.now()
+    try {
+      const parsed = requestSchema.safeParse(request)
+      if (!parsed.success) throw new IdeaUpdateError('invalid-update-request', 'the update request binding is invalid')
+      const input = parsed.data
+      const abort = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal
       checkCancelled(abort)
-      const { target, currentDraft } = this.current(input)
-      const surface = structuredClone(await readSessionSurface(this.ctx.sessionQuery, input.sessionId))
-      checkCancelled(abort)
-      const { captured, truncated } = captureUpdateSource(surface, input.sessionId, input.messageId)
-      const route = await resolveModelRoute(this.ctx.sessionQuery, this.ctx.agentDefaultModel, input.sessionId, abort)
-      checkCancelled(abort)
-      const prompt = buildIdeaEvolutionPrompt({ currentDraft, historySummary: [], openQuestions: currentDraft.openQuestions, messages: captured.messages })
-      const text = await extractModelText(this.ctx.llm, {
-        provider: route.provider, model: route.model,
-        ...(route.reasoningEffort !== undefined ? { reasoningEffort: ReasoningEffortId(route.reasoningEffort) } : {}),
-        system: prompt.system,
-        messages: [createUserMessage({ content: [{ type: 'text', text: prompt.user }], source: { kind: 'dsh-idea' } })],
-        sessionId: SessionId(input.sessionId), signal: abort,
-      }, input.sessionId, abort)
-      const draft = parseIdeaDraftOutput(text)
-      checkCancelled(abort)
-      this.current(input) // no stale preview or silent rebase after the single call
-      return {
-        target, currentDraft, draft,
-        source: { sessionId: input.sessionId, anchorMessageId: captured.anchorMessageId, startSeq: captured.startSeq, endSeq: captured.endSeq, capturedContext: captured.messages },
-        sourceStats: { sessionId: input.sessionId, anchorMessageId: captured.anchorMessageId, startSeq: captured.startSeq, endSeq: captured.endSeq,
-          messageCount: captured.messages.length, characterCount: captured.characterCount, truncated },
-      }
-    }, abort)
+      return await this.registry.prepare(input, async () => {
+        checkCancelled(abort)
+        const { target, currentDraft } = this.current(input)
+        const readStartedAt = performance.now()
+        let surface: SessionSurfaceSnapshot
+        try { surface = structuredClone(await readSessionSurface(this.ctx.sessionQuery, input.sessionId)) }
+        finally { this.performance.record('host.session-read', readStartedAt) }
+        checkCancelled(abort)
+        const captureStartedAt = performance.now()
+        const { captured, truncated } = captureUpdateSource(surface, input.sessionId, input.messageId)
+        this.performance.record('host.capture', captureStartedAt)
+        const routeStartedAt = performance.now()
+        let route: Awaited<ReturnType<typeof resolveModelRoute>>
+        try { route = await resolveModelRoute(this.ctx.sessionQuery, this.ctx.agentDefaultModel, input.sessionId, abort) }
+        finally { this.performance.record('host.route', routeStartedAt) }
+        checkCancelled(abort)
+        const promptStartedAt = performance.now()
+        const prompt = buildIdeaEvolutionPrompt({ currentDraft, historySummary: [], openQuestions: currentDraft.openQuestions, messages: captured.messages })
+        this.performance.record('host.prompt', promptStartedAt)
+        const modelStartedAt = performance.now()
+        const text = await extractModelText(this.ctx.llm, {
+          provider: route.provider, model: route.model,
+          ...(route.reasoningEffort !== undefined ? { reasoningEffort: ReasoningEffortId(route.reasoningEffort) } : {}),
+          system: prompt.system,
+          messages: [createUserMessage({ content: [{ type: 'text', text: prompt.user }], source: { kind: 'dsh-idea' } })],
+          sessionId: SessionId(input.sessionId), signal: abort,
+        }, input.sessionId, abort, {
+          onFirstResponse: () => { this.performance.record('host.model-first-response', modelStartedAt) },
+          onFirstText: () => { this.performance.record('host.model-first-text', modelStartedAt) },
+          onComplete: () => { this.performance.record('host.model-complete', modelStartedAt) },
+        })
+        const parseStartedAt = performance.now()
+        let draft: ReturnType<typeof parseIdeaDraftOutput>
+        try { draft = parseIdeaDraftOutput(text) }
+        finally { this.performance.record('host.parse', parseStartedAt) }
+        checkCancelled(abort)
+        this.current(input) // no stale preview or silent rebase after the single call
+        return {
+          target, currentDraft, draft,
+          source: { sessionId: input.sessionId, anchorMessageId: captured.anchorMessageId, startSeq: captured.startSeq, endSeq: captured.endSeq, capturedContext: captured.messages },
+          sourceStats: { sessionId: input.sessionId, anchorMessageId: captured.anchorMessageId, startSeq: captured.startSeq, endSeq: captured.endSeq,
+            messageCount: captured.messages.length, characterCount: captured.characterCount, truncated },
+        }
+      }, abort)
+    } finally { this.performance.record('host.prepare-total', totalStartedAt) }
   }
 
   async commit(updateId: IdeaUpdateId, draft: unknown, signal?: AbortSignal): Promise<IdeaUpdateResult> {
@@ -103,12 +127,15 @@ export class IdeaUpdatePipeline {
   }
 
   private current(input: IdeaPrepareUpdateRequest): Pick<PreparedUpdate, 'target' | 'currentDraft'> {
-    const aggregate = this.ctx.ideaService.get(IdeaId(input.ideaId))
-    if (aggregate.idea.currentVersionId !== input.expectedCurrentVersionId) throw new IdeaError('version-conflict', 'the selected idea content changed')
-    if (aggregate.idea.status === 'archived') throw new IdeaError('archived', 'restore the idea before preparing an update')
-    const version = aggregate.versions.find(version => version.versionId === aggregate.idea.currentVersionId)
-    if (!version) throw new IdeaError('invalid-input', 'the current idea content is unavailable')
-    return { target: { ideaId: aggregate.idea.ideaId, currentVersionId: IdeaVersionId(version.versionId),
-      title: version.draft.title, status: aggregate.idea.status }, currentDraft: version.draft }
+    const startedAt = performance.now()
+    try {
+      const aggregate = this.ctx.ideaService.get(IdeaId(input.ideaId))
+      if (aggregate.idea.currentVersionId !== input.expectedCurrentVersionId) throw new IdeaError('version-conflict', 'the selected idea content changed')
+      if (aggregate.idea.status === 'archived') throw new IdeaError('archived', 'restore the idea before preparing an update')
+      const version = aggregate.versions.find(version => version.versionId === aggregate.idea.currentVersionId)
+      if (!version) throw new IdeaError('invalid-input', 'the current idea content is unavailable')
+      return { target: { ideaId: aggregate.idea.ideaId, currentVersionId: IdeaVersionId(version.versionId),
+        title: version.draft.title, status: aggregate.idea.status }, currentDraft: version.draft }
+    } finally { this.performance.record('host.target-read', startedAt) }
   }
 }
