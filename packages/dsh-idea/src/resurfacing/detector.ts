@@ -106,7 +106,12 @@ function isRecallProcedure(clause: string): boolean {
   // A how-to topic AFTER a direct retrieval verb belongs to the saved Idea,
   // not to the requested operation: "find my saved idea about how to test".
   const topic = /关于|有关|标题(?:是|为)|名(?:为|叫)|\b(?:about|named|called)\b/u.exec(clause)
-  const request = topic !== null && topic.index > action.index ? clause.slice(0, topic.index) : clause
+  const prefix = topic !== null ? clause.slice(0, topic.index) : ''
+  // "find information about how to retrieve my saved idea" asks for help,
+  // not an Idea. Only exclude a topic after evidence of a saved Idea target.
+  const savedTarget = RECALL_SAVED.test(prefix) && (RECALL_OBJECT.test(prefix)
+    || /(?:保存|存|记录|记下|收藏|收集)(?:过|了|下)?的(?:那个|这个|一个|一条|那条)?\s*$/u.test(prefix))
+  const request = topic !== null && topic.index > action.index && savedTarget ? prefix : clause
   if (/怎么|如何|怎样|咋|\bhow\b/u.test(request)) return true
   if (/教我|告诉我|解释|说明|讲解|教程|方法|步骤|用法|\b(?:explain|describe|teach|tell|understand|instructions?|steps?|tutorial|procedure)\b/u
     .test(request.slice(0, action.index))) return true

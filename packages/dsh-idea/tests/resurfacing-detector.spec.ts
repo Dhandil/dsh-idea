@@ -268,6 +268,7 @@ describe('T13.3B Repair1: direct retrieval versus procedural questions', () => {
     'Find the idea I saved about how to write tests.',
     'Could you find my saved idea named "How to retrieve documents"?',
     '帮我找之前保存的 Idea；而不是教我怎么查。',
+    '请找我保存的关于如何部署的 Idea。',
   ]
   for (const turn of directRequests) {
     it(`admits the direct request, including bare 找 or a how-to topic: ${turn}`, () => {
@@ -297,6 +298,9 @@ describe('T13.3B Repair1: direct retrieval versus procedural questions', () => {
     'Can you explain the procedure for finding the idea I saved?',
     '能告诉我 how to find 我保存的 Idea 吗？',
     'Can you explain 如何找回我保存的 Idea？',
+    'Can you find information about how to retrieve my saved idea?',
+    'Can you find saved information about how to retrieve my idea?',
+    '帮我找保存的资料，关于如何找回 Idea 的。',
   ]
   for (const turn of howQuestions) {
     it(`does not retrieve for a procedural question: ${turn}`, () => {
