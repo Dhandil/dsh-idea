@@ -122,3 +122,134 @@ describe('the short-form decision probe needs its context', () => {
     expect(detection.signals.map(signal => signal.type)).toEqual(['DECISION_POINT'])
   })
 })
+
+describe('T13.3B explicit saved-Idea recall', () => {
+  const positive = [
+    '帮我找找以前保存的 Idea。',
+    '请找回我保存的那个想法。',
+    '把上次存的那个点子找回来。',
+    '能帮我翻出先前记下的方案吗？',
+    '我想找回曾经收藏的那个创意。',
+    '我以前存过一个想法，帮我找出来。',
+    '你还记得我保存的那个 Idea 吗？',
+    '麻烦列出我之前记录的 Idea。',
+    '请帮我回忆一下以前保存的检索方案。',
+    'Find the idea I saved earlier.',
+    'Could you help me retrieve my saved idea about retrieval?',
+    'Can you remind me of the idea I bookmarked last week?',
+    'Do you remember the idea I saved before?',
+    'Please bring back the idea I recorded yesterday.',
+    'Show me my previously saved ideas.',
+    'Help me look up an idea I saved.',
+    'I want to find that idea I saved earlier.',
+    'Where is the idea I saved about retrieval?',
+    'Please find my saved idea named "Rocket".',
+    'ＰＬＥＡＳＥ ＦＩＮＤ ＭＹ ＳＡＶＥＤ ＩＤＥＡ．',
+    '帮我找回之前 saved 的 Idea。',
+    'Please 找回我以前保存的那个 Idea。',
+    'Can you find 我上次保存的想法？',
+    '把我 bookmarked 的 idea 找出来。',
+    'Show me 我以前收藏的那个 Idea。',
+    'Could you locate the idea I saved?',
+    'Search for my saved ideas.',
+    'Remind me of my saved idea.',
+    '你能帮我找到我之前收藏的 Idea 吗？',
+    '帮我把以前存下的 Idea 翻出来。',
+    '帮我找回之前保存过的 Idea。',
+    '不要找新的点子；帮我找回以前保存的 Idea。',
+    "Don't create a new idea; find the idea I saved.",
+  ]
+  for (const turn of positive) {
+    it(`admits one bounded MEMORY_GAP: ${turn}`, () => {
+      const detection = detect(turn)
+      expect(detection.admitted).toBe(true)
+      const memory = detection.signals.filter(signal => signal.type === 'MEMORY_GAP')
+      expect(memory).toHaveLength(1)
+      expect(memory[0]!.strength).toBe('strong')
+      expect(memory[0]!.evidence.length).toBeGreaterThan(0)
+      expect(memory[0]!.evidence.length).toBeLessThanOrEqual(RESURFACING_SIGNAL_EVIDENCE_LIMIT)
+    })
+  }
+
+  const negative = [
+    '不要帮我找以前保存的 Idea。',
+    '不用回忆之前保存过的那个方案。',
+    '我不想找回以前收藏的点子。',
+    '别找我存过的 Idea。',
+    '不是让你找以前保存的 Idea。',
+    '请取消查找以前保存的 Idea。',
+    "Don't find the idea I saved.",
+    'Please do not retrieve my saved ideas.',
+    'No need to look up the idea I saved.',
+    'I am not asking you to recall the idea I saved.',
+    'Never show me my saved ideas.',
+    'Please stop finding my saved ideas.',
+    '帮我不要 retrieve 我保存的 Idea。',
+    'Please 不要找回我保存的 Idea。',
+    '“帮我找回以前保存的 Idea。”',
+    '「请找回我之前保存过的 Idea」这句话是什么意思？',
+    '他说：“帮我找回以前保存的想法。”',
+    'Please translate "Find the idea I saved earlier."',
+    "Explain 'Find my saved idea'.",
+    '> Find the idea I saved earlier.\n这是一段引用。',
+    '```text\n帮我找回以前保存的 Idea\n```',
+    '~~~text\nFind my saved idea\n~~~',
+    '`Find my saved idea` 是示例。',
+    'Find my saved idea means what?',
+    '请解释如何找回以前保存的 Idea。',
+    'How do I find my saved ideas?',
+    'If I ask you to find my saved idea, what happens?',
+    'What is an Idea?',
+    '如何保存 Idea？',
+    'What does saved idea mean?',
+    'I saved an idea yesterday.',
+    '以前保存的 Idea 很有趣。',
+    'Find a new idea for saving money.',
+    '帮我找一个新想法。',
+    'Find my saved files.',
+    '帮我找以前保存的密码。',
+    'Can you save this idea?',
+    '继续',
+    '帮我找回没有保存过的 Idea。',
+    '请找回未收藏的想法。',
+    '不是找回之前保存过的 Idea。',
+    'Find the idea I did not save.',
+    "Find the idea I didn't save.",
+    "Could you find the idea I haven't saved?",
+    'Please find my not-yet-saved idea.',
+    'The user said please find my saved idea.',
+    'He asked: please retrieve the idea I saved.',
+    '``Please find my saved idea``',
+    '＂Please find my saved idea＂',
+    '«Please find my saved idea»',
+    '"Please find my saved idea\nThis is still quoted text',
+    'Find the word idea in my saved document.',
+    'Find my saved file called Idea.txt.',
+    '帮我找一下新的 Idea 保存起来。',
+    '请评价找回以前保存的 Idea 这个功能。',
+    '帮我设计找回以前保存的 Idea 的流程。',
+    'Please tell me how to find my saved ideas.',
+    'Please evaluate how to retrieve the idea I saved.',
+    'Find an idea that should be saved.',
+    '比如帮我找回以前保存的 Idea 就是一个例子。',
+    '这是一个例子：请找回以前保存的 Idea。',
+    'A sample request is please find my saved idea.',
+  ]
+  for (const turn of negative) {
+    it(`stays silent for non-request/negated/quoted input: ${turn}`, () => {
+      expect(detect(turn).admitted).toBe(false)
+    })
+  }
+
+  it('does not promote a recall request from recent context into the current turn', () => {
+    expect(detect('好的', [{ role: 'user', text: 'Find my saved idea.' }]).admitted).toBe(false)
+  })
+
+  it('keeps a genuine request outside quoted data and bounds its evidence', () => {
+    const result = detect(`“Find my saved idea” 请找回我以前保存的${'检索'.repeat(100)}方案。`)
+    expect(result.admitted).toBe(true)
+    expect(result.signals.filter(signal => signal.type === 'MEMORY_GAP')).toHaveLength(1)
+    expect(result.signals.find(signal => signal.type === 'MEMORY_GAP')!.evidence.length)
+      .toBeLessThanOrEqual(RESURFACING_SIGNAL_EVIDENCE_LIMIT)
+  })
+})

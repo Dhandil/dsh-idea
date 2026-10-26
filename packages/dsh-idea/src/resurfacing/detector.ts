@@ -89,6 +89,42 @@ const SHORT_FORM_DECISION = /^那[^，,。；;？?！!]{1,20}(呢|怎么样|如�
 /** Alternative/choice structure markers a context must show for the short form. */
 const DECISION_CONTEXT_MARKERS = /还是|或者|对比|比起|两个|哪个|选|考虑/
 
+// Explicit saved-Idea recall requires all four facts in one sentence: a
+// request, retrieval action, Idea object, and evidence that it was saved.
+// These rules open retrieval only; identity and usefulness remain downstream.
+const RECALL_ACTION = /找(?:到|回|找|出|一下|一找)|翻(?:出|找)|查找|检索|搜索|回忆|还记得|列出|调出|\b(?:find|locate|retrieve|recall|remember|search\s+for|look\s+up|remind\s+me|bring\s+back|pull\s+up|show\s+me|where\s+(?:is|are))\b/u
+const RECALL_OBJECT = /想法|点子|创意|方案|\bideas?\b/u
+const RECALL_SAVED = /(?:保存|存|记录|记下|收藏|收集)(?:过|的|了|下)|\b(?:saved|stored|recorded|bookmarked)\b/u
+const RECALL_REQUEST = /^(?:请|麻烦|劳驾|把|能|可以|你还记得|你(?:能|可以)(?:帮我|给我|替我)?(?:找|翻|查找|检索|搜索|回忆|列出|调出)|我(?:想|要|需要|希望)|找|翻|查找|检索|搜索|回忆|列出|调出)|(?:^|[，,])\s*(?:帮我|给我|替我|请|麻烦)|(?:^|[，,])\s*(?:please|help\s+me|(?:can|could|would|will)\s+you|do\s+you\s+remember|i\s+(?:want|need|would\s+like)\s+to)\b|^(?:find|locate|retrieve|recall|remember|remind\s+me|search\s+for|show\s+me|bring\s+back|pull\s+up|look\s+up|where\s+(?:is|are))\b/u
+const RECALL_NEGATED = /不要|不用|无需|不必|别|不想|不需要|不打算|不再|禁止|取消|暂不|不是让你|不是(?:要|在)?(?:找|翻|回忆|检索|搜索)|(?:没(?:有)?|未)(?:保存|存|记录|记下|收藏|收集)|\b(?:not|(?:don|didn|doesn|haven|hasn|hadn|isn|wasn|weren|shouldn|wouldn|couldn)['’]t|never|avoid|stop|cancel|no\s+need\s+to|without|skip)\b/u
+const RECALL_META = /^(?:(?:请|帮我|麻烦)\s*)?(?:翻译|解释|改写|分析|复述|总结|比较|评价|讨论|设计|实现|测试|讲解|介绍|告诉)|^(?:(?:他|她|有人|用户)(?:说|问|写)|如果|假如|假设|例如)|这句话|这句|例句|示例|原文|^(?:please\s+)?(?:translate|explain|rewrite|analy[sz]e|summari[sz]e|evaluate|discuss|describe|design|test|tell|how|what|why|if|suppose)\b|^(?:he|she|someone|the\s+user|a\s+user)\s+(?:said|says|asked|wrote)\b|\bmeans?\s+what\s*$|^(?:find|look\s+up)\s+(?:the\s+)?(?:word|term|phrase)\b|\b(?:file|document)\s+(?:called|named)\s+idea\b|\b(?:to|be|being)\s+(?:saved|stored|recorded|bookmarked)\b/u
+
+/** Quoted/code examples are data, never current-user recall instructions. */
+function unquotedRecallText(text: string): string {
+  return text.normalize('NFKC')
+    .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/gu, ' ')
+    .replace(/^\s*>.*$/gmu, ' ')
+    .replace(/``[\s\S]*?(?:``|$)|`[^`]*(?:`|$)/gu, ' ')
+    .replace(/"[^"]*(?:"|$)|“[^”]*(?:”|$)|「[^」]*(?:」|$)|『[^』]*(?:』|$)|‘[^’]*(?:’|$)|«[^»]*(?:»|$)/gu, ' ')
+    // Preserve contractions such as don't / I'd; only standalone quotes open.
+    .replace(/(^|[^\p{L}\p{N}])'[^']*(?:'|$)/gu, '$1 ')
+}
+
+/** Preserve legacy memory signals, with the same quote/negation boundary. */
+function memoryGapEvidence(text: string, legacy: RegExp): string | undefined {
+  const unquoted = normalizeLexical(unquotedRecallText(text))
+  for (const sentence of unquoted.split(/[。.!?！？;；]/u)) {
+    const clause = sentence.trim()
+    if (!clause || RECALL_NEGATED.test(clause) || RECALL_META.test(clause)) continue
+    if (legacy.test(clause)) return evidenceOf(clause, legacy)
+    if (RECALL_REQUEST.test(clause) && RECALL_ACTION.test(clause)
+      && RECALL_OBJECT.test(clause) && RECALL_SAVED.test(clause)) {
+      return clause.slice(0, RESURFACING_SIGNAL_EVIDENCE_LIMIT)
+    }
+  }
+  return undefined
+}
+
 /** Strip punctuation and trailing mood particles for the continuation check. */
 function continuationKey(normalized: string): string {
   return normalized
@@ -137,6 +173,11 @@ export function detectResurfacingOpportunity(input: {
   }
 
   for (const rule of STRONG_RULES) {
+    if (rule.type === 'MEMORY_GAP') {
+      const evidence = memoryGapEvidence(input.currentTurn, rule.pattern)
+      if (evidence !== undefined) signals.push({ type: rule.type, strength: rule.strength, evidence })
+      continue
+    }
     if (!rule.pattern.test(normalized)) continue
     if (rule.type === 'DECISION_POINT' && isShortFormDecision(normalized)) continue
     signals.push({ type: rule.type, strength: rule.strength, evidence: evidenceOf(normalized, rule.pattern) })

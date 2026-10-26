@@ -435,6 +435,78 @@ describe('deterministic gates', () => {
   })
 })
 
+describe('T13.3B recall opens retrieval, never promises delivery', () => {
+  for (const turn of ['帮我找找以前保存的 Idea。', 'Find the idea I saved earlier.', 'Please 找回我保存的 Idea。']) {
+    it(`keeps a legitimate Judge NONE silent: ${turn}`, async () => {
+      const rig = makeRig({ judge: vi.fn(async () => ({
+        ok: true, value: { outcome: 'none', reason: 'REDUNDANT_WITH_CONTEXT', dropped: [] },
+      })) })
+      pushTurn(rig.window, 1, turn, '回复')
+      await flush()
+      expect(rig.remote.evaluateResurfacing).toHaveBeenCalledTimes(1)
+      expect(rig.remote.semanticResurfacingCandidates).toHaveBeenCalledTimes(1)
+      expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+      expect(rig.remote.judgeResurfacing.mock.calls[0]![0].signals.map((signal: { type: string }) => signal.type))
+        .toContain('MEMORY_GAP')
+      expect(rig.remote.claimResurfacingBudget).not.toHaveBeenCalled()
+      expect(rig.remote.get).not.toHaveBeenCalled()
+      expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+      expect(rig.appended).toHaveLength(0)
+    })
+  }
+
+  it('does not Judge or claim an empty retrieval pool', async () => {
+    const rig = makeRig({ evaluate: vi.fn(async () => ({
+      ok: true, value: { stop: { reason: 'NO_ELIGIBLE_IDEAS' }, candidates: [], suppressed: [] },
+    })) })
+    pushTurn(rig.window, 1, 'Find the idea I saved earlier.', '回复')
+    await flush()
+    expect(rig.remote.evaluateResurfacing).toHaveBeenCalledTimes(1)
+    expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
+    expect(rig.remote.claimResurfacingBudget).not.toHaveBeenCalled()
+    expect(rig.controller.state.getSnapshot().suggestion).toBeNull()
+  })
+
+  for (const turn of ["Don't find my saved idea.", '“帮我找回以前保存的 Idea。”', 'How do I find my saved ideas?']) {
+    it(`never dispatches retrieval for a negative: ${turn}`, async () => {
+      const rig = makeRig()
+      pushTurn(rig.window, 1, turn, '回复')
+      await flush()
+      expect(rig.remote.evaluateResurfacing).not.toHaveBeenCalled()
+      expect(rig.remote.semanticResurfacingCandidates).not.toHaveBeenCalled()
+      expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
+      expect(rig.remote.claimResurfacingBudget).not.toHaveBeenCalled()
+    })
+  }
+
+  it('does not bypass the existing consumed conversation budget', async () => {
+    const rig = makeRig({ getBudget: vi.fn(async () => ({ ok: true, value: { consumed: true } })) })
+    pushTurn(rig.window, 1, '帮我找找以前保存的 Idea。', '回复')
+    await flush()
+    expect(rig.remote.evaluateResurfacing).not.toHaveBeenCalled()
+    expect(rig.remote.semanticResurfacingCandidates).not.toHaveBeenCalled()
+    expect(rig.remote.judgeResurfacing).not.toHaveBeenCalled()
+  })
+
+  it('uses normal CLAIMED delivery and preserves non-durable dismiss with no budget refund', async () => {
+    const rig = makeRig()
+    pushTurn(rig.window, 1, 'Find the idea I saved earlier.', '回复')
+    await flush()
+    expect(rig.controller.state.getSnapshot().suggestion?.ideaId).toBe('idea_1')
+    expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+    expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
+    rig.controller.dismiss()
+    expect(rig.controller.state.getSnapshot()).toMatchObject({ suggestion: null, lastExpireReason: 'DISMISSED' })
+    expect(rig.remote.setResurfacingMuted).not.toHaveBeenCalled()
+    pushTurn(rig.window, 4, '帮我找找以前保存的 Idea。', '回复')
+    await flush()
+    expect(rig.remote.evaluateResurfacing).toHaveBeenCalledTimes(1)
+    expect(rig.remote.judgeResurfacing).toHaveBeenCalledTimes(1)
+    expect(rig.remote.claimResurfacingBudget).toHaveBeenCalledTimes(1)
+    expect(rig.appended).toHaveLength(0)
+  })
+})
+
 describe('settlement and revalidation races', () => {
   it('waits for the settling Assistant reply before judging', async () => {
     const rig = makeRig()
