@@ -1,0 +1,27 @@
+{
+  "task": "T13.3A",
+  "testedSha": "8f9c485744139d3654c63bd74c1a28388da7e6a2",
+  "invocationCount": 1,
+  "command": "pnpm verify (unmodified root script; pinned installed CLI)",
+  "freshRunAndViteCache": true,
+  "node": "v24.21.0",
+  "pnpm": "11.28.5",
+  "exitCode": 0,
+  "signal": null,
+  "wallMs": 38365,
+  "counts": {
+    "runtime": 30,
+    "runtimePassed": 30,
+    "pluginPassed": 1090,
+    "pluginFiles": 65,
+    "runtimeFailed": 0,
+    "runtimeCancelled": 0,
+    "runtimeSkipped": 0,
+    "runtimeTodo": 0,
+    "totalPassed": 1120
+  },
+  "rawLogSha256": "bdcd1aabb5fa8636805d1e1da1694e3f7b67aca6045ce38c68f3a4fb6533625d",
+  "realProviderCalls": 0,
+  "boundaries": "No browser/VM; synthetic storage + scripted model seams; default parallelism/timeouts/assertions; no retry or Full rerun",
+  "sanitizedCompleteOutput": "$ pnpm dev:audit:strict && pnpm test:runtime && pnpm -C packages/dsh-idea verify && pnpm dev:audit:strict\n$ node scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<RUN_ID>\",\n    \"state\": \"active\"\n  }\n]\n$ node scripts/dev-run.mjs -- node --test scripts/tests/dev-runtime.test.mjs\n✔ unique IDs, private owned paths, full isolated environment and credential filtering (369.126833ms)\n✔ invalid labels fail before any filesystem creation; supported labels remain reclaimable (701.142583ms)\n✔ strict audit accepts empty and legitimate concurrent active runs without deletion (360.582458ms)\n✔ strict audit blocks unknown, dangling receipt and abandoned cleanup lock without removing them (187.668917ms)\n✔ unknown/orphan metadata lock blocks audit and is never stolen (179.519417ms)\n✔ automatic preflight blocks execution; automatic postflight fails on new residue (637.540375ms)\n✔ strict audit coordinates concurrent creation and cleanup metadata transitions (3072.526958ms)\n✔ cleanup removes only this run, preserving concurrent runs and repository siblings (350.63425ms)\n✔ lexical escapes, absolute escapes and symlink ancestors are refused (176.546917ms)\n✔ symlinked .dev and changed directory identities are refused (184.203792ms)\n✔ unknown/mismatched ownership and duplicate cleanup fail closed (189.528833ms)\n✔ active owner cannot be reaped (185.584833ms)\n✔ open file handle prevents cleanup until explicitly released (349.102208ms)\n✔ an active registered child blocks cleanup even without file handles (267.962083ms)\n✔ unavailable handle scanner retains the complete run (185.101792ms)\n✔ PID reuse or changed owner identity is never treated as an inactive run (189.74825ms)\n✔ symlink ownership files cannot be followed (183.464ms)\n✔ external exceptions are checked but never removed (177.350083ms)\n✔ success and failure commands both remove their run and preserve exit status (680.268542ms)\n✔ spawn failure also cleans its run (no unhandled rejection) (267.998041ms)\n✔ SIGINT cancels the task and verifies removal (346.367875ms)\n✔ SIGTERM cancels the task and verifies removal (396.418958ms)\n✔ SIGHUP cancels the task and verifies removal (368.836041ms)\n✔ two concurrent CLI tasks never share or delete each other's run (626.880333ms)\n✔ normal exit gracefully stops a descendant in the owned process group (400.054833ms)\n✔ uncooperative cancellation retains active resources; reap waits for child exit (5873.444666ms)\n✔ SIGKILL leaves an auditable orphan; active then stale recovery is safe (259.999667ms)\n✔ unknown orphan directory is reported and retained (184.453292ms)\n✔ nested project commands reuse the parent run without cleaning it early (422.553916ms)\n✔ unwrapped configuration access is rejected, not silently pointed at real HOME (0.333125ms)\nℹ tests 30\nℹ suites 0\nℹ pass 30\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 17846.495875\n$ node ../../scripts/dev-run.mjs audit --strict && pnpm generate:typert && pnpm typecheck && pnpm test && pnpm build && pnpm build:client && node ../../scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<RUN_ID>\",\n    \"state\": \"active\"\n  }\n]\n$ node ../../scripts/dev-run.mjs -- node scripts/generate-typert.mjs\ngenerate-typert: wrote typert.host (@dsh-external/dsh-idea)\ngenerate-typert: wrote typert.remote-client\ngenerate-typert: done\n$ node ../../scripts/dev-run.mjs -- tsc -p tsconfig.json --noEmit\n$ node ../../scripts/dev-run.mjs -- vitest run --configLoader native\n\n RUN  v4.1.11 <REPO>/packages/dsh-idea\n\n\n Test Files  65 passed (65)\n      Tests  1090 passed (1090)\n   Start at  11:10:36\n   Duration  8.91s (transform 6.34s, setup 0ms, import 18.41s, tests 42.05s, environment 3.56s)\n\n$ node ../../scripts/dev-run.mjs -- tsc -p tsconfig.build.json\n$ node ../../scripts/dev-run.mjs -- tsdown -c tsdown.client.config.ts\nℹ tsdown v0.22.14 powered by rolldown v1.2.8\nℹ config file: <REPO>/packages/dsh-idea/tsdown.client.config.ts \nℹ entry: src/client/index.ts\nℹ target: es2024\nℹ tsconfig: tsconfig.json\nℹ Build start\nℹ Hint: consider adding deps.onlyBundle option to avoid unintended bundling of dependencies, or set deps.onlyBundle: false to disable this hint.\nSee more at https://tsdown.dev/options/dependencies#deps-onlybundle\nDetected dependencies in bundle:\n- zod\nℹ lib/client.js      849.53 kB │ gzip: 143.59 kB\nℹ lib/client.js.map    1.43 MB\nℹ 2 files, total: 2.28 MB\n✔ Build complete in 73ms\n[\n  {\n    \"id\": \"<RUN_ID>\",\n    \"state\": \"active\"\n  }\n]\n$ node scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<RUN_ID>\",\n    \"state\": \"active\"\n  }\n]\n"
+}
