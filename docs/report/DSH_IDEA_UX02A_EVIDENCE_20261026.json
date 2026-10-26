@@ -1,0 +1,767 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-26",
+  "status": "DSH_IDEA_UX02A_BLOCKED",
+  "branch": "codex/dsh-idea-ux02a-observability",
+  "baseMain": "bcc35e3d09581fdb7d22a518f9d456d58ed39c22",
+  "implementationSha": "51d3542ac82dcb69ea201c10bcdc48a18498a9cc",
+  "toolchain": {
+    "node": "v24.21.0",
+    "pnpm": "11.28.5",
+    "vitest": "4.1.11",
+    "harness": "86a402200d95fecef4529d969836f1fe13c6cb0d"
+  },
+  "executions": {
+    "focused": {
+      "name": "focused",
+      "code": 0,
+      "signal": null,
+      "durationMs": 4046,
+      "sha256": "2a0dda76a4083144f14d5f1cf1ea0dca30844947eaad923c0885245cb7b62578"
+    },
+    "focused-final": {
+      "name": "focused-final",
+      "code": 0,
+      "signal": null,
+      "durationMs": 3585,
+      "sha256": "46fba168881641e55a34012329be329c762871c93a028bf4dd41c7d38932e4c3"
+    },
+    "typecheck": {
+      "name": "typecheck",
+      "code": 0,
+      "signal": null,
+      "durationMs": 4445,
+      "sha256": "7b649c93c6d76d12e58441eca60e923523770b946da1e8ca8c4a07e88c5f979c"
+    },
+    "typert": {
+      "name": "typert",
+      "code": 0,
+      "signal": null,
+      "durationMs": 1874,
+      "sha256": "2bdf176169e0ab2c1126d42eba0351f1adfc0db17f7a0f9424bdbbbe0fafcff9"
+    },
+    "host-build": {
+      "name": "host-build",
+      "code": 0,
+      "signal": null,
+      "durationMs": 3117,
+      "sha256": "be5435bbe5e80c2c3c418cd2161e22390c52b82759c1c341ff0fb4e31e8cb47c"
+    },
+    "client-build": {
+      "name": "client-build",
+      "code": 0,
+      "signal": null,
+      "durationMs": 1032,
+      "sha256": "28104da7ca072dc3d430384821b8f560aa0e28e5f01d6901bc3da158f3a30b9b"
+    },
+    "browser-1": {
+      "name": "browser-1",
+      "code": 1,
+      "signal": null,
+      "durationMs": 104,
+      "sha256": "885177ab3e7e375e0b9857385ea5ea06c15cb6a0a0fdcaa4eb3566af5a4a7d88"
+    },
+    "browser-2": {
+      "name": "browser-2",
+      "code": 1,
+      "signal": null,
+      "durationMs": 141,
+      "sha256": "885177ab3e7e375e0b9857385ea5ea06c15cb6a0a0fdcaa4eb3566af5a4a7d88"
+    },
+    "browser-3": {
+      "name": "browser-3",
+      "code": null,
+      "signal": "SIGTERM",
+      "durationMs": 156693,
+      "sha256": "6cd3ab33db7f5c13ab1eefe7d3b02efdd7bd117cbe2fd0a02f48a722d1e8228a"
+    },
+    "browser-4": {
+      "name": "browser-4",
+      "code": 1,
+      "signal": null,
+      "durationMs": 38813,
+      "sha256": "aae31cfe746ac14d54a149500a38e89f13f11dd6c7b13e6bac059a37c048be6b"
+    },
+    "browser-5": {
+      "name": "browser-5",
+      "code": 1,
+      "signal": null,
+      "durationMs": 36881,
+      "sha256": "8ebf703dbe2666bfac287fa521200b5a57e5b1a139af96ba70d61b1cc4c43859"
+    },
+    "browser-isolation-blocker": {
+      "name": "browser-isolation-blocker",
+      "code": 1,
+      "signal": null,
+      "durationMs": 76,
+      "sha256": "eb0b246608177386a39ca2154cb4a846162e3c2ae6a790bc90af41150978a0d0"
+    },
+    "host-boundary-check": {
+      "name": "host-boundary-check",
+      "code": 0,
+      "signal": null,
+      "durationMs": 195,
+      "sha256": "6fbe288fa48354b486c53858f317abfe43dab7cc7726f14a6f992acae4460ec8"
+    },
+    "typecheck-final": {
+      "name": "typecheck-final",
+      "code": 0,
+      "signal": null,
+      "durationMs": 4778,
+      "sha256": "7b649c93c6d76d12e58441eca60e923523770b946da1e8ca8c4a07e88c5f979c"
+    }
+  },
+  "focused": {
+    "files": 7,
+    "total": 154,
+    "passed": 154,
+    "failed": 0,
+    "pending": 0,
+    "todo": 0
+  },
+  "hostOnlySamples": [
+    {
+      "mode": "new",
+      "size": "long",
+      "availability": "cold",
+      "sessionEvents": 480,
+      "modelDoubleCalls": 1,
+      "metrics": {
+        "host.session-read": {
+          "count": 1,
+          "totalMs": 8.291459000000032,
+          "maxMs": 8.291459000000032
+        },
+        "host.capture": {
+          "count": 1,
+          "totalMs": 0.046540999999933774,
+          "maxMs": 0.046540999999933774
+        },
+        "host.route": {
+          "count": 1,
+          "totalMs": 2.6032090000001062,
+          "maxMs": 2.6032090000001062
+        },
+        "host.prompt": {
+          "count": 1,
+          "totalMs": 0.04204200000003766,
+          "maxMs": 0.04204200000003766
+        },
+        "host.model-first-response": {
+          "count": 1,
+          "totalMs": 0.03029100000003382,
+          "maxMs": 0.03029100000003382
+        },
+        "host.model-first-text": {
+          "count": 1,
+          "totalMs": 0.03766600000017206,
+          "maxMs": 0.03766600000017206
+        },
+        "host.model-complete": {
+          "count": 1,
+          "totalMs": 0.05529100000012477,
+          "maxMs": 0.05529100000012477
+        },
+        "host.parse": {
+          "count": 1,
+          "totalMs": 0.07175000000006548,
+          "maxMs": 0.07175000000006548
+        },
+        "host.prepare-total": {
+          "count": 1,
+          "totalMs": 11.263750000000073,
+          "maxMs": 11.263750000000073
+        },
+        "host.rpc-handler": {
+          "count": 1,
+          "totalMs": 11.303499999999985,
+          "maxMs": 11.303499999999985
+        }
+      }
+    },
+    {
+      "mode": "new",
+      "size": "long",
+      "availability": "live",
+      "sessionEvents": 480,
+      "modelDoubleCalls": 1,
+      "metrics": {
+        "host.session-read": {
+          "count": 1,
+          "totalMs": 3.0511249999999563,
+          "maxMs": 3.0511249999999563
+        },
+        "host.capture": {
+          "count": 1,
+          "totalMs": 0.11091699999997218,
+          "maxMs": 0.11091699999997218
+        },
+        "host.route": {
+          "count": 1,
+          "totalMs": 0.094791999999984,
+          "maxMs": 0.094791999999984
+        },
+        "host.prompt": {
+          "count": 1,
+          "totalMs": 0.04062499999997726,
+          "maxMs": 0.04062499999997726
+        },
+        "host.model-first-response": {
+          "count": 1,
+          "totalMs": 0.022749999999973625,
+          "maxMs": 0.022749999999973625
+        },
+        "host.model-first-text": {
+          "count": 1,
+          "totalMs": 0.02808299999992414,
+          "maxMs": 0.02808299999992414
+        },
+        "host.model-complete": {
+          "count": 1,
+          "totalMs": 0.03962500000000091,
+          "maxMs": 0.03962500000000091
+        },
+        "host.parse": {
+          "count": 1,
+          "totalMs": 0.06316700000002129,
+          "maxMs": 0.06316700000002129
+        },
+        "host.prepare-total": {
+          "count": 1,
+          "totalMs": 3.5244169999999713,
+          "maxMs": 3.5244169999999713
+        },
+        "host.rpc-handler": {
+          "count": 1,
+          "totalMs": 3.566291999999976,
+          "maxMs": 3.566291999999976
+        }
+      }
+    },
+    {
+      "mode": "new",
+      "size": "short",
+      "availability": "cold",
+      "sessionEvents": 12,
+      "modelDoubleCalls": 1,
+      "metrics": {
+        "host.session-read": {
+          "count": 1,
+          "totalMs": 5.494584000000032,
+          "maxMs": 5.494584000000032
+        },
+        "host.capture": {
+          "count": 1,
+          "totalMs": 0.030250000000023647,
+          "maxMs": 0.030250000000023647
+        },
+        "host.route": {
+          "count": 1,
+          "totalMs": 1.659082999999896,
+          "maxMs": 1.659082999999896
+        },
+        "host.prompt": {
+          "count": 1,
+          "totalMs": 0.01125000000001819,
+          "maxMs": 0.01125000000001819
+        },
+        "host.model-first-response": {
+          "count": 1,
+          "totalMs": 0.026458000000047832,
+          "maxMs": 0.026458000000047832
+        },
+        "host.model-first-text": {
+          "count": 1,
+          "totalMs": 0.03204100000004928,
+          "maxMs": 0.03204100000004928
+        },
+        "host.model-complete": {
+          "count": 1,
+          "totalMs": 0.03716599999995651,
+          "maxMs": 0.03716599999995651
+        },
+        "host.parse": {
+          "count": 1,
+          "totalMs": 0.11870899999996709,
+          "maxMs": 0.11870899999996709
+        },
+        "host.prepare-total": {
+          "count": 1,
+          "totalMs": 7.458291000000031,
+          "maxMs": 7.458291000000031
+        },
+        "host.rpc-handler": {
+          "count": 1,
+          "totalMs": 7.487916000000041,
+          "maxMs": 7.487916000000041
+        }
+      }
+    },
+    {
+      "mode": "new",
+      "size": "short",
+      "availability": "live",
+      "sessionEvents": 12,
+      "modelDoubleCalls": 1,
+      "metrics": {
+        "host.session-read": {
+          "count": 1,
+          "totalMs": 0.58562500000005,
+          "maxMs": 0.58562500000005
+        },
+        "host.capture": {
+          "count": 1,
+          "totalMs": 0.17049999999994725,
+          "maxMs": 0.17049999999994725
+        },
+        "host.route": {
+          "count": 1,
+          "totalMs": 0.2728749999999991,
+          "maxMs": 0.2728749999999991
+        },
+        "host.prompt": {
+          "count": 1,
+          "totalMs": 0.058291999999937616,
+          "maxMs": 0.058291999999937616
+        },
+        "host.model-first-response": {
+          "count": 1,
+          "totalMs": 0.12429199999996854,
+          "maxMs": 0.12429199999996854
+        },
+        "host.model-first-text": {
+          "count": 1,
+          "totalMs": 0.17437499999994088,
+          "maxMs": 0.17437499999994088
+        },
+        "host.model-complete": {
+          "count": 1,
+          "totalMs": 0.19812499999989086,
+          "maxMs": 0.19812499999989086
+        },
+        "host.parse": {
+          "count": 1,
+          "totalMs": 0.12758400000006986,
+          "maxMs": 0.12758400000006986
+        },
+        "host.prepare-total": {
+          "count": 1,
+          "totalMs": 1.7023750000000746,
+          "maxMs": 1.7023750000000746
+        },
+        "host.rpc-handler": {
+          "count": 1,
+          "totalMs": 1.8019160000000056,
+          "maxMs": 1.8019160000000056
+        }
+      }
+    },
+    {
+      "mode": "update",
+      "size": "long",
+      "availability": "cold",
+      "sessionEvents": 480,
+      "modelDoubleCalls": 1,
+      "metrics": {
+        "host.target-read": {
+          "count": 2,
+          "totalMs": 0.12083400000005895,
+          "maxMs": 0.06995900000015354
+        },
+        "host.session-read": {
+          "count": 1,
+          "totalMs": 7.817791999999827,
+          "maxMs": 7.817791999999827
+        },
+        "host.capture": {
+          "count": 1,
+          "totalMs": 0.24387499999988904,
+          "maxMs": 0.24387499999988904
+        },
+        "host.route": {
+          "count": 1,
+          "totalMs": 2.1448330000000624,
+          "maxMs": 2.1448330000000624
+        },
+        "host.prompt": {
+          "count": 1,
+          "totalMs": 0.04762499999992542,
+          "maxMs": 0.04762499999992542
+        },
+        "host.model-first-response": {
+          "count": 1,
+          "totalMs": 0.08370800000011513,
+          "maxMs": 0.08370800000011513
+        },
+        "host.model-first-text": {
+          "count": 1,
+          "totalMs": 0.0860410000000229,
+          "maxMs": 0.0860410000000229
+        },
+        "host.model-complete": {
+          "count": 1,
+          "totalMs": 0.08945799999992232,
+          "maxMs": 0.08945799999992232
+        },
+        "host.parse": {
+          "count": 1,
+          "totalMs": 0.050416000000041095,
+          "maxMs": 0.050416000000041095
+        },
+        "host.prepare-total": {
+          "count": 1,
+          "totalMs": 10.67358299999978,
+          "maxMs": 10.67358299999978
+        },
+        "host.rpc-handler": {
+          "count": 1,
+          "totalMs": 10.718208000000004,
+          "maxMs": 10.718208000000004
+        }
+      }
+    },
+    {
+      "mode": "update",
+      "size": "long",
+      "availability": "live",
+      "sessionEvents": 480,
+      "modelDoubleCalls": 1,
+      "metrics": {
+        "host.target-read": {
+          "count": 2,
+          "totalMs": 0.18100000000004002,
+          "maxMs": 0.12950000000000728
+        },
+        "host.session-read": {
+          "count": 1,
+          "totalMs": 3.382707999999866,
+          "maxMs": 3.382707999999866
+        },
+        "host.capture": {
+          "count": 1,
+          "totalMs": 0.2562909999999192,
+          "maxMs": 0.2562909999999192
+        },
+        "host.route": {
+          "count": 1,
+          "totalMs": 0.10029100000019753,
+          "maxMs": 0.10029100000019753
+        },
+        "host.prompt": {
+          "count": 1,
+          "totalMs": 0.050875000000132786,
+          "maxMs": 0.050875000000132786
+        },
+        "host.model-first-response": {
+          "count": 1,
+          "totalMs": 0.0858330000000933,
+          "maxMs": 0.0858330000000933
+        },
+        "host.model-first-text": {
+          "count": 1,
+          "totalMs": 0.09004099999992832,
+          "maxMs": 0.09004099999992832
+        },
+        "host.model-complete": {
+          "count": 1,
+          "totalMs": 0.09341599999993377,
+          "maxMs": 0.09341599999993377
+        },
+        "host.parse": {
+          "count": 1,
+          "totalMs": 0.051083000000062384,
+          "maxMs": 0.051083000000062384
+        },
+        "host.prepare-total": {
+          "count": 1,
+          "totalMs": 4.941542000000027,
+          "maxMs": 4.941542000000027
+        },
+        "host.rpc-handler": {
+          "count": 1,
+          "totalMs": 4.9730409999999665,
+          "maxMs": 4.9730409999999665
+        }
+      }
+    },
+    {
+      "mode": "update",
+      "size": "short",
+      "availability": "cold",
+      "sessionEvents": 12,
+      "modelDoubleCalls": 1,
+      "metrics": {
+        "host.target-read": {
+          "count": 2,
+          "totalMs": 0.15124999999989086,
+          "maxMs": 0.10337499999991451
+        },
+        "host.session-read": {
+          "count": 1,
+          "totalMs": 2.4811670000001413,
+          "maxMs": 2.4811670000001413
+        },
+        "host.capture": {
+          "count": 1,
+          "totalMs": 0.0365830000000642,
+          "maxMs": 0.0365830000000642
+        },
+        "host.route": {
+          "count": 1,
+          "totalMs": 1.3655839999998989,
+          "maxMs": 1.3655839999998989
+        },
+        "host.prompt": {
+          "count": 1,
+          "totalMs": 0.01974999999993088,
+          "maxMs": 0.01974999999993088
+        },
+        "host.model-first-response": {
+          "count": 1,
+          "totalMs": 0.0727919999999358,
+          "maxMs": 0.0727919999999358
+        },
+        "host.model-first-text": {
+          "count": 1,
+          "totalMs": 0.0753749999998945,
+          "maxMs": 0.0753749999998945
+        },
+        "host.model-complete": {
+          "count": 1,
+          "totalMs": 0.078708000000006,
+          "maxMs": 0.078708000000006
+        },
+        "host.parse": {
+          "count": 1,
+          "totalMs": 0.04354200000011588,
+          "maxMs": 0.04354200000011588
+        },
+        "host.prepare-total": {
+          "count": 1,
+          "totalMs": 4.325624999999945,
+          "maxMs": 4.325624999999945
+        },
+        "host.rpc-handler": {
+          "count": 1,
+          "totalMs": 4.353415999999925,
+          "maxMs": 4.353415999999925
+        }
+      }
+    },
+    {
+      "mode": "update",
+      "size": "short",
+      "availability": "live",
+      "sessionEvents": 12,
+      "modelDoubleCalls": 1,
+      "metrics": {
+        "host.target-read": {
+          "count": 2,
+          "totalMs": 0.12770799999998417,
+          "maxMs": 0.09425000000010186
+        },
+        "host.session-read": {
+          "count": 1,
+          "totalMs": 0.14712499999995998,
+          "maxMs": 0.14712499999995998
+        },
+        "host.capture": {
+          "count": 1,
+          "totalMs": 0.15979199999992488,
+          "maxMs": 0.15979199999992488
+        },
+        "host.route": {
+          "count": 1,
+          "totalMs": 0.04874999999992724,
+          "maxMs": 0.04874999999992724
+        },
+        "host.prompt": {
+          "count": 1,
+          "totalMs": 0.05249999999978172,
+          "maxMs": 0.05249999999978172
+        },
+        "host.model-first-response": {
+          "count": 1,
+          "totalMs": 0.0753749999998945,
+          "maxMs": 0.0753749999998945
+        },
+        "host.model-first-text": {
+          "count": 1,
+          "totalMs": 0.08654200000000856,
+          "maxMs": 0.08654200000000856
+        },
+        "host.model-complete": {
+          "count": 1,
+          "totalMs": 0.09674999999992906,
+          "maxMs": 0.09674999999992906
+        },
+        "host.parse": {
+          "count": 1,
+          "totalMs": 0.05720800000017334,
+          "maxMs": 0.05720800000017334
+        },
+        "host.prepare-total": {
+          "count": 1,
+          "totalMs": 1.4359999999999218,
+          "maxMs": 1.4359999999999218
+        },
+        "host.rpc-handler": {
+          "count": 1,
+          "totalMs": 1.55012499999998,
+          "maxMs": 1.55012499999998
+        }
+      }
+    }
+  ],
+  "full": {
+    "name": "full",
+    "code": 0,
+    "signal": null,
+    "durationMs": 40447,
+    "sha256": "1d3a47453fb128bd66027729c226e20256dd5d610f50b99bc58d99f26bc00097",
+    "sanitizedCompleteLog": "$ pnpm dev:audit:strict && pnpm test:runtime && pnpm -C packages/dsh-idea verify && pnpm dev:audit:strict\n$ node scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<run-id>\",\n    \"state\": \"active\"\n  }\n]\n$ node scripts/dev-run.mjs -- node --test scripts/tests/dev-runtime.test.mjs\n✔ unique IDs, private owned paths, full isolated environment and credential filtering (408.395625ms)\n✔ invalid labels fail before any filesystem creation; supported labels remain reclaimable (780.99025ms)\n✔ strict audit accepts empty and legitimate concurrent active runs without deletion (386.699625ms)\n✔ strict audit blocks unknown, dangling receipt and abandoned cleanup lock without removing them (194.748583ms)\n✔ unknown/orphan metadata lock blocks audit and is never stolen (188.379375ms)\n✔ automatic preflight blocks execution; automatic postflight fails on new residue (677.727458ms)\n✔ strict audit coordinates concurrent creation and cleanup metadata transitions (3180.689792ms)\n✔ cleanup removes only this run, preserving concurrent runs and repository siblings (364.75125ms)\n✔ lexical escapes, absolute escapes and symlink ancestors are refused (186.047125ms)\n✔ symlinked .dev and changed directory identities are refused (192.95325ms)\n✔ unknown/mismatched ownership and duplicate cleanup fail closed (198.081292ms)\n✔ active owner cannot be reaped (208.114417ms)\n✔ open file handle prevents cleanup until explicitly released (385.082459ms)\n✔ an active registered child blocks cleanup even without file handles (296.439583ms)\n✔ unavailable handle scanner retains the complete run (202.706208ms)\n✔ PID reuse or changed owner identity is never treated as an inactive run (204.854333ms)\n✔ symlink ownership files cannot be followed (198.340458ms)\n✔ external exceptions are checked but never removed (192.631334ms)\n✔ success and failure commands both remove their run and preserve exit status (730.683708ms)\n✔ spawn failure also cleans its run (no unhandled rejection) (287.045208ms)\n✔ SIGINT cancels the task and verifies removal (375.11225ms)\n✔ SIGTERM cancels the task and verifies removal (366.164041ms)\n✔ SIGHUP cancels the task and verifies removal (365.945666ms)\n✔ two concurrent CLI tasks never share or delete each other's run (640.913792ms)\n✔ normal exit gracefully stops a descendant in the owned process group (400.567292ms)\n✔ uncooperative cancellation retains active resources; reap waits for child exit (5883.064208ms)\n✔ SIGKILL leaves an auditable orphan; active then stale recovery is safe (260.385ms)\n✔ unknown orphan directory is reported and retained (191.758292ms)\n✔ nested project commands reuse the parent run without cleaning it early (444.663ms)\n✔ unwrapped configuration access is rejected, not silently pointed at real HOME (0.305459ms)\nℹ tests 30\nℹ suites 0\nℹ pass 30\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 18472.397834\n$ node ../../scripts/dev-run.mjs audit --strict && pnpm generate:typert && pnpm typecheck && pnpm test && pnpm build && pnpm build:client && node ../../scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<run-id>\",\n    \"state\": \"active\"\n  }\n]\n$ node ../../scripts/dev-run.mjs -- node scripts/generate-typert.mjs\ngenerate-typert: wrote typert.host (@dsh-external/dsh-idea)\ngenerate-typert: wrote typert.remote-client\ngenerate-typert: done\n$ node ../../scripts/dev-run.mjs -- tsc -p tsconfig.json --noEmit\n$ node ../../scripts/dev-run.mjs -- vitest run --configLoader native\n\n RUN  v4.1.11 <repository>/packages/dsh-idea\n\n\n Test Files  67 passed (67)\n      Tests  1071 passed (1071)\n   Start at  09:17:08\n   Duration  9.93s (transform 7.27s, setup 0ms, import 21.33s, tests 45.31s, environment 4.20s)\n\n$ node ../../scripts/dev-run.mjs -- tsc -p tsconfig.build.json\n$ node ../../scripts/dev-run.mjs -- tsdown -c tsdown.client.config.ts\nℹ tsdown v0.22.14 powered by rolldown v1.2.8\nℹ config file: <repository>/packages/dsh-idea/tsdown.client.config.ts \nℹ entry: src/client/index.ts\nℹ target: es2024\nℹ tsconfig: tsconfig.json\nℹ Build start\nℹ Hint: consider adding deps.onlyBundle option to avoid unintended bundling of dependencies, or set deps.onlyBundle: false to disable this hint.\nSee more at https://tsdown.dev/options/dependencies#deps-onlybundle\nDetected dependencies in bundle:\n- zod\nℹ lib/client.js      847.63 kB │ gzip: 143.40 kB\nℹ lib/client.js.map    1.43 MB\nℹ 2 files, total: 2.27 MB\n✔ Build complete in 105ms\n[\n  {\n    \"id\": \"<run-id>\",\n    \"state\": \"active\"\n  }\n]\n$ node scripts/dev-run.mjs audit --strict\n[\n  {\n    \"id\": \"<run-id>\",\n    \"state\": \"active\"\n  }\n]\n",
+    "runtime": {
+      "tests": 30,
+      "pass": 30,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "plugin": {
+      "files": 67,
+      "passed": 1071,
+      "total": 1071
+    },
+    "invocations": 1,
+    "freshRun": true,
+    "freshViteCache": true,
+    "defaultParallelism": true,
+    "timeoutOverrides": false,
+    "retries": 0,
+    "totalTestsPassed": 1101,
+    "rerun": false
+  },
+  "browserGate": {
+    "status": "BLOCKED",
+    "acceptedBrowserLatencySamples": 0,
+    "acceptedPaintEvidence": 0,
+    "blockers": [
+      "No proven browser-main-process denial for real DSH/normal Chrome paths while retaining native Chromium sandbox",
+      "Page routing does not prove process-wide loopback enforcement for browser background traffic"
+    ],
+    "noOverride": true,
+    "postUserSupplementBrowserLaunches": 0,
+    "keychain": {
+      "requestedFlags": [
+        "--use-mock-keychain",
+        "--password-store=basic"
+      ],
+      "staticArgsAdded": true,
+      "runtimeVerified": false,
+      "popupAbsentVerified": false,
+      "systemConfigurationChanged": false,
+      "systemKeychainCommandsUsed": false,
+      "earlierPopup": "User reported Chromium storage Keychain popup; do not claim earlier CFT did not attempt Keychain access"
+    },
+    "attempts": [
+      {
+        "name": "browser-1",
+        "outcome": "FAILED before model dispatch",
+        "cause": "Seatbelt localhost address syntax rejected"
+      },
+      {
+        "name": "browser-2",
+        "outcome": "FAILED before model dispatch",
+        "cause": "Seatbelt worker could not ps-query outer Runtime owner; authenticated private IPC run handoff added"
+      },
+      {
+        "name": "browser-3",
+        "outcome": "FAILED native CFT sandbox startup, terminated owned fixture",
+        "cause": "Nested macOS Seatbelt denied Chromium sandbox initialization; cleanup had awaited already-ended signal-terminated process",
+        "directedSigtermPids": [
+          19676,
+          19665
+        ],
+        "ownershipProof": "Matched exact fixture command and parent PID before SIGTERM"
+      },
+      {
+        "name": "browser-4",
+        "outcome": "FAILED before summary matrix",
+        "cause": "SPA page.goto load wait timed out; subsequent fixture waits use DOMContentLoaded/readiness"
+      },
+      {
+        "name": "browser-5",
+        "outcome": "FAILED before summary matrix",
+        "cause": "First-use preview disclaimer intercepted Workspace selection pointer; no timeout increase or force click"
+      }
+    ]
+  },
+  "hostBoundaryCheck": {
+    "method": "sandbox_check permission query under the same Host Seatbelt policy, without opening target files",
+    "readDataDenied": true,
+    "writeDataDenied": true,
+    "paths": [
+      "<real-home>/.dsh",
+      "<real-home>/Library/Application Support/Google/Chrome"
+    ],
+    "returnCodes": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "browserBoundaryInferredFromHost": false
+  },
+  "cleanup": {
+    "prepRemoved": true,
+    "fullRemoved": true,
+    "strictAuditEmpty": true,
+    "runs": 0,
+    "owners": 0,
+    "lifecycleLock": false,
+    "legacyTypertVitePathsAbsent": true,
+    "taskBrowserHostDriverNotRunning": true,
+    "openRunHandles": 0
+  },
+  "exceptions": [
+    {
+      "category": "system",
+      "endCheck": "not-enumerable",
+      "reason": "OS sockets/shared memory/crash reports not universally enumerable"
+    },
+    {
+      "category": "shared",
+      "endCheck": "not-enumerable",
+      "reason": "Shared tools/MCP/browser binaries/stores preserved"
+    },
+    {
+      "category": "shared-toolchain",
+      "endCheck": "still-present-not-deleted",
+      "reason": "Pinned existing pnpm JS used read-only"
+    },
+    {
+      "category": "formal-output",
+      "endCheck": "still-present-not-deleted",
+      "reason": "Required official lib regenerated"
+    },
+    {
+      "category": "shared-playwright",
+      "endCheck": "still-present-not-deleted",
+      "reason": "Preinstalled driver preserved"
+    },
+    {
+      "category": "shared-cft",
+      "endCheck": "still-present-not-deleted",
+      "reason": "Preinstalled CFT preserved"
+    },
+    {
+      "category": "browser-system-services",
+      "endCheck": "not-enumerable",
+      "reason": "Missing browser process-wide enforcement is a blocking condition, not a waiver"
+    }
+  ],
+  "providerCalls": 0,
+  "experienceConclusion": "INCONCLUSIVE: no accepted real-browser short/long live/cold or painted-modal latency matrix; Host offline timings cannot establish absence/presence of no-feedback delay",
+  "mainMerged": false
+}
